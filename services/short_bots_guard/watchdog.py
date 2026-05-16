@@ -179,33 +179,60 @@ def check_and_act(*, now: Optional[datetime] = None,
             except Exception:
                 logger.exception("short_bots_guard.send_pause_failed")
 
-    # 2. Resume expired pauses
+    # 2. Resume expired pauses — но с проверкой safe-to-resume conditions
+    from .resume_conditions import decide_resume_action
     bots_to_clear = []
+    extended_count = 0
+    bots_by_id = {b.bot_id: b for b in cfg.managed_bots}
     for bot_id, info in list(paused_state.items()):
         try:
             until = datetime.fromisoformat(info["until_ts"])
         except (ValueError, TypeError, KeyError):
             bots_to_clear.append(bot_id)
             continue
-        if now >= until:
-            rec = resume_bot(
-                bot_id,
-                dry_run=cfg.dry_run,
-                reason="auto_resume_pause_expired",
-                trigger=info.get("trigger", "?"),
-            )
-            if rec["action"] == "resumed":
-                resumed_count += 1
-                if send_fn:
-                    try:
-                        send_fn(
-                            f"✅ SHORT-BOT AUTO-RESUME\n"
-                            f"Бот: {info.get('alias')} ({info.get('tier')})\n"
-                            f"Pause-окно ({info.get('trigger')}) истекло — возобновлён."
-                        )
-                    except Exception:
-                        logger.exception("short_bots_guard.send_resume_failed")
-            bots_to_clear.append(bot_id)
+        if now < until:
+            continue  # ещё не время
+
+        # Determine side from managed bot config
+        bot_meta = bots_by_id.get(bot_id)
+        side = bot_meta.side if bot_meta else "short"
+
+        action, new_until, reasons = decide_resume_action(info, side, now=now)
+        if action == "extend_pause":
+            # Не resume — рынок ещё adverse. Продлеваем + TG нудж.
+            info["until_ts"] = new_until.isoformat(timespec="seconds")
+            info["extends"] = info.get("extends", 0) + 1
+            extended_count += 1
+            if send_fn:
+                try:
+                    send_fn(
+                        f"⏸ AUTO-PAUSE EXTENDED ({bot_meta.alias if bot_meta else bot_id}, side={side})\n"
+                        f"Рынок ещё adverse — pause продлён до {new_until.strftime('%H:%M UTC')} (+{int((new_until-now).total_seconds()/60)}мин).\n"
+                        + "\n".join(reasons)
+                    )
+                except Exception:
+                    logger.exception("short_bots_guard.send_extend_failed")
+            continue
+
+        # Resume (either safe or max-cap hit)
+        rec = resume_bot(
+            bot_id,
+            dry_run=cfg.dry_run,
+            reason=f"auto_resume_{action}",
+            trigger=info.get("trigger", "?"),
+        )
+        if rec["action"] == "resumed":
+            resumed_count += 1
+            if send_fn:
+                try:
+                    cap_note = " (MAX_PAUSE_HOURS hit)" if action == "resume_max_cap" else ""
+                    send_fn(
+                        f"✅ AUTO-RESUME{cap_note} ({bot_meta.alias if bot_meta else bot_id}, side={side})\n"
+                        + "\n".join(reasons)
+                    )
+                except Exception:
+                    logger.exception("short_bots_guard.send_resume_failed")
+        bots_to_clear.append(bot_id)
 
     for bot_id in bots_to_clear:
         paused_state.pop(bot_id, None)
@@ -217,6 +244,7 @@ def check_and_act(*, now: Optional[datetime] = None,
         "active_triggers": len(active),
         "paused": paused_count,
         "resumed": resumed_count,
+        "extended": extended_count,
         "skipped": skipped_count,
         "currently_paused_count": len(paused_state),
     }
