@@ -1,0 +1,38 @@
+{
+  "enabled": true,
+  "dry_run": false,
+  "managed_bots": [
+    {
+      "bot_id": "4729923198",
+      "tier": "T1",
+      "alias": "SHORT-T1"
+    },
+    {
+      "bot_id": "6287583200",
+      "tier": "T2",
+      "alias": "SHORT-T2"
+    },
+    {
+      "bot_id": "5736281160",
+      "tier": "T3",
+      "alias": "SHORT-T3"
+    }
+  ],
+  "pause_triggers": {
+    "cascade_short_5.0": {
+      "affect_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "pause_hours": 4.0
+    },
+    "cascade_short_2.0": {
+      "affect_tiers": [
+        "T1",
+        "T2"
+      ],
+      "pause_hours": 2.0
+    }
+  }
+}

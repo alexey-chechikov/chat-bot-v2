@@ -822,6 +822,17 @@ async def _run_play_outcome(stop_event: asyncio.Event) -> None:
     await play_outcome_loop(stop_event=stop_event)
 
 
+async def _run_short_bots_guard(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """SHORT bots auto-pause при cascade_short triggers (validated edge 2026:
+    70% pct_up 4h после short-cascade → grid SHORT в риске).
+    Управляет через GinArea API set_params(p=false/true) для bot_ids из
+    state/short_bots_managed.json. Audit в state/short_bots_audit.jsonl."""
+    from services.short_bots_guard.loop import short_bots_guard_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "MARGIN_ALERT") if telegram_app else None
+    await short_bots_guard_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_volume_nodes_refresh(stop_event: asyncio.Event) -> None:
     """Раз в час пересчитывает local volume profile (POC/VAH/VAL/HVN/LVN) из
     24h 1m OHLCV → пишет в state/manual_levels.json. TV-уровни приоритетнее
@@ -982,6 +993,7 @@ async def main(
     confluence_task = asyncio.create_task(_run_confluence(stop_event, telegram_app=app), name="confluence")
     daily_report_task = asyncio.create_task(_run_daily_report(stop_event, telegram_app=app), name="daily_self_report")
     volume_nodes_task = asyncio.create_task(_run_volume_nodes_refresh(stop_event), name="volume_nodes")
+    short_bots_guard_task = asyncio.create_task(_run_short_bots_guard(stop_event, telegram_app=app), name="short_bots_guard")
     stop_task = asyncio.create_task(stop_event.wait(), name="stop_event")
 
     # Critical tasks: their failure forces full shutdown.
@@ -1000,7 +1012,7 @@ async def main(
         range_hunter_signal_5m_task, range_hunter_outcome_5m_task,
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
-        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0

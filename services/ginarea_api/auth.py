@@ -44,17 +44,25 @@ class GinAreaAuth:
         except Exception as exc:
             raise GinAreaAuthError(str(exc)) from exc
 
-        token = _extract_token(first)
-        if token:
-            client.token = token
-            return token
+        # Если 2FA не включён — финальный token уже в первом ответе
+        if isinstance(first, dict) and not first.get("twoFactorEnable"):
+            token = _extract_token(first)
+            if token:
+                client.token = token
+                return token
+
+        # 2FA: intermediate token из первого ответа → Bearer для /twoFactor
+        intermediate = _extract_token(first)
+        if not intermediate:
+            raise GinAreaAuthError("login response missing accessToken")
+        client.token = intermediate  # used as Bearer for next call
 
         try:
             second = client.request(
                 "POST",
                 "/accounts/twoFactor",
                 json={"code": self.get_totp_code()},
-                requires_auth=False,
+                requires_auth=True,  # Bearer with intermediate token
             )
         except Exception as exc:
             raise GinAreaAuthError(str(exc)) from exc
@@ -67,7 +75,8 @@ class GinAreaAuth:
 
 
 def _extract_token(payload: dict[str, Any] | list[Any]) -> str | None:
+    """Server uses 'accessToken'. Older docs/tests may use 'token'. Try both."""
     if not isinstance(payload, dict):
         return None
-    token = payload.get("token")
+    token = payload.get("accessToken") or payload.get("token")
     return str(token) if token else None
