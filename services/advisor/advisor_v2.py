@@ -410,8 +410,13 @@ def _interpret_flow(f: dict) -> list[str]:
     if rvp is not None:
         if rvp > 80:
             out.append(f"Vol percentile 24h: {rvp:.0f}% — высокая волатильность")
+            out.append("⚠️ HIGH vol regime: Range Hunter 5m paused (require_low_vol), "
+                       "mean-reversion edges деградируют. Cascade alerts работают как обычно.")
         elif rvp < 20:
             out.append(f"Vol percentile 24h: {rvp:.0f}% — низкая волатильность")
+            out.append("✓ LOW vol regime: Range Hunter работает в boost-режиме (любит спокойствие).")
+        else:
+            out.append(f"Vol percentile 24h: {rvp:.0f}% — средняя волатильность")
     return out
 
 
@@ -1156,7 +1161,15 @@ def build_advisor_v2_text() -> str:
     # cycle while it's live, producing 5+ near-duplicate rows. Cluster by
     # (setup_type, entry-bucket of ENTRY_BUCKET_PCT) and render the most
     # recent snapshot per cluster with an ×N counter.
-    high_conf = [s for s in setups if s.get("confidence_pct", 0) >= HIGH_CONF_THRESHOLD]
+    # Disabled detectors filter: skip setup_types в runtime_disabled / .env DISABLED_DETECTORS
+    try:
+        from services.setup_detector.runtime_disabled import is_detector_disabled
+    except Exception:
+        def is_detector_disabled(_name: str) -> bool:
+            return False
+    high_conf = [s for s in setups
+                 if s.get("confidence_pct", 0) >= HIGH_CONF_THRESHOLD
+                 and not is_detector_disabled(s.get("setup_type", ""))]
     if high_conf:
         lines.append("")
         lines.append(f"🎯 АКТИВНЫЕ СЕТАПЫ (≥{HIGH_CONF_THRESHOLD}% conf, последние 6h)")
@@ -1202,16 +1215,143 @@ def build_advisor_v2_text() -> str:
         lines.append("")
         lines.append(f"🎯 АКТИВНЫЕ СЕТАПЫ: нет (последние 6h, conf ≥{HIGH_CONF_THRESHOLD}%)")
 
-    # ── Open paper trades
+    # ── Open paper trades summary (улучшенный — total notional + top setups + expected PnL)
     if open_papers:
+        from collections import Counter as _Counter
         lines.append("")
         lines.append(f"📊 PAPER TRADES (открыто {len(open_papers)})")
-        for tr in open_papers[:5]:
+        long_n = sum(1 for t in open_papers if t.get("side") == "long")
+        short_n = len(open_papers) - long_n
+        total_notional = sum(float(t.get("size_usd") or 0) for t in open_papers)
+        # Filter to disabled-aware setups + top 3 by count
+        type_counter = _Counter(t.get("setup_type", "?") for t in open_papers)
+        top_types = type_counter.most_common(3)
+        # Expected PnL: ср. распределение TP1/SL × WR из исторических данных setup_type
+        # Простая прокси: за win считаем (tp1-entry)*size_btc; за loss — (entry-sl)*size_btc
+        exp_pnl_if_all_tp = 0.0
+        exp_pnl_if_all_sl = 0.0
+        for t in open_papers:
+            side_sign = 1 if t.get("side") == "long" else -1
+            entry = float(t.get("entry") or 0)
+            tp1 = float(t.get("tp1") or entry)
+            sl = float(t.get("sl") or entry)
+            size = float(t.get("size_usd") or 0)
+            if entry > 0 and size > 0:
+                exp_pnl_if_all_tp += (tp1 - entry) / entry * size * side_sign
+                exp_pnl_if_all_sl += (sl - entry) / entry * size * side_sign
+
+        lines.append(f"  {long_n} LONG / {short_n} SHORT  ·  Notional: ${total_notional:,.0f}")
+        lines.append(f"  Top setups: " + ", ".join(f"{t}×{n}" for t, n in top_types))
+        lines.append(f"  EV all-TP1: ${exp_pnl_if_all_tp:+,.0f}  |  EV all-SL: ${exp_pnl_if_all_sl:+,.0f}")
+        # 3 примера (вместо 5) для краткости
+        for tr in open_papers[:3]:
             side = "LONG" if tr.get("side") == "long" else "SHORT"
             entry = tr.get("entry") or 0
             tp1 = tr.get("tp1") or 0
             stype = tr.get("setup_type", "?")
             lines.append(f"  {side} @ {entry:.0f} → TP1 {tp1:.0f} | {stype}")
+
+    # ── СВЕЖИЕ СИГНАЛЫ ОТ БОТА (last 6h: RH / watchlist / cascade / confluence)
+    try:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        import json as _json
+        from pathlib import Path as _Path
+        _ROOT = _Path("/Users/alexeychechikov/code/bot7")
+        cutoff_6h = _dt.now(_tz.utc) - _td(hours=6)
+        signal_lines = []
+
+        # Range Hunter signals per symbol/variant
+        rh_recent = []
+        for sym in ("BTCUSDT", "ETHUSDT", "XRPUSDT"):
+            for variant in ("1m", "5m"):
+                jp = _ROOT / "state" / (
+                    "range_hunter_signals.jsonl" if (sym == "BTCUSDT" and variant == "1m")
+                    else f"range_hunter_signals_{sym}{'_' + variant if variant != '1m' else ''}.jsonl"
+                )
+                if not jp.exists():
+                    continue
+                try:
+                    for line in jp.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        r = _json.loads(line)
+                        ts = _dt.fromisoformat(r.get("ts_signal", ""))
+                        if ts >= cutoff_6h:
+                            rh_recent.append({
+                                "ts": ts, "sym": sym, "variant": variant,
+                                "action": r.get("user_action") or "pending",
+                                "exit_reason": r.get("exit_reason"),
+                                "pnl": r.get("pnl_usd"),
+                            })
+                except (OSError, _json.JSONDecodeError, ValueError):
+                    pass
+        if rh_recent:
+            n_total = len(rh_recent)
+            n_placed = sum(1 for r in rh_recent if r["action"] == "placed")
+            n_skipped = sum(1 for r in rh_recent if r["action"] == "skipped")
+            pnl_resolved = sum(float(r.get("pnl") or 0) for r in rh_recent if r.get("exit_reason"))
+            signal_lines.append(f"  🎯 RH: {n_total} signals (placed {n_placed}, skipped {n_skipped}), resolved PnL ${pnl_resolved:+.2f}")
+
+        # Watchlist fires
+        pj = _ROOT / "state" / "play_journal.jsonl"
+        if pj.exists():
+            wl_recent = []
+            try:
+                for line in pj.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    r = _json.loads(line)
+                    ts = _dt.fromisoformat(r.get("ts_fire", ""))
+                    if ts >= cutoff_6h:
+                        wl_recent.append(r.get("label", "?"))
+            except (OSError, _json.JSONDecodeError, ValueError):
+                pass
+            if wl_recent:
+                from collections import Counter as _C2
+                top_labels = _C2(wl_recent).most_common(3)
+                signal_lines.append("  🔔 Watchlist: " + ", ".join(f"{l}×{n}" for l, n in top_labels))
+
+        # Cascade alerts (last fired per side)
+        cad = _ROOT / "state" / "cascade_alert_dedup.json"
+        if cad.exists():
+            try:
+                cdata = _json.loads(cad.read_text(encoding="utf-8"))
+                cascades_recent = []
+                for key, ts_str in cdata.items():
+                    try:
+                        ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        if ts >= cutoff_6h:
+                            cascades_recent.append(key)
+                    except (ValueError, TypeError):
+                        continue
+                if cascades_recent:
+                    signal_lines.append("  ⚡ Cascade: " + ", ".join(cascades_recent))
+            except (OSError, _json.JSONDecodeError):
+                pass
+
+        # Confluence
+        cf = _ROOT / "state" / "confluence_fires.jsonl"
+        if cf.exists():
+            try:
+                cf_recent = []
+                for line in cf.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    r = _json.loads(line)
+                    ts = _dt.fromisoformat(r.get("ts", ""))
+                    if ts >= cutoff_6h:
+                        cf_recent.append(r.get("direction", "?"))
+                if cf_recent:
+                    signal_lines.append(f"  🔥 Confluence: {len(cf_recent)} fires ({', '.join(cf_recent)})")
+            except (OSError, _json.JSONDecodeError, ValueError):
+                pass
+
+        if signal_lines:
+            lines.append("")
+            lines.append("📡 СВЕЖИЕ СИГНАЛЫ ОТ БОТА (последние 6h)")
+            lines.extend(signal_lines)
+    except Exception:
+        logger.exception("advisor_v2.fresh_signals_block_failed")
 
     # ── What to watch — only render triggers that match current state.
     watch: list[str] = []
@@ -1219,10 +1359,16 @@ def build_advisor_v2_text() -> str:
     funding = features.get("funding_rate")
     if funding is not None:
         funding_pct = funding * 100
+        # Distance to funding_squeeze_long trigger (-0.010%) — validated edge n=10, 70% pct_up 4h
+        squeeze_threshold = -0.010
+        dist_to_squeeze = funding_pct - squeeze_threshold
         if funding_pct < FUNDING_DEEP_NEG_PCT:
             watch.append(f"Funding flip к ≥0 (сейчас {funding_pct:+.4f}% — глубоко negative, потенциал squeeze)")
         elif funding_pct > FUNDING_OVERHEAT_PCT:
             watch.append(f"Funding flip к ≤0 (сейчас {funding_pct:+.4f}% — перегрев longs)")
+        # Squeeze trigger watch: показываем расстояние если в "approach zone" (<0)
+        if funding_pct < 0:
+            watch.append(f"Funding squeeze trigger ({squeeze_threshold:.3f}%): осталось {abs(dist_to_squeeze):.4f}pp до fire")
 
     oi = features.get("oi_delta_1h")
     if oi is not None and abs(oi) < OI_FLAT_ABS_PCT:
