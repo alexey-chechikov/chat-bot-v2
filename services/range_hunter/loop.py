@@ -85,7 +85,7 @@ def _load_recent_1m(*, needed_bars: int, csv_path: Path = MARKET_1M_CSV,
         if df is None or df.empty:
             return None
         if not isinstance(df.index, pd.DatetimeIndex):
-            for col in ("ts", "ts_utc", "timestamp"):
+            for col in ("ts", "ts_utc", "timestamp", "open_time"):
                 if col in df.columns:
                     df = df.set_index(pd.to_datetime(df[col], utc=True, errors="coerce"))
                     break

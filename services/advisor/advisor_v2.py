@@ -1167,9 +1167,12 @@ def build_advisor_v2_text() -> str:
     except Exception:
         def is_detector_disabled(_name: str) -> bool:
             return False
+    # Filter ghosts: entry_price < 100 (битые данные, должно быть BTC > $10K).
+    # Также фильтр disabled detectors (env + runtime).
     high_conf = [s for s in setups
                  if s.get("confidence_pct", 0) >= HIGH_CONF_THRESHOLD
-                 and not is_detector_disabled(s.get("setup_type", ""))]
+                 and not is_detector_disabled(s.get("setup_type", ""))
+                 and (s.get("entry_price") or 0) >= 100]
     if high_conf:
         lines.append("")
         lines.append(f"🎯 АКТИВНЫЕ СЕТАПЫ (≥{HIGH_CONF_THRESHOLD}% conf, последние 6h)")
@@ -1311,8 +1314,16 @@ def build_advisor_v2_text() -> str:
                 top_labels = _C2(wl_recent).most_common(3)
                 signal_lines.append("  🔔 Watchlist: " + ", ".join(f"{l}×{n}" for l, n in top_labels))
 
-        # Cascade alerts (last fired per side)
+        # Cascade alerts (last fired per side) — пометка drifted (inverted side)
         cad = _ROOT / "state" / "cascade_alert_dedup.json"
+        drift_file = _ROOT / "state" / "cascade_edge_drift.json"
+        drift_map = {}
+        if drift_file.exists():
+            try:
+                drift_data = _json.loads(drift_file.read_text(encoding="utf-8"))
+                drift_map = {k: v.get("drifted", False) for k, v in drift_data.items()}
+            except (OSError, _json.JSONDecodeError):
+                pass
         if cad.exists():
             try:
                 cdata = _json.loads(cad.read_text(encoding="utf-8"))
@@ -1321,7 +1332,13 @@ def build_advisor_v2_text() -> str:
                     try:
                         ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00"))
                         if ts >= cutoff_6h:
-                            cascades_recent.append(key)
+                            # Tag drifted: long_4h drifted → "(drifted→SHORT)" hint
+                            if key.startswith("long_") and any(drift_map.get(f"long_{h}") for h in ("4h","12h","24h")):
+                                cascades_recent.append(f"{key}(drifted→SHORT)")
+                            elif key.startswith("short_") and any(drift_map.get(f"short_{h}") for h in ("4h","12h","24h")):
+                                cascades_recent.append(f"{key}(drifted→LONG)")
+                            else:
+                                cascades_recent.append(key)
                     except (ValueError, TypeError):
                         continue
                 if cascades_recent:
@@ -1342,7 +1359,10 @@ def build_advisor_v2_text() -> str:
                     if ts >= cutoff_6h:
                         cf_recent.append(r.get("direction", "?"))
                 if cf_recent:
-                    signal_lines.append(f"  🔥 Confluence: {len(cf_recent)} fires ({', '.join(cf_recent)})")
+                    from collections import Counter as _C3
+                    by_dir = _C3(cf_recent)
+                    breakdown = " + ".join(f"{n}×{d}" for d, n in by_dir.most_common())
+                    signal_lines.append(f"  🔥 Confluence: {len(cf_recent)} fires ({breakdown})")
             except (OSError, _json.JSONDecodeError, ValueError):
                 pass
 

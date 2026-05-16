@@ -12,7 +12,10 @@ from .play_journal import append_play_fire, evaluate_pending
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SEC = 60
-DEDUP_COOLDOWN_SEC = 1800  # 30 мин между повторными alerts одного правила
+# Extended dedup: taker imbalance остаётся в extreme состоянии 30-90мин подряд,
+# 30мин cooldown даёт 25+ fires/24h за rule = spam. 2h cooldown → ~12 fires/24h
+# и каждый — отдельное событие. Edge не теряется, frequency адекватная.
+DEDUP_COOLDOWN_SEC = 7200  # 2h between повторными alerts одного правила
 
 
 async def watchlist_loop(stop_event: asyncio.Event, *, send_fn=None, interval_sec: int = POLL_INTERVAL_SEC) -> None:
