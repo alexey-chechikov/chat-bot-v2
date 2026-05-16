@@ -4,6 +4,34 @@
 **Scope:** Inventory only — recommendations included but no code changes.
 **Method:** grep-trace through `core/`, `services/` for `send_message`, `send_telegram_alert`, `send_alert`, `notify`, direct `telebot` usage, and producer-loops.
 
+> **2026-05-17 addendum**: 7 новых emitters добавлены. См. §1z ниже.
+
+---
+
+## §1z New emitters (2026-05-07 → 2026-05-17)
+
+Все используют `services/telegram/channel_router.build_send_fn(telegram_app, "<CHANNEL>")` для маршрутизации:
+
+| Emitter (loop) | Channel | Cadence | Что шлёт |
+|---|---|---|---|
+| `range_hunter_signal_btc/eth/xrp` × 1m + 5m | `RH_BTC` / `RH_ETH` / `RH_XRP` | At-signal | Per-symbol mean-revert карточки с VAL/VAH snap и paired-fill instructions. `[ETH]/[XRP]` префикс для не-BTC. |
+| `confluence_loop` | `SETUP_ON` | At-event (dedup 30 min/direction) | High-conviction карточка когда 2+ сигнала одну сторону за 5 мин (из RH + cascade + watchlist + setup) с 2× size hint |
+| `daily_self_report` | `ENGINE_ALERT` | 21:00 UTC | 24h digest: BitMEX margin, RH PnL per-symbol, watchlist outcomes, confluence fires, vol regime, edge drift |
+| `volume_nodes` daily_digest | `ENGINE_ALERT` | 00:30 UTC | POC/VAH/VAL/width% для BTC/ETH/XRP, source label (`local_vol_profile` или `tv_*`) |
+| `short_bots_guard` pause | `MARGIN_ALERT` | At-trigger | `⚠️ SHORT/LONG-BOTS AUTO-PAUSE` — affected aliases, до какого ts, эдж reasoning |
+| `short_bots_guard` extend | `MARGIN_ALERT` | At-extend (60 min блоки) | `⏸ AUTO-PAUSE EXTENDED` — alias, причины (1h regime / cascade / vol / reversal absence) |
+| `short_bots_guard` resume | `MARGIN_ALERT` | At-resume (safe или max-cap) | `✅ AUTO-RESUME` — alias, либо reversal override, либо max-cap hit (12h) |
+| `pre_cascade_alert` | `SETUP_ON` | At-prefire | Pre-cascade entry plan карточка (с manual_levels POC context) |
+| `weekly_audit_loop` | `ENGINE_ALERT` | Mon 10:00 UTC | Paper trader filter audit (gainers/losers) |
+| `cascade_alert` (extended) | `SETUP_ON` | At-trigger | Cascade card + entry plan (с manual_levels POC, stop placement vs HVN) |
+
+**TG receive handlers** (read-only, не emitters):
+- `/levels [SYMBOL] [...]` — manual_levels.py CRUD
+- `/positions` — managed bots + BitMEX positions snapshot
+- `handle_text` TV-bridge: `LEVELS BTCUSD ...` / `TV:LEVELS ...` / `VPVR ...` → auto-parse → manual_levels store
+
+См. полный snapshot в [HANDOFF_2026-05-17.md §2.3](../HANDOFF_2026-05-17.md).
+
 ---
 
 ## §1 Architecture (delivery layers)

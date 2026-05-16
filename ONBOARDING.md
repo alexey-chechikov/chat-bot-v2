@@ -223,3 +223,48 @@ app_runner.py            ← main entrypoint (asyncio loop)
 - Все ключевые решения и контексты — в `docs/STRATEGIES/*.md`.
 - Стратегия Claude — в `CLAUDE.md` (если есть).
 - Memory: `~/.claude/projects/c--bot7/memory/MEMORY.md` (на Mac будет другой путь).
+
+---
+
+## Что сейчас работает в проде (snapshot 2026-05-17)
+
+> Полный handoff с архитектурой и edges — см. [docs/HANDOFF_2026-05-17.md](docs/HANDOFF_2026-05-17.md).
+
+**Ключевые новые модули (за последние 2 недели)**:
+
+| Модуль | Назначение | State files |
+|---|---|---|
+| `services/short_bots_guard/` | Auto-pause SHORT/LONG GinArea ботов при cascade events + smart resume (regime + reversal override) | `state/short_bots_managed.json`, `state/short_bots_auto_pause.json`, `state/short_bots_audit.jsonl` |
+| `services/range_hunter/` | Mean-revert TG-emitter, **multi-asset** (BTC/ETH/XRP × 1m+5m = 6 emitters) | `state/range_hunter_signals*.jsonl` |
+| `services/manual_levels.py` | VPVR/key-levels store: оператор + TV TG-bridge | `state/manual_levels.json` |
+| `services/volume_nodes.py` | Local VPVR (multi-symbol) — auto-refresh каждый час, daily TG digest 00:30 UTC | `state/manual_levels.json` (source `local_vol_profile`) |
+| `services/watchlist/confluence.py` + `play_journal.py` | 2+ signal confluence detector + forward-test journal | `state/confluence_*`, `state/watchlist_play_journal.jsonl` |
+| `services/reports/daily_self_report.py` | 21:00 UTC TG digest (BitMEX + RH + watchlist + edges) | `state/daily_report_state.json` |
+| `/positions` TG command | Просмотр managed bots + open positions | reads `ginarea_live/` + state |
+
+**Managed bots в auto-pause** (см. `state/short_bots_managed.json`):
+- 3 SHORT grid bots: T1 (4729923198), T2 (6287583200), T3 (5736281160) — XBTUSD inverse
+- 2 LONG hedge bots: LONG-D (5154651487), LONG-V5 (4979458320) — XBTUSDT linear
+- Триггеры: `cascade_short_*` paus'ит SHORTs, `cascade_long_*` paus'ит LONGs
+
+**Эджи** (актуальные):
+- `cascade_short → +pct_up 4h ~70%` (2024+2026 combined backtest survived)
+- `cascade_long → +pct_down 4h ~65%` (2026 INVERSION vs 2024)
+- `long_multi_divergence`: 87.7% WR на paper-trader (8–15 May)
+- Range Hunter: 68–77% WR на BTC/ETH/XRP (walk-forward 4 folds)
+
+**Disabled detectors** (`state/disabled_detectors.json`, без рестарта — refresh за 60s):
+- `short_double_top`, `cascade_long_2btc`, `cascade_long_5btc`, `short_pdh_rejection`, `short_mfi_multi_ga`
+
+**TradingView интеграция**:
+- TG-bridge: оператор шлёт `LEVELS BTCUSD 79100 80500 78200` → бот парсит → store. См. [docs/TV_PINE_SCRIPTS.md](docs/TV_PINE_SCRIPTS.md).
+- Local VPVR: автоматически обновляет POC/VAH/VAL раз в час (BTC/ETH/XRP). TV-override приоритет 24h.
+
+**Quick verification после restart**:
+```bash
+launchctl kickstart -k gui/$(id -u)/com.bot7.app-runner
+sleep 10
+grep -E "loop.*started|\.start interval" logs/app.log | tail -30
+grep -E "ERROR|Traceback" logs/app.log | tail -10
+grep "volume_nodes.refreshed" logs/app.log | tail -5
+```

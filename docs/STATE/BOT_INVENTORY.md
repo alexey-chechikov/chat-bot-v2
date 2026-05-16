@@ -1,8 +1,35 @@
 # Bot Inventory
 
 **Created:** 2026-05-05 (TZ-BOT-STATE-INVENTORY, P2)
-**Source of truth:** `ginarea_live/snapshots.csv` (live tracker, last entry 2026-05-04 15:39 UTC) + `ginarea_tracker/bot_aliases.json`
+**Source of truth:** `ginarea_live/snapshots.csv` (live tracker) + `ginarea_tracker/bot_aliases.json` + `ginarea_live/params.csv` (live params snapshot)
 **Scope:** Inventory only. No config changes, no calibration touch.
+
+> **2026-05-17 addendum**: Auto-pause guard introduced. См. §1z для managed bots subset (5 ботов).
+
+---
+
+## §1z Managed bots — `services/short_bots_guard/` (2026-05-17)
+
+5 ботов под автоматическим управлением guard'а (`state/short_bots_managed.json`):
+
+| Bot ID | Tier | Alias | Side | Контракт | Trigger paus'ает |
+|---|---|---|---|---|---|
+| 4729923198 | T1 | SHORT-T1 | short | XBTUSD inverse | `cascade_short_5.0`, `cascade_short_2.0` |
+| 6287583200 | T2 | SHORT-T2 | short | XBTUSD inverse | `cascade_short_5.0`, `cascade_short_2.0` |
+| 5736281160 | T3 | SHORT-T3 | short | XBTUSD inverse | `cascade_short_5.0` |
+| 5154651487 | LONG-D | BTC-LONG-D-хедж | long | XBTUSDT linear | `cascade_long_5.0`, `cascade_long_2.0` |
+| 4979458320 | LONG-V5 | BTC-LONG-хедж V5 | long | XBTUSDT linear | `cascade_long_5.0`, `cascade_long_2.0` |
+
+**Поведение**:
+- Cascade fire → pause 2–4h в зависимости от severity
+- Resume — НЕ по timer'у, а **smart**: 1h/4h regime check + fresh cascade check + vol regime + **reversal override** (🔝/🔻 ИСТОЩАЕТСЯ score≥4)
+- Если adverse при resume — extend +60min, max 12h total
+- TG-нотификации через `MARGIN_ALERT` channel: pause / extend / resume
+
+**Live runtime state**: `state/short_bots_auto_pause.json` — текущие paused + triggers history.
+**Audit log**: `state/short_bots_audit.jsonl` — append-only все pause/resume actions с reasons.
+
+См. полную архитектуру в [HANDOFF_2026-05-17.md §1.1](../HANDOFF_2026-05-17.md).
 
 ---
 
