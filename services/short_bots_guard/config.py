@@ -34,6 +34,7 @@ class ManagedBot:
     bot_id: str
     tier: str
     alias: str
+    side: str = "short"  # "short" | "long" — direction of underlying grid
 
 
 @dataclass
@@ -55,11 +56,17 @@ DEFAULT_CONFIG = GuardConfig(
     enabled=True,
     dry_run=False,
     managed_bots=[
-        ManagedBot(bot_id="4729923198", tier="T1", alias="SHORT-T1"),
-        ManagedBot(bot_id="6287583200", tier="T2", alias="SHORT-T2"),
-        ManagedBot(bot_id="5736281160", tier="T3", alias="SHORT-T3"),
+        # SHORT grid bots (BitMEX inverse XBTUSD)
+        ManagedBot(bot_id="4729923198", tier="T1", alias="SHORT-T1", side="short"),
+        ManagedBot(bot_id="6287583200", tier="T2", alias="SHORT-T2", side="short"),
+        ManagedBot(bot_id="5736281160", tier="T3", alias="SHORT-T3", side="short"),
+        # LONG hedge bots (BitMEX linear XBTUSDT)
+        ManagedBot(bot_id="5154651487", tier="LONG-D", alias="BTC-LONG-D-хедж", side="long"),
+        ManagedBot(bot_id="4979458320", tier="LONG-V5", alias="BTC-LONG-хедж V5", side="long"),
     ],
     triggers={
+        # SHORT triggers: cascade_short = shorts liquidated → 70% pct_up 4h (2026 edge survived)
+        # → SHORT grid боты накапливают unrealized минус
         "cascade_short_5.0": PauseTrigger(
             name="cascade_short_5.0",
             affect_tiers=["T1", "T2", "T3"],
@@ -68,6 +75,18 @@ DEFAULT_CONFIG = GuardConfig(
         "cascade_short_2.0": PauseTrigger(
             name="cascade_short_2.0",
             affect_tiers=["T1", "T2"],
+            pause_hours=2.0,
+        ),
+        # LONG triggers: cascade_long = longs liquidated → 65% pct_down 4h (2026 INVERSION)
+        # → LONG grid боты получают drawdown на продолжении вниз
+        "cascade_long_5.0": PauseTrigger(
+            name="cascade_long_5.0",
+            affect_tiers=["LONG-D", "LONG-V5"],
+            pause_hours=4.0,
+        ),
+        "cascade_long_2.0": PauseTrigger(
+            name="cascade_long_2.0",
+            affect_tiers=["LONG-D", "LONG-V5"],
             pause_hours=2.0,
         ),
     },
@@ -90,6 +109,7 @@ def load_config(path: Path = CONFIG_PATH) -> GuardConfig:
             bot_id=str(b["bot_id"]),
             tier=str(b.get("tier", "?")),
             alias=str(b.get("alias", b["bot_id"])),
+            side=str(b.get("side", "short")).lower(),
         )
         for b in data.get("managed_bots", [])
     ]
@@ -114,7 +134,7 @@ def save_config(cfg: GuardConfig, *, path: Path = CONFIG_PATH) -> None:
         "enabled": cfg.enabled,
         "dry_run": cfg.dry_run,
         "managed_bots": [
-            {"bot_id": b.bot_id, "tier": b.tier, "alias": b.alias}
+            {"bot_id": b.bot_id, "tier": b.tier, "alias": b.alias, "side": b.side}
             for b in cfg.managed_bots
         ],
         "pause_triggers": {
