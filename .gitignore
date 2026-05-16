@@ -155,6 +155,10 @@ state/weekly_report_state.json
 # Range Hunter live journal
 state/range_hunter_signals.jsonl
 state/range_hunter_state.json
+
+# Claude Skills — pycache from script execution
+claude_skills/**/__pycache__/
+claude_skills/**/*.pyc
 # R&D backtest results (могут быть commited если важны, но обычно large)
 state/cascade_ginarea_v3_results.csv
 state/cascade_ginarea_v4_results.csv
