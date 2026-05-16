@@ -75,7 +75,7 @@ class RangeHunterSignal:
     stop_loss_pct: float           # 0.20%
     hold_h: int                    # 6h
     size_usd: float                # 10000
-    contract: str                  # XBTUSDT
+    contract: str                  # XBTUSDT (BitMEX linear) / ETHUSDT / XRPUSDT
 
     # Фильтр-показатели в момент сигнала (для журнала)
     range_4h_pct: float
@@ -84,6 +84,9 @@ class RangeHunterSignal:
 
     # Размеры в native (для удобства копи-паста)
     size_btc: float                # size_usd / mid
+
+    # Underlying symbol для label resolution в format_tg_card
+    symbol: str = "BTCUSDT"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -211,6 +214,13 @@ def compute_signal(window: pd.DataFrame, params: RangeHunterParams = DEFAULT_PAR
     else:
         ts_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    # Resolve BitMEX contract name per underlying symbol
+    bitmex_contract = {
+        "BTCUSDT": "XBTUSDT",
+        "ETHUSDT": "ETHUSDT",
+        "XRPUSDT": "XRPUSDT",
+    }.get(params.symbol.upper(), params.contract)
+
     sig = RangeHunterSignal(
         ts=ts_iso,
         mid=round(mid, 2),
@@ -219,7 +229,8 @@ def compute_signal(window: pd.DataFrame, params: RangeHunterParams = DEFAULT_PAR
         stop_loss_pct=params.stop_loss_pct,
         hold_h=params.hold_h,
         size_usd=params.size_usd,
-        contract=params.contract,
+        contract=bitmex_contract,
+        symbol=params.symbol.upper(),
         range_4h_pct=round(range_pct, 4),
         atr_pct=round(atr_pct, 4),
         trend_pct_per_h=round(trend, 4),
@@ -244,9 +255,14 @@ def format_tg_card(sig: RangeHunterSignal, *, expected_pair_win: float = 0.685,
     sl_usd = sig.size_usd * sig.stop_loss_pct / 100.0
     ev = expected_pair_win * avg_win + (1 - expected_pair_win) * avg_loss
 
+    # Symbol display: BTCUSDT → "BTC", ETHUSDT → "ETH", XRPUSDT → "XRP"
+    symbol_short = getattr(sig, "symbol", "BTCUSDT").upper().replace("USDT", "")
+    if not symbol_short or symbol_short == sig.symbol.upper():
+        symbol_short = "BTC"  # fallback
+
     lines = [
-        f"🎯 RANGE HUNTER signal",
-        f"BTC mid: ${sig.mid:,.0f}",
+        f"🎯 RANGE HUNTER signal [{getattr(sig, 'symbol', 'BTCUSDT')}]",
+        f"{symbol_short} mid: ${sig.mid:,.2f}",
         "Условия выполнены:",
         f"  range_4h: {sig.range_4h_pct:.2f}% (порог ≤{0.70:.2f}%)",
         f"  ATR_1m:   {sig.atr_pct:.2f}% (порог ≤{0.10:.2f}%)",
@@ -255,7 +271,7 @@ def format_tg_card(sig: RangeHunterSignal, *, expected_pair_win: float = 0.685,
         f"📋 Ставь 2 лимитки (post-only) на {sig.contract}:",
         f"  BUY:  ${sig.buy_level:,.2f}   (-{0.10:.2f}%)",
         f"  SELL: ${sig.sell_level:,.2f}   (+{0.10:.2f}%)",
-        f"  Размер: ${sig.size_usd:,.0f} (≈{sig.size_btc:.3f} BTC) каждая",
+        f"  Размер: ${sig.size_usd:,.0f} (≈{sig.size_btc:.4f} {symbol_short}) каждая",
         "",
         f"⏱️ Окно жизни: до {expiry_str} (+{sig.hold_h}h)",
         f"🛑 Stop: при единичном fill — закрыть при ходе {sig.stop_loss_pct:.2f}% против (≈${sl_usd:.0f})",

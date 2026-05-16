@@ -186,9 +186,7 @@ def check_and_emit(*, send_fn: Optional[Callable] = None,
         expiry = now + timedelta(hours=sig.hold_h)
         try:
             text = format_tg_card(sig, expiry_ts=expiry)
-            # symbol prefix в шапке для multi-asset
-            if params.symbol.upper() != "BTCUSDT":
-                text = f"[{params.symbol.upper()}] " + text
+            # symbol уже в шапке через [SYMBOL] суффикс из format_tg_card
             send_fn(text, reply_markup=_build_keyboard(record["signal_id"]))
         except Exception:
             logger.exception("range_hunter.send_failed")
