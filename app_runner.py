@@ -833,21 +833,39 @@ async def _run_short_bots_guard(stop_event: asyncio.Event, *, telegram_app=None)
     await short_bots_guard_loop(stop_event=stop_event, send_fn=send_fn)
 
 
-async def _run_volume_nodes_refresh(stop_event: asyncio.Event) -> None:
+async def _run_volume_nodes_refresh(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Раз в час пересчитывает local volume profile (POC/VAH/VAL/HVN/LVN) из
-    24h 1m OHLCV → пишет в state/manual_levels.json. TV-уровни приоритетнее
-    (не перезаписываются). Range Hunter snap'ится к VAL/VAH при отсутствии TV."""
-    from services.volume_nodes import refresh_local_levels
+    24h 1m OHLCV для BTC + ETH + XRP → пишет в state/manual_levels.json.
+    TV-уровни приоритетнее (не перезаписываются). Range Hunter snap'ится к
+    VAL/VAH при отсутствии TV.
+
+    Дополнительно: раз в сутки (00:30 UTC) шлёт TG-digest с уровнями по всем
+    3 symbols — оператор видит, что использует RH сейчас."""
+    from services.volume_nodes import refresh_all_symbols, format_daily_digest
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "ENGINE_ALERT") if telegram_app else None
     interval_sec = 3600
-    logger.info("volume_nodes.start interval=%ds", interval_sec)
+    last_digest_day = None
+    logger.info("volume_nodes.start interval=%ds multi_symbol=BTC+ETH+XRP", interval_sec)
     while not stop_event.is_set():
         try:
-            r = refresh_local_levels()
-            if r:
-                logger.info("volume_nodes.refreshed POC=%.0f VAH=%.0f VAL=%.0f",
-                            r['poc'], r['vah'], r['val'])
+            refresh_all_symbols()
         except Exception:
             logger.exception("volume_nodes.tick_failed")
+        try:
+            now = datetime.now(timezone.utc)
+            today_key = now.strftime("%Y-%m-%d")
+            # Daily digest 00:30 UTC, не чаще 1×/день
+            if send_fn and last_digest_day != today_key and now.hour == 0 and now.minute >= 30:
+                try:
+                    digest = format_daily_digest()
+                    send_fn(digest)
+                    last_digest_day = today_key
+                    logger.info("volume_nodes.daily_digest_sent")
+                except Exception:
+                    logger.exception("volume_nodes.daily_digest_failed")
+        except Exception:
+            pass
         try:
             await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=interval_sec)
         except asyncio.TimeoutError:
@@ -992,7 +1010,7 @@ async def main(
     play_outcome_task = asyncio.create_task(_run_play_outcome(stop_event), name="play_outcome")
     confluence_task = asyncio.create_task(_run_confluence(stop_event, telegram_app=app), name="confluence")
     daily_report_task = asyncio.create_task(_run_daily_report(stop_event, telegram_app=app), name="daily_self_report")
-    volume_nodes_task = asyncio.create_task(_run_volume_nodes_refresh(stop_event), name="volume_nodes")
+    volume_nodes_task = asyncio.create_task(_run_volume_nodes_refresh(stop_event, telegram_app=app), name="volume_nodes")
     short_bots_guard_task = asyncio.create_task(_run_short_bots_guard(stop_event, telegram_app=app), name="short_bots_guard")
     stop_task = asyncio.create_task(stop_event.wait(), name="stop_event")
 
