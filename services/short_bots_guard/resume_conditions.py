@@ -34,10 +34,13 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 REGIME_PATH = ROOT / "state" / "regime_v2_state.json"
 CASCADE_DEDUP = ROOT / "state" / "cascade_alert_dedup.json"
+GC_FIRES_PATH = ROOT / "state" / "grid_coordinator_fires.jsonl"
 
 EXTEND_BLOCK_MIN = 60       # если небезопасно — продлеваем на час
 MAX_PAUSE_HOURS = 12        # макс total пауза — потом resume принудительно
 ADVERSE_CASCADE_AGE_MIN = 20  # cascade в последние 20 мин = pause продолжаем
+REVERSAL_AGE_MIN = 45        # exhaustion-fire ≤ 45 мин назад = reversal candidate
+REVERSAL_MIN_SCORE = 4       # min sigs out of 6 для уверенного reversal
 
 
 def _read_regime() -> dict:
@@ -56,6 +59,47 @@ def _read_cascade_dedup() -> dict:
         return json.loads(CASCADE_DEDUP.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _fresh_reversal_signal(side: str, *, now: datetime,
+                            max_age_min: int = REVERSAL_AGE_MIN,
+                            min_score: int = REVERSAL_MIN_SCORE,
+                            fires_path: Path = GC_FIRES_PATH) -> tuple[bool, Optional[str]]:
+    """Detect end-of-trend сигнал из grid_coordinator_fires.jsonl.
+
+    side: 'short' (paused после up-move — ищем top exhaustion = direction "up")
+          'long'  (paused после down-move — ищем bottom exhaustion = direction "down")
+    Возвращает (есть_reversal, описание).
+    """
+    if not fires_path.exists():
+        return False, None
+    expected_direction = "up" if side == "short" else "down"
+    cutoff = now - timedelta(minutes=max_age_min)
+    best = None
+    try:
+        for line in fires_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                if rec.get("direction") != expected_direction:
+                    continue
+                score = int(rec.get("score", 0))
+                if score < min_score:
+                    continue
+                ts = datetime.fromisoformat(rec.get("ts", "").replace("Z", "+00:00"))
+                if ts >= cutoff and (best is None or ts > best[0]):
+                    best = (ts, score)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+    except OSError:
+        return False, None
+    if best:
+        age = int((now - best[0]).total_seconds() / 60)
+        label = "🔝 ВЕРХ ИСТОЩАЕТСЯ" if expected_direction == "up" else "🔻 НИЗ ИСТОЩАЕТСЯ"
+        return True, f"{label} (score {best[1]}/6, {age}мин назад)"
+    return False, None
 
 
 def _has_fresh_cascade(side: str, *, now: datetime,
@@ -133,9 +177,27 @@ def is_safe_to_resume(side: str, *, now: Optional[datetime] = None,
     except Exception:
         pass
 
-    # Decision: safe iff нет ни одного ⚠
+    # 4. Reversal signal check (END of adverse trend)
+    # Это OVERRIDE: даже если regime adverse — fresh exhaustion-fire с score≥4
+    # означает что направление вот-вот развернётся → safe to resume
+    has_reversal, rev_desc = _fresh_reversal_signal(side, now=now)
+    if has_reversal:
+        reasons.append(f"🟢 REVERSAL signal: {rev_desc} — конец adverse тренда")
+    else:
+        reasons.append(f"… нет fresh reversal сигнала (score≥{REVERSAL_MIN_SCORE} за {REVERSAL_AGE_MIN}мин)")
+
+    # Decision logic:
+    # - Если есть REVERSAL signal — safe независимо от regime warnings
+    #   (тренд закончился, бот может resume и поймать разворот)
+    # - Иначе safe iff нет ни одного ⚠
     has_warning = any(r.startswith("⚠") for r in reasons)
-    safe = not has_warning
+    if has_reversal:
+        # Reversal override: даже adverse regime trumped by exhaustion signal
+        safe = True
+        if has_warning:
+            reasons.append("ℹ️ Regime ещё adverse, но REVERSAL signal сильнее — resume.")
+    else:
+        safe = not has_warning
     return safe, reasons
 
 
