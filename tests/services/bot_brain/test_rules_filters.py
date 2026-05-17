@@ -217,3 +217,46 @@ def test_thresholds_match_operator_policy():
     MIN_PRICE_MOVE_15M_PCT ≥ 1.0 (we use 1.5)."""
     assert MIN_PRICE_MOVE_15M_PCT >= 1.0
     assert MIN_LIQ_CLUSTER_QTY_BTC >= 1.0  # raised from 0.5 baseline
+
+
+# ─── R3 inverted (Phase 3.6 v2) — vol HIGH = scale up on TB ──────────────────
+
+def test_r3_fires_for_TB_in_high_vol_when_healthy():
+    """Vol HIGH + bot healthy (no loss) + testbed → suggest resize × 1.5."""
+    from services.bot_brain.rules import r3_vol_high_resize
+    bot = {"bot_id": "test", "tier": "TB", "side": "short", "testbed": True,
+           "paused_by_guard": False, "current_profit_usd": 5.0, "balance": 100.0}
+    mkt = {"vol_regime": "high", "price_change_15m_pct": 0.0}
+    proposals = r3_vol_high_resize({"market": {"BTCUSDT": mkt}, "bots": [bot]})
+    assert len(proposals) == 1
+    assert proposals[0].action == "resize"
+    assert proposals[0].params == {"factor": 1.5}
+
+
+def test_r3_blocks_on_prod_bot_even_in_high_vol():
+    """Production bots never touched by R3 (testbed_only)."""
+    from services.bot_brain.rules import r3_vol_high_resize
+    bot = {"bot_id": "prod", "tier": "T1", "side": "short", "testbed": False,
+           "paused_by_guard": False, "current_profit_usd": 5.0, "balance": 100.0}
+    mkt = {"vol_regime": "high"}
+    proposals = r3_vol_high_resize({"market": {"BTCUSDT": mkt}, "bots": [bot]})
+    assert proposals == []
+
+
+def test_r3_skips_in_low_vol():
+    from services.bot_brain.rules import r3_vol_high_resize
+    bot = {"bot_id": "test", "tier": "TB", "side": "short", "testbed": True,
+           "paused_by_guard": False, "current_profit_usd": 5.0, "balance": 100.0}
+    mkt = {"vol_regime": "low"}
+    proposals = r3_vol_high_resize({"market": {"BTCUSDT": mkt}, "bots": [bot]})
+    assert proposals == []
+
+
+def test_r3_skips_if_bot_already_losing():
+    """Don't scale up a bleeding bot — wait for it to stabilize first."""
+    from services.bot_brain.rules import r3_vol_high_resize
+    bot = {"bot_id": "test", "tier": "TB", "side": "short", "testbed": True,
+           "paused_by_guard": False, "current_profit_usd": -2.0, "balance": 100.0}
+    mkt = {"vol_regime": "high"}
+    proposals = r3_vol_high_resize({"market": {"BTCUSDT": mkt}, "bots": [bot]})
+    assert proposals == []  # unrealized -2% < -1% threshold

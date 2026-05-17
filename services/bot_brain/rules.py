@@ -397,28 +397,42 @@ def r2_6_pre_cascade_long_HIGH(snapshot: dict) -> list[Proposal]:
 
 
 def r3_vol_high_resize(snapshot: dict) -> list[Proposal]:
-    """When vol_regime=HIGH and bot is sitting on >3% unrealized loss → resize × 0.5.
-    Cuts position size to limit further bleed in chaotic markets."""
+    """REVISED 2026-05-17 per Phase 3.6 v2 carry-overnight: HIGH vol is BEST
+    cell across all regimes (TREND_DOWN/HIGH avg +$2,273/day, 1.3% neg days
+    vs RANGE/LOW +$93/day, 13.2% neg days).
+
+    Inverted from "cut on loss" to "capitalize on healthy bot in HIGH vol":
+      - vol_regime == HIGH
+      - bot healthy (unrealized >= -1% — not bleeding)
+      - testbed only (TB) — risk-bounded on $100 deposit
+
+    Caveats: sim has no slippage/funding/outages. If live shows HIGH vol
+    underperforming, revert to commit before c2420d4 OR operator runs
+    /bot TB resize 0.66 to undo a × 1.5 step.
+    """
     out: list[Proposal] = []
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if mkt.get("vol_regime") != "high":
         return out
     for bot in snapshot.get("bots", []):
-        # Use ginarea-reported current_profit as proxy for unrealized PnL
+        if not bot.get("testbed"):
+            continue  # TB only — risk-bounded
         cp = bot.get("current_profit_usd")
         bal = bot.get("balance")
         if cp is None or bal is None or bal <= 0:
             continue
         unr_pct = (cp / bal) * 100.0
-        if unr_pct < -3.0:
-            out.append(Proposal(
-                rule_id="R3_vol_high_resize",
-                bot_id=bot["bot_id"], tier=bot["tier"],
-                action="resize", params={"factor": 0.5},
-                reason=f"vol=HIGH + unrealized {unr_pct:.1f}% < -3% → cut size 50%",
-                confidence=0.6,
-                testbed_only=True,  # risky on prod bots
-            ))
+        if unr_pct < -1.0:
+            continue  # bot already in drawdown — don't add
+        out.append(Proposal(
+            rule_id="R3_vol_high_resize_UP",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="resize", params={"factor": 1.5},
+            reason=f"vol=HIGH + unrealized {unr_pct:+.1f}% > -1% → capitalize × 1.5 "
+                   f"(per Phase 3.6 v2: HIGH vol = best cell)",
+            confidence=0.6,
+            testbed_only=True,
+        ))
     return out
 
 
