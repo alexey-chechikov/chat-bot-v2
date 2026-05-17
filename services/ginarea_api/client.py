@@ -98,7 +98,20 @@ class GinAreaClient:
                 continue
 
             if 200 <= response.status_code < 300:
-                return cast(dict[str, Any] | list[Any], response.json())
+                # 2026-05-17: GinArea's /bots/{id}/start and /stop control
+                # endpoints return 200 OK with EMPTY body. response.json() would
+                # raise JSONDecodeError. Handle gracefully — empty body means
+                # "operation accepted, no payload to return".
+                body = response.text
+                if not body or not body.strip():
+                    return {}
+                try:
+                    return cast(dict[str, Any] | list[Any], response.json())
+                except ValueError as e:
+                    raise GinAreaAPIError(
+                        f"{response.status_code}: non-JSON response body: "
+                        f"{body[:200]!r} ({e})"
+                    )
 
             if response.status_code == 401:
                 raise GinAreaAuthError(response.text)

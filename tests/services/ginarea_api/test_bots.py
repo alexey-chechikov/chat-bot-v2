@@ -61,6 +61,19 @@ def test_pause_bot_calls_stop_endpoint_with_empty_body(httpx_mock, mock_client):
     assert sent.read() == b"{}"
 
 
+def test_pause_resume_handle_empty_response_body(httpx_mock, mock_client):
+    """2026-05-17 second-order fix: real GinArea /start and /stop return 200
+    with EMPTY body. response.json() used to raise JSONDecodeError which
+    was reported as error in audit log despite the operation succeeding.
+    Client must return {} on empty body, not raise."""
+    httpx_mock.add_response(method="PUT", status_code=200, content=b"")
+    result = BotsAPI(mock_client).pause_bot(4525648417)
+    assert result == {}
+    httpx_mock.add_response(method="PUT", status_code=200, content=b"")
+    result = BotsAPI(mock_client).resume_bot(4525648417)
+    assert result == {}
+
+
 def test_get_stat_parses_with_extension(httpx_mock, load_fixture, mock_client):
     httpx_mock.add_response(json=load_fixture("stat_response.json"))
     stat = BotsAPI(mock_client).get_stat(6161205316)
