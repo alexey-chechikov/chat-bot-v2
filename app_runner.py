@@ -609,6 +609,25 @@ def _rh_params_for(variant: str, symbol: str):
     return RangeHunterParams(symbol=symbol)
 
 
+async def _run_session_breakout_signal(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Session Breakout signal emitter.
+
+    Backtest: PF 1.85, WR 56%, 4/4 folds positive (N=1833 за 2y BTC 1m).
+    Сигнал в первые 15 мин новой сессии при break prior session H/L.
+    Manual placement через TG кнопку (как range_hunter)."""
+    from services.session_breakout.loop import session_breakout_signal_loop
+    await session_breakout_signal_loop(stop_event=stop_event,
+                                        send_fn=_build_rh_send_fn(telegram_app))
+
+
+async def _run_session_breakout_outcome(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Session Breakout outcome tracker — TP/SL/timeout для placed signals."""
+    from services.session_breakout.loop import session_breakout_outcome_loop
+    from services.telegram.channel_router import build_send_fn
+    send = build_send_fn(telegram_app, "SETUP_ON") if telegram_app else None
+    await session_breakout_outcome_loop(stop_event=stop_event, send_fn=send)
+
+
 async def _run_twap_defender(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """TWAP defender — TG-сигналы для защиты от bleed managed-bots.
 
@@ -1050,6 +1069,8 @@ async def main(
     cliff_monitor_task = asyncio.create_task(_run_cliff_monitor(stop_event, telegram_app=app), name="cliff_monitor")
     weekly_report_task = asyncio.create_task(_run_weekly_self_report(stop_event, telegram_app=app), name="weekly_self_report")
     twap_defender_task = asyncio.create_task(_run_twap_defender(stop_event, telegram_app=app), name="twap_defender")
+    session_breakout_signal_task = asyncio.create_task(_run_session_breakout_signal(stop_event, telegram_app=app), name="session_breakout_signal")
+    session_breakout_outcome_task = asyncio.create_task(_run_session_breakout_outcome(stop_event, telegram_app=app), name="session_breakout_outcome")
     range_hunter_signal_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_signal_btc")
     range_hunter_outcome_task = asyncio.create_task(_run_range_hunter_outcome(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_outcome_btc")
     range_hunter_signal_eth_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="ETHUSDT", variant="1m"), name="range_hunter_signal_eth")
@@ -1097,6 +1118,7 @@ async def main(
         setup_tracker_task, exit_advisor_task, market_intelligence_task,
         market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
         twap_defender_task,
+        session_breakout_signal_task, session_breakout_outcome_task,
         range_hunter_signal_task, range_hunter_outcome_task,
         range_hunter_signal_eth_task, range_hunter_outcome_eth_task,
         range_hunter_signal_xrp_task, range_hunter_outcome_xrp_task,

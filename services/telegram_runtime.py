@@ -2787,6 +2787,37 @@ class TelegramBotApp:
                 logger.exception("range_hunter.callback_failed")
                 self.bot.answer_callback_query(call.id, "Ошибка")
 
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("sb:"))
+        def handle_session_breakout_callback(call) -> None:
+            """Inline-кнопки [✅ Placed] / [⏭ Skip] для Session Breakout."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, signal_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            try:
+                from services.session_breakout.journal import mark_user_action
+                ok = mark_user_action(signal_id,
+                                       "placed" if action == "placed" else "skipped")
+                if ok:
+                    msg = "✅ Зафиксировано: сделка размещена" if action == "placed" \
+                        else "⏭ Пропущено (для статистики)"
+                else:
+                    msg = f"⚠ signal_id {signal_id} не найден"
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("session_breakout.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("td:"))
         def handle_twap_defender_callback(call) -> None:
             """Inline-кнопки [✅ Executed] / [⏭ Skip] / [🔕 Mute 1h] для TWAP defender."""
