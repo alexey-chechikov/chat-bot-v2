@@ -45,7 +45,8 @@ async def watchlist_loop(stop_event: asyncio.Event, *, send_fn=None, interval_se
                     # If this rule is tagged with a known play label, enrich with trade plan
                     if rule.label:
                         try:
-                            extra = format_play(rule.label, value)
+                            extra = format_play(rule.label, value,
+                                                 rule_symbol=rule.symbol)
                             if extra:
                                 text = text + "\n" + extra
                         except Exception:

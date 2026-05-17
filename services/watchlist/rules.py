@@ -48,6 +48,8 @@ class Rule:
     fire_count: int = 0
     label: Optional[str] = None  # пользовательский тэг
     symbol: str = "BTCUSDT"  # multi-asset support: BTCUSDT (default) / ETHUSDT / XRPUSDT
+    disabled_reason: Optional[str] = None  # explanation when enabled=False (e.g. backtest verdict)
+    execution_note: Optional[str] = None   # non-disabling note (e.g. "maker-only after refactor")
 
     def matches(self, value: float) -> bool:
         if self.op == ">":
@@ -87,10 +89,15 @@ def load_rules() -> list[Rule]:
     try:
         data = json.loads(RULES_PATH.read_text(encoding="utf-8"))
         rules = []
+        allowed = set(Rule.__dataclass_fields__.keys())
         for d in data.get("rules", []):
+            # Filter to known dataclass fields — tolerate extras so future metadata
+            # additions can't silently delete rules through the save/load cycle.
+            filtered = {k: v for k, v in d.items() if k in allowed}
             try:
-                rules.append(Rule(**d))
+                rules.append(Rule(**filtered))
             except (TypeError, ValueError):
+                logger.exception("watchlist.rule_load_skipped id=%s", d.get("id"))
                 continue
         return rules
     except (OSError, json.JSONDecodeError):
