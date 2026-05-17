@@ -575,11 +575,17 @@ def _build_rh_send_fn(telegram_app):
         if reply_markup is None:
             raw_send(text)
             return
-        try:
-            for cid in telegram_app.allowed_chat_ids:
-                telegram_app.bot.send_message(cid, text, reply_markup=reply_markup)
-        except Exception:
-            logger.exception("range_hunter.send_with_kb_failed")
+        import time
+        for cid in telegram_app.allowed_chat_ids:
+            for attempt in (1, 2, 3):
+                try:
+                    telegram_app.bot.send_message(cid, text, reply_markup=reply_markup)
+                    break
+                except Exception:
+                    if attempt == 3:
+                        logger.exception("range_hunter.send_with_kb_failed cid=%s", cid)
+                    else:
+                        time.sleep(0.5 * attempt)
     return _send_with_kb
 
 
@@ -739,12 +745,16 @@ async def _run_pre_cascade_alert(stop_event: asyncio.Event, *, telegram_app=None
 
     Fires 10-30 min BEFORE a likely cascade based on OI+funding+LS-ratio
     crowding signature. TG-only, no trading.
-    """
-    from services.pre_cascade_alert import pre_cascade_alert_loop
-    from services.telegram.channel_router import build_send_fn
 
-    send_fn = build_send_fn(telegram_app, "LIQ_CLUSTER_BUILD")
-    await pre_cascade_alert_loop(stop_event=stop_event, send_fn=send_fn)
+    DISABLED 2026-05-17: path-aware audit (scripts/pre_cascade_audit.py) showed
+    n=9 fires, 0 cascade matches within 30 min = 0% precision vs 12.8% baseline.
+    The full OI+funding+LS combination is too rare AND, when it fires, does NOT
+    predict the matching cascade. Кандидат на re-tune порогов, не на live alert.
+    `liq_clustering` detector (separate loop, see _run_liq_pre_cascade) сохранён —
+    у него precision 44% / recall 65%.
+    """
+    logger.info("pre_cascade_alert.disabled — 0%% precision per 2026-05-17 audit")
+    return  # do not start loop
 
 
 async def _run_regime_narrator(stop_event: asyncio.Event, *, telegram_app=None) -> None:
@@ -820,6 +830,35 @@ async def _run_play_outcome(stop_event: asyncio.Event) -> None:
     Без него все derivative watchlist plays слепые."""
     from services.watchlist.loop import play_outcome_loop
     await play_outcome_loop(stop_event=stop_event)
+
+
+async def _run_bot_brain_state(stop_event: asyncio.Event) -> None:
+    """Bot Brain perception layer — snapshot market + bot state every minute
+    into state/bot_brain_state.jsonl. Single perception stream consumed by
+    rules engine (Phase 2), manual-trade decision support (/should_<dir>),
+    and backtest research. No TG output, no actions."""
+    from services.bot_brain.state import run_loop
+    await run_loop(stop_event=stop_event, interval_sec=60)
+
+
+async def _run_paper_grid(stop_event: asyncio.Event, *, symbol: str) -> None:
+    """Paper grid bot — per-symbol live volume-farm simulator.
+    Reads 1m bars, runs sweet-spot grid (levels=120/$1000/cap=$7800), tracks
+    hypothetical PnL. Outputs daily aggregate to state/paper_grid_<symbol>.jsonl.
+    No real orders. Compares vs sweep expectations after 7-14 days live data."""
+    from services.paper_grid import paper_grid_loop
+    await paper_grid_loop(stop_event=stop_event, symbol=symbol, interval_sec=60)
+
+
+async def _run_bot_brain_executor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Bot Brain decision/action layer — reads latest perception snapshot,
+    evaluates rules R1-R6, dispatches actions per risk-tier policy.
+      - production bots: pause/resume LIVE, risky actions DRY-RUN only
+      - testbed bot (tier=TB): all actions LIVE
+    Outputs: state/bot_brain_proposals.jsonl + state/bot_brain_actions.jsonl,
+    plus TG MARGIN_ALERT cards for live actions."""
+    from services.bot_brain.executor import run_loop
+    await run_loop(stop_event=stop_event, telegram_app=telegram_app, interval_sec=60)
 
 
 async def _run_short_bots_guard(stop_event: asyncio.Event, *, telegram_app=None) -> None:
@@ -1012,6 +1051,10 @@ async def main(
     daily_report_task = asyncio.create_task(_run_daily_report(stop_event, telegram_app=app), name="daily_self_report")
     volume_nodes_task = asyncio.create_task(_run_volume_nodes_refresh(stop_event, telegram_app=app), name="volume_nodes")
     short_bots_guard_task = asyncio.create_task(_run_short_bots_guard(stop_event, telegram_app=app), name="short_bots_guard")
+    bot_brain_state_task = asyncio.create_task(_run_bot_brain_state(stop_event), name="bot_brain_state")
+    bot_brain_executor_task = asyncio.create_task(_run_bot_brain_executor(stop_event, telegram_app=app), name="bot_brain_executor")
+    paper_grid_eth_task = asyncio.create_task(_run_paper_grid(stop_event, symbol="ETHUSDT"), name="paper_grid_eth")
+    paper_grid_xrp_task = asyncio.create_task(_run_paper_grid(stop_event, symbol="XRPUSDT"), name="paper_grid_xrp")
     stop_task = asyncio.create_task(stop_event.wait(), name="stop_event")
 
     # Critical tasks: their failure forces full shutdown.
@@ -1030,7 +1073,7 @@ async def main(
         range_hunter_signal_5m_task, range_hunter_outcome_5m_task,
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
-        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
