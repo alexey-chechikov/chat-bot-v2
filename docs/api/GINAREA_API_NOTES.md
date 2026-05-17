@@ -13,6 +13,22 @@
 
 OpenAPI reference was expected in `openapi.yaml` per TZ, but no such file was present in the workspace during implementation. The module therefore follows the endpoint contracts explicitly stated in the TZ plus the observed response shapes captured in sanitized fixtures.
 
+## 1a. Control endpoints (RE'd 2026-05-17 via operator DevTools)
+
+- `PUT /bots/{bot_id}/start`
+  - request body: `{}` (empty JSON)
+  - effect: starts a paused/failed bot — same flow as UI ▶ play / restart
+  - implemented: `BotsAPI.resume_bot(bot_id)`
+- `PUT /bots/{bot_id}/pause` (HYPOTHESIZED, not yet captured)
+  - inferred from `/start` symmetry; operator capture pending
+
+**CRITICAL: do NOT use `PUT /bots/{id}/params` with `p=false/true` as a
+pause/resume mechanism.** That endpoint edits the bot's default config —
+not runtime control. Setting `p=false` via params transitions bot to
+status=FAILED(10), confirmed by `scripts/_diag_tb_pause_strategies.py`
+2026-05-17 incident on TB testbed. Use the `/start` (resume) and future
+`/pause` endpoints instead.
+
 ## 2. Private endpoints (RE'd 2026-04-30)
 
 - `POST /api/bots/{bot_id}/tests`

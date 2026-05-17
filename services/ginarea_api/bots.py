@@ -120,33 +120,32 @@ class BotsAPI:
     def pause_bot(self, bot_id: int) -> dict:
         """Pause a running bot via GinArea's proper pause API.
 
-        STATUS: NOT IMPLEMENTED — endpoint unknown.
-
-        Workaround: operator pauses via GinArea UI directly.
-        Unblock: capture HTTP request from UI pause click via browser DevTools,
-        add endpoint here. See docs/api/GINAREA_API_NOTES.md.
+        STATUS: ENDPOINT NOT YET CAPTURED — need DevTools snapshot of UI
+        pause click. start_bot endpoint was captured 2026-05-17 as
+        `PUT /api/bots/{id}/start`, so pause likely follows similar pattern
+        — try `/pause` or `/stop`.
 
         DO NOT fall back to set_params(p=False) — that breaks the bot
-        (status → FAILED, confirmed 2026-05-17 incident + TB diagnostic).
+        (status → FAILED, confirmed 2026-05-17 TB diagnostic).
         """
         raise NotImplementedError(
-            f"pause_bot({bot_id}): GinArea pause endpoint unknown. "
-            "set_params(p=False) is NOT a valid fallback — it puts bot in "
-            "FAILED state. Capture endpoint via UI DevTools. See "
-            "docs/api/GINAREA_API_NOTES.md and "
-            "memory project_ginarea_pause_broken.md."
+            f"pause_bot({bot_id}): pause endpoint not yet captured via "
+            "DevTools. Operator must click ⏸ in GinArea UI directly. "
+            "See docs/api/GINAREA_API_NOTES.md and "
+            "project_ginarea_pause_broken.md."
         )
 
     def resume_bot(self, bot_id: int) -> dict:
-        """Resume a paused bot via GinArea's proper resume API.
+        """Resume a paused bot via GinArea's proper start API.
 
-        STATUS: NOT IMPLEMENTED — endpoint unknown.
+        Captured 2026-05-17 from operator DevTools: PUT /api/bots/{id}/start
+        with empty JSON body `{}`. Returns 200 on success.
 
-        Workaround: operator clicks ▶ Restart in GinArea UI directly.
-        Unblock: same as pause_bot — DevTools capture needed.
+        Note: this is the same endpoint UI calls when operator clicks ▶
+        Restart on a Failed bot — recovers from FAILED state.
         """
-        raise NotImplementedError(
-            f"resume_bot({bot_id}): GinArea resume endpoint unknown. "
-            "set_params(p=True) is NOT a valid fallback — also breaks the bot. "
-            "Capture endpoint via UI DevTools."
+        return self.client.request(
+            "PUT",
+            f"/bots/{bot_id}/start",
+            json={},
         )

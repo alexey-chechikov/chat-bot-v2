@@ -39,6 +39,26 @@ def test_get_params_parses_full_default_grid_params(httpx_mock, load_fixture, mo
     assert params.gap.maxS == pytest.approx(1.5)
 
 
+def test_resume_bot_calls_start_endpoint_with_empty_body(httpx_mock, mock_client):
+    """2026-05-17: captured from DevTools — PUT /api/bots/{id}/start with {}."""
+    httpx_mock.add_response(method="PUT", json={"ok": True})
+    result = BotsAPI(mock_client).resume_bot(4525648417)
+    assert result == {"ok": True}
+    sent = httpx_mock.get_request()
+    assert sent.method == "PUT"
+    assert str(sent.url).endswith("/bots/4525648417/start")
+    assert sent.read() == b"{}"
+
+
+def test_pause_bot_not_implemented_until_devtools_capture(mock_client):
+    """pause endpoint not yet captured — must raise NotImplementedError,
+    NOT silently fall back to set_params(p=false) which breaks the bot."""
+    with pytest.raises(NotImplementedError) as exc_info:
+        BotsAPI(mock_client).pause_bot(4525648417)
+    assert "set_params" in str(exc_info.value).lower() or \
+           "devtools" in str(exc_info.value).lower()
+
+
 def test_get_stat_parses_with_extension(httpx_mock, load_fixture, mock_client):
     httpx_mock.add_response(json=load_fixture("stat_response.json"))
     stat = BotsAPI(mock_client).get_stat(6161205316)
