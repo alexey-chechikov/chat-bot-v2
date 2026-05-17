@@ -1680,6 +1680,7 @@ class TelegramBotApp:
               pause       — set p=False (idempotent)
               resume      — set p=True
               status      — read current params via GinArea API
+              history [N] — last N bot_brain proposals for this bot (default 10)
               resize <N>  — multiply maxQ/minQ × N (testbed only)
               tighten <N> — multiply gs × N
               widen <N>   — multiply gs × N
@@ -1745,6 +1746,44 @@ class TelegramBotApp:
                     if st.get('error'):
                         msg += f"  error: {st['error']}\n"
                     self.bot.send_message(chat_id, msg)
+                    return
+
+                if cmd == 'history':
+                    # Show last N bot_brain proposals + actions for this bot
+                    n = int(extra_arg) if extra_arg and extra_arg.isdigit() else 10
+                    proposals_path = ROOT / 'state' / 'bot_brain_proposals.jsonl'
+                    actions_path = ROOT / 'state' / 'bot_brain_actions.jsonl'
+                    lines = [f"📜 [{tier_label}] history (last {n}):"]
+                    proposals_for_bot = []
+                    if proposals_path.exists():
+                        try:
+                            with proposals_path.open(encoding='utf-8') as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    try:
+                                        rec = _json.loads(line)
+                                    except _json.JSONDecodeError:
+                                        continue
+                                    if str(rec.get('bot_id')) == bot_id:
+                                        proposals_for_bot.append(rec)
+                        except OSError:
+                            pass
+                    if not proposals_for_bot:
+                        lines.append("  (no proposals yet)")
+                    else:
+                        for r in proposals_for_bot[-n:]:
+                            ts = (r.get('ts') or '?')[:19]
+                            rid = r.get('rule_id', '?')
+                            act = r.get('action', '?')
+                            mode = r.get('mode', '?')
+                            status = r.get('result_status', '?')
+                            reason = (r.get('reason') or '')[:60]
+                            lines.append(f"  {ts}  {rid:30}  {act:10} {mode:8} {status}")
+                            if reason:
+                                lines.append(f"      └ {reason}")
+                    self.bot.send_message(chat_id, "\n".join(lines))
                     return
 
                 if cmd == 'pause':
