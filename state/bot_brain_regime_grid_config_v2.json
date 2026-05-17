@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-05-17T18:26:23.866565+00:00",
+  "source": "scripts/regime_grid_carry_overnight.py",
+  "version": "v2 — carry-overnight",
+  "params": {
+    "contract": "inverse",
+    "grid_range_pct": 0.6,
+    "grid_levels": 120,
+    "order_size_usd": 1000.0,
+    "inventory_cap_btc": 0.1,
+    "reanchor_drift_pct": 0.3,
+    "hard_stop_unrealized_usd": -2000.0
+  },
+  "total_net_usd": 593458.3604877426,
+  "total_volume_usd": 2554088000.0,
+  "max_drawdown_cum_net_usd": -456.4777828018414,
+  "vol_thresholds_atr_pct": {
+    "q33": 0.046698394688553836,
+    "q67": 0.07316012407006578
+  },
+  "matrix_by_cell": {
+    "RANGE": {
+      "LOW": {
+        "n_days": 204,
+        "avg_net": 93.34,
+        "median_net": 66.27,
+        "min_day_net": -208.65,
+        "max_day_net": 596.6,
+        "neg_day_pct": 23.5
+      },
+      "MEDIUM": {
+        "n_days": 138,
+        "avg_net": 378.57,
+        "median_net": 359.62,
+        "min_day_net": -279.08,
+        "max_day_net": 1932.75,
+        "neg_day_pct": 6.5
+      },
+      "HIGH": {
+        "n_days": 89,
+        "avg_net": 1644.93,
+        "median_net": 1113.1,
+        "min_day_net": 380.43,
+        "max_day_net": 9236.89,
+        "neg_day_pct": 0.0
+      }
+    },
+    "TREND_UP": {
+      "LOW": {
+        "n_days": 24,
+        "avg_net": 172.03,
+        "median_net": 167.97,
+        "min_day_net": -198.39,
+        "max_day_net": 1024.49,
+        "neg_day_pct": 20.8
+      },
+      "MEDIUM": {
+        "n_days": 57,
+        "avg_net": 460.81,
+        "median_net": 423.3,
+        "min_day_net": -72.67,
+        "max_day_net": 1153.25,
+        "neg_day_pct": 1.8
+      },
+      "HIGH": {
+        "n_days": 67,
+        "avg_net": 1793.03,
+        "median_net": 1171.99,
+        "min_day_net": 325.16,
+        "max_day_net": 9058.25,
+        "neg_day_pct": 0.0
+      }
+    },
+    "TREND_DOWN": {
+      "LOW": {
+        "n_days": 14,
+        "avg_net": 284.07,
+        "median_net": 172.64,
+        "min_day_net": 19.36,
+        "max_day_net": 1048.18,
+        "neg_day_pct": 0.0
+      },
+      "MEDIUM": {
+        "n_days": 54,
+        "avg_net": 477.4,
+        "median_net": 475.28,
+        "min_day_net": -113.84,
+        "max_day_net": 1169.67,
+        "neg_day_pct": 3.7
+      },
+      "HIGH": {
+        "n_days": 86,
+        "avg_net": 2273.15,
+        "median_net": 1397.99,
+        "min_day_net": 318.97,
+        "max_day_net": 23691.71,
+        "neg_day_pct": 0.0
+      }
+    }
+  },
+  "matrix_by_regime": {
+    "RANGE": {
+      "n_days": 431,
+      "avg_net": 505.06,
+      "neg_day_pct": 13.2
+    },
+    "TREND_UP": {
+      "n_days": 148,
+      "avg_net": 1017.08,
+      "neg_day_pct": 4.1
+    },
+    "TREND_DOWN": {
+      "n_days": 154,
+      "avg_net": 1462.65,
+      "neg_day_pct": 1.3
+    }
+  }
+}

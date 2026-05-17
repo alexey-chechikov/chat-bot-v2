@@ -1,0 +1,44 @@
+//@version=6
+//
+// bot7 BTC.D regime monitor — alert on significant BTC dominance moves.
+//
+// BTC dominance is a leading indicator for altcoin moves:
+//   - BTC.D rising fast → BTC sucks liquidity → ETH/XRP grids slow
+//   - BTC.D falling fast → altseason capital rotates → alt grids ramp
+//
+// Apply on chart of `CRYPTOCAP:BTC.D` (TradingView BTC dominance symbol).
+// Timeframe: 1h recommended (BTC.D moves slowly, no need for 1m noise).
+//
+// Alert fires when BTC.D moved ≥ threshold % over last N hours.
+// Webhook payload mirrors cvd_divergence format for unified ingestion.
+//
+indicator("bot7 BTC.D regime monitor", overlay=true)
+
+lookback_bars  = input.int(6, "Lookback bars", minval=1, maxval=48,
+    tooltip="On 1h chart: 6 = last 6 hours")
+move_threshold = input.float(0.5, "Move threshold (%)", minval=0.1, maxval=5.0, step=0.1,
+    tooltip="Fire alert when BTC.D moved ≥ this % over lookback")
+
+// Compute % change over lookback
+prev_close = close[lookback_bars]
+move_pct = ((close - prev_close) / prev_close) * 100.0
+plot(move_pct, "BTC.D move %", color=color.new(color.orange, 0))
+hline(move_threshold, "+threshold", color=color.green, linestyle=hline.style_dashed)
+hline(-move_threshold, "-threshold", color=color.red, linestyle=hline.style_dashed)
+hline(0, "0", color=color.gray)
+
+// Direction signals
+rising_strong  = move_pct >= move_threshold
+falling_strong = move_pct <= -move_threshold
+
+plotshape(rising_strong, "BTC.D RISING", style=shape.triangleup,
+    color=color.green, size=size.small, location=location.belowbar)
+plotshape(falling_strong, "BTC.D FALLING", style=shape.triangledown,
+    color=color.red, size=size.small, location=location.abovebar)
+
+// Alerts — JSON to bot7 webhook
+alertcondition(rising_strong, "BTC.D Rising Strong",
+    '{"ticker":"{{ticker}}","indicator":"btc_dominance","direction":"rising","price":{{close}},"move_pct":' + str.tostring(move_pct, "#.###") + ',"timeframe":"{{interval}}","ts":"{{time}}"}')
+
+alertcondition(falling_strong, "BTC.D Falling Strong",
+    '{"ticker":"{{ticker}}","indicator":"btc_dominance","direction":"falling","price":{{close}},"move_pct":' + str.tostring(move_pct, "#.###") + ',"timeframe":"{{interval}}","ts":"{{time}}"}')
