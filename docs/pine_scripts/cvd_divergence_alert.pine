@@ -1,0 +1,65 @@
+//@version=6
+//
+// bot7 CVD divergence alert (1m / 5m).
+//
+// Based on RESEARCH_cvd_divergence_2026-05-17.md finding: when liq_cluster
+// fires on bot7 side AND CVD shows OPPOSITE-direction divergence (price down
+// while CVD up, or vice versa), precision rises from 44% to 56% (+13 п.п.).
+//
+// This Pine script runs on TV side, fires alert on CVD divergence event.
+// Webhook → bot7 → state/tv_alerts.jsonl → bot_brain R1.7 (future) combo rule
+// gets HIGH confidence when this alert AND liq_cluster fire within ~5 min.
+//
+// Pine v6 — uses ta.cum, ta.highest, ta.lowest. Lookback 60 bars (≈1h on 1m).
+//
+// Apply on 1m BTCUSDT chart. Alert URL: https://<tunnel>/tv/<TOKEN>/alert
+// Alert message body (JSON):
+//   {"ticker":"{{ticker}}","indicator":"cvd_divergence",
+//    "direction":"bearish",  // or "bullish" depending on which alertcondition
+//    "price":{{close}}, "timeframe":"{{interval}}", "ts":"{{time}}"}
+//
+indicator("bot7 CVD Divergence (v1)", overlay=false, max_bars_back=500)
+
+// ─── inputs ──────────────────────────────────────────────────────────────
+lookback        = input.int(60, "Lookback bars", minval=10, maxval=200)
+price_tolerance = input.float(0.001, "Price near-extreme tolerance", step=0.0005,
+    tooltip="How close to recent high/low price must be to qualify (0.001 = 0.1%)")
+cvd_gap         = input.float(0.005, "CVD gap from extreme", step=0.001,
+    tooltip="CVD must be away from its extreme by this fraction (0.005 = 0.5%)")
+show_cvd        = input.bool(true, "Plot CVD line")
+show_markers    = input.bool(true, "Show divergence markers")
+
+// ─── CVD construction ────────────────────────────────────────────────────
+// Per-bar delta proxy: assume bar's volume was buyer-led if close>open, seller-led otherwise.
+// This is an APPROXIMATION — true CVD requires tick data. TV's built-in
+// Volume Delta indicator (Pro+) gives proper version; replace if available.
+delta = volume * (close > open ? 1.0 : (close < open ? -1.0 : 0.0))
+cvd = ta.cum(delta)
+plot(show_cvd ? cvd : na, "CVD", color=color.new(color.blue, 0))
+
+// ─── extrema over lookback ───────────────────────────────────────────────
+price_high = ta.highest(close, lookback)
+price_low  = ta.lowest(close, lookback)
+cvd_high   = ta.highest(cvd, lookback)
+cvd_low    = ta.lowest(cvd, lookback)
+
+// ─── divergence detection ────────────────────────────────────────────────
+// Bearish: price near top of window, CVD significantly below its top.
+// Interpretation: price rising but buying volume already exhausted.
+bearish_div = (close >= price_high * (1 - price_tolerance)) and (cvd < cvd_high * (1 - cvd_gap))
+
+// Bullish: price near bottom, CVD already off its bottom.
+// Interpretation: selling pressure exhausted, buyers absorbing.
+bullish_div = (close <= price_low * (1 + price_tolerance)) and (cvd > cvd_low * (1 + cvd_gap))
+
+plotshape(show_markers and bearish_div, "Bear Div", style=shape.triangledown,
+    color=color.red, size=size.small, location=location.top)
+plotshape(show_markers and bullish_div, "Bull Div", style=shape.triangleup,
+    color=color.green, size=size.small, location=location.bottom)
+
+// ─── alerts (one per bar close) ──────────────────────────────────────────
+alertcondition(bearish_div, "CVD Bearish Divergence",
+    '{"ticker":"{{ticker}}","indicator":"cvd_divergence","direction":"bearish","price":{{close}},"timeframe":"{{interval}}","ts":"{{time}}"}')
+
+alertcondition(bullish_div, "CVD Bullish Divergence",
+    '{"ticker":"{{ticker}}","indicator":"cvd_divergence","direction":"bullish","price":{{close}},"timeframe":"{{interval}}","ts":"{{time}}"}')

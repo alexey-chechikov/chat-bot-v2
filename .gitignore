@@ -274,3 +274,19 @@ state/play_journal.jsonl
 
 # 2026-05-15: TG manual VPVR levels (operator-set, runtime)
 state/manual_levels.json
+
+# 2026-05-17: TV webhook secret token (NEVER commit)
+state/tv_webhook_token.txt
+
+# 2026-05-17: TV alerts ingest journal (runtime state)
+state/tv_alerts.jsonl
+
+# 2026-05-17: bot_brain runtime state + journals
+state/bot_brain_state.jsonl
+state/bot_brain_proposals.jsonl
+state/bot_brain_actions.jsonl
+state/bot_brain_grid_config.json
+
+# 2026-05-17: paper grid runtime state
+state/paper_grid_*_state.json
+state/paper_grid_*.jsonl

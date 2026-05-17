@@ -841,6 +841,14 @@ async def _run_bot_brain_state(stop_event: asyncio.Event) -> None:
     await run_loop(stop_event=stop_event, interval_sec=60)
 
 
+async def _run_tv_webhook(stop_event: asyncio.Event) -> None:
+    """TradingView webhook receiver — Pine alert → state/tv_alerts.jsonl.
+    HTTP POST /tv/<token>/alert on 0.0.0.0:8770, token in state/tv_webhook_token.txt.
+    External exposure via ngrok/cloudflared tunnel; setup in docs/TV_WEBHOOK_SETUP."""
+    from services.tv_webhook import tv_webhook_loop
+    await tv_webhook_loop(stop_event=stop_event)
+
+
 async def _run_paper_grid(stop_event: asyncio.Event, *, symbol: str) -> None:
     """Paper grid bot — per-symbol live volume-farm simulator.
     Reads 1m bars, runs sweet-spot grid (levels=120/$1000/cap=$7800), tracks
@@ -1055,6 +1063,7 @@ async def main(
     bot_brain_executor_task = asyncio.create_task(_run_bot_brain_executor(stop_event, telegram_app=app), name="bot_brain_executor")
     paper_grid_eth_task = asyncio.create_task(_run_paper_grid(stop_event, symbol="ETHUSDT"), name="paper_grid_eth")
     paper_grid_xrp_task = asyncio.create_task(_run_paper_grid(stop_event, symbol="XRPUSDT"), name="paper_grid_xrp")
+    tv_webhook_task = asyncio.create_task(_run_tv_webhook(stop_event), name="tv_webhook")
     stop_task = asyncio.create_task(stop_event.wait(), name="stop_event")
 
     # Critical tasks: their failure forces full shutdown.
@@ -1073,7 +1082,7 @@ async def main(
         range_hunter_signal_5m_task, range_hunter_outcome_5m_task,
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
-        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
