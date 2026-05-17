@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-05-17T17:35:25.119898+00:00",
+  "source_script": "scripts/regime_conditional_grid_research.py",
+  "params_used": {
+    "contract": "inverse",
+    "grid_range_pct": 0.6,
+    "grid_levels": 120,
+    "order_size_usd": 1000.0,
+    "inventory_cap_btc": 0.1,
+    "reanchor_drift_pct": 0.3,
+    "hard_stop_unrealized_usd": -2000.0
+  },
+  "vol_thresholds_pct_atr": {
+    "q33": 0.046698394688553836,
+    "q67": 0.07316012407006578
+  },
+  "matrix_avg_daily_net_usd": {
+    "RANGE": {
+      "LOW": {
+        "avg_net_usd": 89.64,
+        "n_days": 204
+      },
+      "MEDIUM": {
+        "avg_net_usd": 387.28,
+        "n_days": 138
+      },
+      "HIGH": {
+        "avg_net_usd": 1643.35,
+        "n_days": 89
+      },
+      "all": {
+        "avg_net_usd": 505.78,
+        "n_days": 431
+      }
+    },
+    "TREND_UP": {
+      "LOW": {
+        "avg_net_usd": 184.01,
+        "n_days": 24
+      },
+      "MEDIUM": {
+        "avg_net_usd": 458.34,
+        "n_days": 57
+      },
+      "HIGH": {
+        "avg_net_usd": 1796.38,
+        "n_days": 67
+      },
+      "all": {
+        "avg_net_usd": 1019.59,
+        "n_days": 148
+      }
+    },
+    "TREND_DOWN": {
+      "LOW": {
+        "avg_net_usd": 281.67,
+        "n_days": 14
+      },
+      "MEDIUM": {
+        "avg_net_usd": 469.38,
+        "n_days": 54
+      },
+      "HIGH": {
+        "avg_net_usd": 2272.68,
+        "n_days": 86
+      },
+      "all": {
+        "avg_net_usd": 1459.35,
+        "n_days": 154
+      }
+    }
+  },
+  "size_multiplier_by_regime": {
+    "RANGE": {
+      "LOW": 0.7,
+      "MEDIUM": 1.5,
+      "HIGH": 1.5,
+      "all": 1.5
+    },
+    "TREND_UP": {
+      "LOW": 1.0,
+      "MEDIUM": 1.5,
+      "HIGH": 1.5,
+      "all": 1.5
+    },
+    "TREND_DOWN": {
+      "LOW": 1.0,
+      "MEDIUM": 1.5,
+      "HIGH": 1.5,
+      "all": 1.5
+    }
+  }
+}
