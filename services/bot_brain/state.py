@@ -140,12 +140,64 @@ def _read_cascades_recent(now: datetime, lookback_min: int = CASCADE_LOOKBACK_MI
     return by_symbol
 
 
+def _btc_price_changes() -> dict[str, Optional[float]]:
+    """Return BTC price-change pct over multiple windows (1m, 5m, 15m, 60m).
+    Reads market_live/market_1m.csv tail. Returns None values if data missing.
+
+    Used by bot_brain rules as a gate: don't fire pause unless BTC actually
+    moved meaningfully. Operator 2026-05-17 directive: pause only on TRULY
+    STRONG one-sided moves, not micro 0.3-1% spikes."""
+    market_csv = ROOT / "market_live" / "market_1m.csv"
+    out: dict[str, Optional[float]] = {
+        "price_change_1m_pct": None, "price_change_5m_pct": None,
+        "price_change_15m_pct": None, "price_change_60m_pct": None,
+        "btc_mid_now": None,
+    }
+    if not market_csv.exists():
+        return out
+    try:
+        # Tail last 70 minutes (covers 60m + buffer); CSV is 1 line/min
+        with market_csv.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            # ~80 bytes per line × 80 lines = 6.4KB; pull 16KB to be safe
+            chunk = min(size, 16 * 1024)
+            f.seek(size - chunk)
+            tail = f.read().decode("utf-8", errors="ignore")
+        lines = [ln for ln in tail.splitlines() if ln.strip() and not ln.startswith("ts_utc")]
+        if len(lines) < 2:
+            return out
+        # Parse close prices
+        closes = []
+        for line in lines:
+            parts = line.split(",")
+            if len(parts) >= 5:
+                try:
+                    closes.append(float(parts[4]))
+                except ValueError:
+                    continue
+        if not closes:
+            return out
+        now_close = closes[-1]
+        out["btc_mid_now"] = round(now_close, 2)
+        # Compute pct change vs N minutes ago (each line is 1m)
+        for window_min, key in [(1, "price_change_1m_pct"), (5, "price_change_5m_pct"),
+                                  (15, "price_change_15m_pct"), (60, "price_change_60m_pct")]:
+            if len(closes) > window_min and closes[-window_min - 1] > 0:
+                pct = (now_close - closes[-window_min - 1]) / closes[-window_min - 1] * 100.0
+                out[key] = round(pct, 3)
+    except OSError:
+        logger.exception("bot_brain.btc_price_changes_failed")
+    return out
+
+
 def _read_market(now: datetime) -> dict[str, dict]:
     """Per-symbol market state aggregated from existing services + state."""
     regime_state = _read_json(REGIME_PATH) or {}
     deriv = _read_json(DERIV_PATH) or {}
     levels = _read_json(MANUAL_LEVELS_PATH) or {}
     cascades_by_sym = _read_cascades_recent(now)
+    btc_price_changes = _btc_price_changes()
 
     try:
         from services.volatility_regime import current_regime
@@ -178,6 +230,11 @@ def _read_market(now: datetime) -> dict[str, dict]:
         if mid and vah:
             dist_vah_pct = round((vah - mid) / mid * 100.0, 3)
 
+        # Attach BTC price-change windows only to BTCUSDT entry (others may be added later)
+        price_changes = btc_price_changes if symbol == "BTCUSDT" else {
+            "price_change_1m_pct": None, "price_change_5m_pct": None,
+            "price_change_15m_pct": None, "price_change_60m_pct": None,
+        }
         out[symbol] = {
             "mid": mid,
             "regime_primary": rs.get("current_primary"),
@@ -196,6 +253,11 @@ def _read_market(now: datetime) -> dict[str, dict]:
             "dist_val_pct": dist_val_pct,
             "dist_vah_pct": dist_vah_pct,
             "cascades_recent": cascades_by_sym.get(symbol, []),
+            # Price-movement windows for rule-gating (BTCUSDT only currently)
+            "price_change_1m_pct": price_changes.get("price_change_1m_pct"),
+            "price_change_5m_pct": price_changes.get("price_change_5m_pct"),
+            "price_change_15m_pct": price_changes.get("price_change_15m_pct"),
+            "price_change_60m_pct": price_changes.get("price_change_60m_pct"),
         }
     return out
 

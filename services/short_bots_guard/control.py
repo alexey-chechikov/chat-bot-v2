@@ -126,10 +126,34 @@ def is_paused(bot_id: str) -> Optional[bool]:
     return not state.get("p", True)  # paused == not active
 
 
+# Per-bot cached state of (p, mono_ts_seconds). TTL CACHE_TTL_SEC — within that
+# window, skip the GET API call when target matches cache. Reduces GinArea
+# read traffic substantially: once a bot is paused (target=False, cache=False)
+# next 60s of pause-proposals are noop without any API call.
+_state_cache: dict[str, tuple[bool, float]] = {}
+CACHE_TTL_SEC = 60.0
+
+
 def _set_p(bot_id: str, target_p: bool, *, dry_run: bool = False,
             reason: str = "", trigger: str = "") -> dict:
-    """Internal: set p flag. Returns audit record."""
+    """Internal: set p flag. Returns audit record.
+    2026-05-17: added in-memory cache to skip GET when target matches recent
+    known state — reduces API spam to GinArea."""
+    import time
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Cache fast-path: if we know p was target_p recently — no API call needed
+    cached = _state_cache.get(bot_id)
+    if cached is not None:
+        cached_p, cached_ts = cached
+        if (time.monotonic() - cached_ts) <= CACHE_TTL_SEC and cached_p == target_p:
+            rec = {
+                "ts": now, "bot_id": bot_id, "action": "noop_cached",
+                "current_p": cached_p, "target_p": target_p,
+                "reason": reason, "trigger": trigger,
+            }
+            _audit(rec)
+            return rec
+
     api, err = _build_api()
     if api is None:
         rec = {
@@ -153,6 +177,10 @@ def _set_p(bot_id: str, target_p: bool, *, dry_run: bool = False,
         return rec
 
     current_p = bool(current.p) if current.p is not None else True
+    # Update cache from fresh read regardless of branch
+    import time
+    _state_cache[bot_id] = (current_p, time.monotonic())
+
     if current_p == target_p:
         rec = {
             "ts": now, "bot_id": bot_id, "action": "noop_already",
@@ -177,6 +205,8 @@ def _set_p(bot_id: str, target_p: bool, *, dry_run: bool = False,
         from dataclasses import replace
         new_params = replace(current, p=target_p)
         api.set_params(int(bot_id), new_params)
+        # Update cache after successful write
+        _state_cache[bot_id] = (target_p, time.monotonic())
         action = "paused" if not target_p else "resumed"
         rec = {
             "ts": now, "bot_id": bot_id, "action": action,

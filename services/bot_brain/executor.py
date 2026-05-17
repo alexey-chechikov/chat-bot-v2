@@ -71,8 +71,12 @@ def _decide_mode(action: str, bot_testbed: bool) -> str:
     return "dry_run"   # resize/etc on prod = dry-run only
 
 
-# Per-proposal dedup: bot_id+action+rule_id within N seconds shouldn't refire
-_DEDUP_WINDOW_SEC = 300
+# Per-proposal dedup: bot_id+action+rule_id within N seconds shouldn't refire.
+# Raised 2026-05-17 from 300s → 1800s (30 min) — operator concern about API
+# request rate. Once we've paused a bot, no need to re-evaluate same rule for
+# half an hour. Cascade-reactive rules (R1/R2) still fire fresh if cascade
+# event refreshes the dedup key via newer ts.
+_DEDUP_WINDOW_SEC = 1800
 _dedup: dict[tuple, datetime] = {}
 
 

@@ -28,6 +28,70 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# ─── Pause-eligibility policy (2026-05-17 operator directive) ────────────────
+# Per-tier filter: which managed bots are allowed to be auto-paused at all.
+# Operator: "T2 и T3 вообще не нужно ставить на паузу". T1 — самый узкий
+# grid_step, страдает от движений; T2/T3 — шире, переживают сами.
+# LONG-D/V5 — отдельные хеджи, оператор не запросил их в фильтр; пока
+# оставляем включёнными но с теми же price-movement gates.
+PAUSE_ALLOWED_TIERS = {"T1", "TB", "LONG-D", "LONG-V5"}
+
+# Minimum BTC 15-min one-sided move (absolute %) required to fire pre-cascade
+# pause. Below this — micro-move, not worth pausing for. Operator: pause should
+# trigger on TRULY STRONG one-sided moves, not 0.3-1% spikes.
+MIN_PRICE_MOVE_15M_PCT = 1.5
+
+# Minimum liq-cluster qty (BTC) on cluster side to count as meaningful signal.
+# Existing detector threshold = 0.5 BTC. Bot-brain rule action requires more.
+MIN_LIQ_CLUSTER_QTY_BTC = 1.5
+
+
+def _pause_eligible(bot: dict, market: dict, *,
+                    expected_price_dir: str,
+                    require_strong_move: bool = True) -> tuple[bool, str]:
+    """Central gate before any pause proposal fires. Returns (eligible, reason).
+
+    expected_price_dir: 'up' for SHORT-bot pause (SHORT loses on price up),
+                       'down' for LONG-bot pause.
+    require_strong_move: if True (default for pre-cascade rules), require
+                         BTC moved ≥ MIN_PRICE_MOVE_15M_PCT in expected dir.
+                         Reactive R1/R2 (cascade-already-fired) skip this gate.
+    """
+    tier = bot.get("tier")
+    if tier not in PAUSE_ALLOWED_TIERS:
+        return False, f"tier {tier} excluded from auto-pause (operator policy)"
+    if bot.get("paused_by_guard"):
+        return False, "already paused"
+    if not require_strong_move:
+        return True, "ok (no price-move gate)"
+    pc15 = market.get("price_change_15m_pct")
+    if pc15 is None:
+        return False, "price_change_15m_pct unavailable, fail-safe SKIP"
+    if expected_price_dir == "up" and pc15 < MIN_PRICE_MOVE_15M_PCT:
+        return False, f"BTC 15m move {pc15:+.2f}% < +{MIN_PRICE_MOVE_15M_PCT}% threshold"
+    if expected_price_dir == "down" and pc15 > -MIN_PRICE_MOVE_15M_PCT:
+        return False, f"BTC 15m move {pc15:+.2f}% > -{MIN_PRICE_MOVE_15M_PCT}% threshold"
+    return True, f"ok (BTC 15m {pc15:+.2f}%)"
+
+
+def _liq_cluster_qty_meets_min(market: dict, side: str) -> Optional[float]:
+    """Return max qty_btc of recent cluster on `side` if it meets MIN threshold,
+    else None. Filters out micro-clusters."""
+    clusters = market.get("liq_cluster_fires_recent") or []
+    max_qty = 0.0
+    for c in clusters:
+        if c.get("side") != side:
+            continue
+        q = c.get("qty_btc") or 0
+        try:
+            q = float(q)
+        except (TypeError, ValueError):
+            continue
+        if q > max_qty:
+            max_qty = q
+    return max_qty if max_qty >= MIN_LIQ_CLUSTER_QTY_BTC else None
+
+
 # Per-tier daily PnL stop caps (USD). Hit → pause.
 DAILY_PNL_CAP_USD = {
     "T1": -50.0,
@@ -69,40 +133,51 @@ def _has_fresh_cascade(market: dict, direction: str, max_age_min: float = 20.0) 
 # ─── Rules ────────────────────────────────────────────────────────────────────
 
 def r1_cascade_short_pause(snapshot: dict) -> list[Proposal]:
-    """Echo rule — short_bots_guard already pauses on cascade_short.
-    Here we mirror the proposal for unified bot_brain audit trail.
-    Skipped if bot already paused_by_guard."""
+    """Reactive: cascade_short ALREADY fired (≥2 BTC shorts liquidated). Strong
+    real signal — gate by tier only, skip price-move re-check (cascade already
+    confirms move happened)."""
     out: list[Proposal] = []
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "short" or bot.get("paused_by_guard"):
+        if bot.get("side") != "short":
             continue
         mkt = _market_for_bot(snapshot, bot)
-        if _has_fresh_cascade(mkt, "short"):
-            out.append(Proposal(
-                rule_id="R1_cascade_short_pause",
-                bot_id=bot["bot_id"], tier=bot["tier"],
-                action="pause", params={},
-                reason="fresh cascade_short detected (4h pct_up edge)",
-                confidence=0.9,
-            ))
+        if not _has_fresh_cascade(mkt, "short"):
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up",
+                                            require_strong_move=False)
+        if not eligible:
+            continue
+        out.append(Proposal(
+            rule_id="R1_cascade_short_pause",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason=f"fresh cascade_short detected ({reason})",
+            confidence=0.9,
+        ))
     return out
 
 
 def r2_cascade_long_pause(snapshot: dict) -> list[Proposal]:
-    """Echo rule — short_bots_guard pauses LONG hedge bots on cascade_long."""
+    """Reactive: cascade_long ALREADY fired (≥2 BTC longs liquidated). Same
+    gate-by-tier-only as R1 — cascade itself confirms move."""
     out: list[Proposal] = []
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "long" or bot.get("paused_by_guard"):
+        if bot.get("side") != "long":
             continue
         mkt = _market_for_bot(snapshot, bot)
-        if _has_fresh_cascade(mkt, "long"):
-            out.append(Proposal(
-                rule_id="R2_cascade_long_pause",
-                bot_id=bot["bot_id"], tier=bot["tier"],
-                action="pause", params={},
-                reason="fresh cascade_long detected (2026 inverted edge)",
-                confidence=0.85,
-            ))
+        if not _has_fresh_cascade(mkt, "long"):
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="down",
+                                            require_strong_move=False)
+        if not eligible:
+            continue
+        out.append(Proposal(
+            rule_id="R2_cascade_long_pause",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason=f"fresh cascade_long detected ({reason})",
+            confidence=0.85,
+        ))
     return out
 
 
@@ -119,43 +194,57 @@ def _has_fresh_liq_cluster(market: dict, side: str, max_age_min: float = 30.0) -
 
 def r1_5_pre_cascade_short_pause(snapshot: dict) -> list[Proposal]:
     """Pre-emptive pause for SHORT bots on liq-cluster short-side fire.
-    Liq-cluster short-side → expects SHORT cascade in next 30 min → SHORT bots
-    (which profit when price DOWN but suffer when price spikes DOWN hard)
-    paused upfront. Confidence lower than R1 (post-cascade) because precision
-    is 44%, so 56% of pauses will be unneeded. Conservative — pause cost is
-    low (skip some grid fills) vs cascade cost (drawdown). Confidence 0.55."""
+    Gates (2026-05-17 tighter policy):
+      - tier in {T1, TB, LONG-*} (T2/T3 excluded per operator)
+      - liq-cluster qty_btc ≥ 1.5 BTC (raised from 0.5 baseline to filter noise)
+      - BTC moved ≥ +1.5% in last 15m (price-confirms expected up move)
+    Without all 3 — skip. Net effect: pause only on genuinely strong setups."""
     out: list[Proposal] = []
+    mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
+    if not _has_fresh_liq_cluster(mkt, "short"):
+        return out
+    qty = _liq_cluster_qty_meets_min(mkt, "short")
+    if qty is None:
+        return out
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "short" or bot.get("paused_by_guard"):
+        if bot.get("side") != "short":
             continue
-        mkt = _market_for_bot(snapshot, bot)
-        # SHORT cascade hurts SHORT bots → pause if cluster of SHORT liqs (continuation)
-        if _has_fresh_liq_cluster(mkt, "short"):
-            out.append(Proposal(
-                rule_id="R1.5_pre_cascade_short_pause",
-                bot_id=bot["bot_id"], tier=bot["tier"],
-                action="pause", params={},
-                reason="liq-cluster SHORT-side fire (predicts SHORT cascade ~30min, precision 44%)",
-                confidence=0.55,
-            ))
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
+        if not eligible:
+            continue
+        out.append(Proposal(
+            rule_id="R1.5_pre_cascade_short_pause",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason=f"liq-cluster SHORT {qty:.1f}BTC + {reason}",
+            confidence=0.55,
+        ))
     return out
 
 
 def r2_5_pre_cascade_long_pause(snapshot: dict) -> list[Proposal]:
-    """Pre-emptive pause for LONG bots on liq-cluster long-side fire."""
+    """Pre-emptive pause for LONG bots on liq-cluster long-side fire.
+    Same gates as R1.5 (qty ≥1.5 BTC, BTC moved ≥1.5% DOWN in 15m)."""
     out: list[Proposal] = []
+    mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
+    if not _has_fresh_liq_cluster(mkt, "long"):
+        return out
+    qty = _liq_cluster_qty_meets_min(mkt, "long")
+    if qty is None:
+        return out
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "long" or bot.get("paused_by_guard"):
+        if bot.get("side") != "long":
             continue
-        mkt = _market_for_bot(snapshot, bot)
-        if _has_fresh_liq_cluster(mkt, "long"):
-            out.append(Proposal(
-                rule_id="R2.5_pre_cascade_long_pause",
-                bot_id=bot["bot_id"], tier=bot["tier"],
-                action="pause", params={},
-                reason="liq-cluster LONG-side fire (predicts LONG cascade ~30min, precision 44%)",
-                confidence=0.55,
-            ))
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="down")
+        if not eligible:
+            continue
+        out.append(Proposal(
+            rule_id="R2.5_pre_cascade_long_pause",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason=f"liq-cluster LONG {qty:.1f}BTC + {reason}",
+            confidence=0.55,
+        ))
     return out
 
 
@@ -170,19 +259,24 @@ def r1_6_pre_cascade_short_HIGH(snapshot: dict) -> list[Proposal]:
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if not _has_fresh_liq_cluster(mkt, "short"):
         return out
+    qty = _liq_cluster_qty_meets_min(mkt, "short")
+    if qty is None:
+        return out
     taker = mkt.get("taker_buy_pct")
     if taker is None or taker >= 42:
         return out
     confidence = 0.80 if taker < 38 else 0.70
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "short" or bot.get("paused_by_guard"):
+        if bot.get("side") != "short":
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
+        if not eligible:
             continue
         out.append(Proposal(
             rule_id="R1.6_pre_cascade_short_HIGH",
             bot_id=bot["bot_id"], tier=bot["tier"],
             action="pause", params={},
-            reason=f"liq-cluster SHORT + BTC taker_buy {taker:.1f}% < 42 "
-                   f"(precision 67-80%, +23-36 п.п. vs baseline)",
+            reason=f"liq-cluster SHORT {qty:.1f}BTC + taker {taker:.1f}<42 + {reason}",
             confidence=confidence,
         ))
     return out
@@ -221,17 +315,22 @@ def r1_7_pre_cascade_short_TV_CONFIRMED(snapshot: dict) -> list[Proposal]:
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if not _has_fresh_liq_cluster(mkt, "short"):
         return out
+    qty = _liq_cluster_qty_meets_min(mkt, "short")
+    if qty is None:
+        return out
     if not _has_recent_tv_cvd_div(mkt, "bullish"):
         return out
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "short" or bot.get("paused_by_guard"):
+        if bot.get("side") != "short":
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
+        if not eligible:
             continue
         out.append(Proposal(
             rule_id="R1.7_pre_cascade_short_TV_CONFIRMED",
             bot_id=bot["bot_id"], tier=bot["tier"],
             action="pause", params={},
-            reason="liq-cluster SHORT + TV CVD bullish-div alert (absorption pattern, "
-                   "expected precision 55-65%)",
+            reason=f"liq-cluster SHORT {qty:.1f}BTC + TV CVD bullish-div + {reason}",
             confidence=0.85,
         ))
     return out
@@ -243,16 +342,22 @@ def r2_7_pre_cascade_long_TV_CONFIRMED(snapshot: dict) -> list[Proposal]:
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if not _has_fresh_liq_cluster(mkt, "long"):
         return out
+    qty = _liq_cluster_qty_meets_min(mkt, "long")
+    if qty is None:
+        return out
     if not _has_recent_tv_cvd_div(mkt, "bearish"):
         return out
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "long" or bot.get("paused_by_guard"):
+        if bot.get("side") != "long":
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="down")
+        if not eligible:
             continue
         out.append(Proposal(
             rule_id="R2.7_pre_cascade_long_TV_CONFIRMED",
             bot_id=bot["bot_id"], tier=bot["tier"],
             action="pause", params={},
-            reason="liq-cluster LONG + TV CVD bearish-div alert (absorption pattern)",
+            reason=f"liq-cluster LONG {qty:.1f}BTC + TV CVD bearish-div + {reason}",
             confidence=0.85,
         ))
     return out
@@ -269,18 +374,23 @@ def r2_6_pre_cascade_long_HIGH(snapshot: dict) -> list[Proposal]:
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if not _has_fresh_liq_cluster(mkt, "long"):
         return out
+    qty = _liq_cluster_qty_meets_min(mkt, "long")
+    if qty is None:
+        return out
     funding = mkt.get("funding_rate_8h")
     if funding is None or funding > -3e-5:
         return out
     for bot in snapshot.get("bots", []):
-        if bot.get("side") != "long" or bot.get("paused_by_guard"):
+        if bot.get("side") != "long":
+            continue
+        eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="down")
+        if not eligible:
             continue
         out.append(Proposal(
             rule_id="R2.6_pre_cascade_long_HIGH",
             bot_id=bot["bot_id"], tier=bot["tier"],
             action="pause", params={},
-            reason=f"liq-cluster LONG + funding {funding*100:.4f}% < -0.003% "
-                   f"(precision 60%, +18 п.п. vs baseline; small n=5)",
+            reason=f"liq-cluster LONG {qty:.1f}BTC + funding {funding*100:.4f}<-0.003 + {reason}",
             confidence=0.60,
         ))
     return out
