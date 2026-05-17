@@ -1847,19 +1847,24 @@ class TelegramBotApp:
                     self.bot.send_message(chat_id, "\n".join(lines))
                     return
 
-                if cmd in ('pause', 'resume'):
-                    # 2026-05-17: scripts/_diag_tb_pause_strategies.py confirmed
-                    # ALL set_params-based pause/resume strategies → status FAILED.
-                    # set_params IS edit-default-config, NOT GinArea's pause API.
-                    # Disabled for ALL tiers (was: testbed-only) until proper
-                    # endpoint identified via DevTools capture (см.
-                    # project_ginarea_pause_broken.md).
-                    self.bot.send_message(chat_id,
-                        f"⛔ /bot {cmd} полностью отключено (для всех бот'ов включая TB).\n"
-                        f"Причина: подтверждено что set_params(p=false/true) ломает\n"
-                        f"бота в status=FAILED(10) — это не pause API, это edit-config.\n"
-                        f"Используй GinArea UI напрямую для pause/resume.\n"
-                        f"Reopened когда найдём proper endpoint (DevTools capture).")
+                if cmd == 'pause':
+                    # 2026-05-17 v2: now uses captured proper endpoint
+                    # PUT /bots/{id}/stop via control.pause_bot.
+                    from services.short_bots_guard.control import pause_bot
+                    res = pause_bot(bot_id, dry_run=False,
+                                     reason=f"manual TG /bot {tier} pause",
+                                     trigger=f"tg_manual:{chat_id}")
+                    self.bot.send_message(chat_id, f"⏸ [{tier_label}] pause → {res.get('action')}")
+                    return
+
+                if cmd == 'resume':
+                    # 2026-05-17 v2: now uses captured proper endpoint
+                    # PUT /bots/{id}/start via control.resume_bot.
+                    from services.short_bots_guard.control import resume_bot
+                    res = resume_bot(bot_id, dry_run=False,
+                                      reason=f"manual TG /bot {tier} resume",
+                                      trigger=f"tg_manual:{chat_id}")
+                    self.bot.send_message(chat_id, f"▶ [{tier_label}] resume → {res.get('action')}")
                     return
 
                 if cmd in ('resize', 'tighten', 'widen'):

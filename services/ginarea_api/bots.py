@@ -118,31 +118,30 @@ class BotsAPI:
     # falling back to broken set_params logic.
 
     def pause_bot(self, bot_id: int) -> dict:
-        """Pause a running bot via GinArea's proper pause API.
+        """Pause a running bot via GinArea's proper stop API.
 
-        STATUS: ENDPOINT NOT YET CAPTURED — need DevTools snapshot of UI
-        pause click. start_bot endpoint was captured 2026-05-17 as
-        `PUT /api/bots/{id}/start`, so pause likely follows similar pattern
-        — try `/pause` or `/stop`.
+        Captured 2026-05-17 from operator DevTools:
+          PUT https://ginarea.org/api/bots/{id}/stop
+          Body: {} (empty JSON)
+          → 200 OK; bot transitions ACTIVE → STOPPING → STOPPED/PAUSED.
 
-        DO NOT fall back to set_params(p=False) — that breaks the bot
-        (status → FAILED, confirmed 2026-05-17 TB diagnostic).
+        This is what GinArea UI calls when operator clicks ⏸ on Active bot.
         """
-        raise NotImplementedError(
-            f"pause_bot({bot_id}): pause endpoint not yet captured via "
-            "DevTools. Operator must click ⏸ in GinArea UI directly. "
-            "See docs/api/GINAREA_API_NOTES.md and "
-            "project_ginarea_pause_broken.md."
+        return self.client.request(
+            "PUT",
+            f"/bots/{bot_id}/stop",
+            json={},
         )
 
     def resume_bot(self, bot_id: int) -> dict:
-        """Resume a paused bot via GinArea's proper start API.
+        """Resume a paused/stopped/failed bot via GinArea's proper start API.
 
-        Captured 2026-05-17 from operator DevTools: PUT /api/bots/{id}/start
-        with empty JSON body `{}`. Returns 200 on success.
+        Captured 2026-05-17 from operator DevTools:
+          PUT https://ginarea.org/api/bots/{id}/start
+          Body: {} (empty JSON)
+          → 200 OK; bot transitions PAUSED/FAILED → STARTING → ACTIVE.
 
-        Note: this is the same endpoint UI calls when operator clicks ▶
-        Restart on a Failed bot — recovers from FAILED state.
+        Same endpoint UI calls when operator clicks ▶ play/restart.
         """
         return self.client.request(
             "PUT",

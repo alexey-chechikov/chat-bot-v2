@@ -141,29 +141,51 @@ def is_paused(bot_id: str) -> Optional[bool]:
     return not state.get("p", True)  # paused == not active
 
 
-# Per-bot cached state of (p, mono_ts_seconds). TTL CACHE_TTL_SEC — within that
-# window, skip the GET API call when target matches cache. Reduces GinArea
-# read traffic substantially: once a bot is paused (target=False, cache=False)
-# next 60s of pause-proposals are noop without any API call.
-_state_cache: dict[str, tuple[bool, float]] = {}
+# Per-bot cached runtime status (status_code, mono_ts_seconds). TTL CACHE_TTL_SEC —
+# within that window, skip the GET API call when target matches cache. Reduces
+# GinArea read traffic substantially: once a bot is PAUSED (cache=3), next 60s
+# of pause-proposals are noop without any API call.
+#
+# Cache stores BotStatus code (2=ACTIVE, 3=PAUSED, etc) — runtime truth, NOT
+# the params.p config flag that misled us in 2026-05-17 incident.
+_status_cache: dict[str, tuple[int, float]] = {}
 CACHE_TTL_SEC = 60.0
 
+# BotStatus codes (from docs/api/GINAREA_API_NOTES.md). Hardcoded to avoid
+# importing from models on every call.
+STATUS_ACTIVE = 2
+STATUS_PAUSED = 3
+STATUS_FAILED = 10
+STATUS_STOPPED = 12
+# Statuses we consider "effectively paused" (target of pause_bot)
+PAUSED_LIKE = {STATUS_PAUSED, STATUS_STOPPED}
+# Statuses we consider "effectively running" (target of resume_bot)
+ACTIVE_LIKE = {STATUS_ACTIVE}
 
-def _set_p(bot_id: str, target_p: bool, *, dry_run: bool = False,
-            reason: str = "", trigger: str = "") -> dict:
-    """Internal: set p flag. Returns audit record.
-    2026-05-17: added in-memory cache to skip GET when target matches recent
-    known state — reduces API spam to GinArea."""
+
+def _api_call(bot_id: str, action: str, *, dry_run: bool = False,
+              reason: str = "", trigger: str = "") -> dict:
+    """Call GinArea's proper start/stop endpoint via BotsAPI.
+
+    action: 'pause' (PUT /bots/{id}/stop) or 'resume' (PUT /bots/{id}/start).
+
+    2026-05-17 rewrite: replaces the broken set_params(p=true/false) path that
+    transitioned bots to status=FAILED. Now uses the captured /start and /stop
+    endpoints (PUT with empty body).
+    """
     import time
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    # Cache fast-path: if we know p was target_p recently — no API call needed
-    cached = _state_cache.get(bot_id)
+    target_paused = (action == "pause")
+    target_set = PAUSED_LIKE if target_paused else ACTIVE_LIKE
+
+    # Cache fast-path: skip the GET if we recently observed target state
+    cached = _status_cache.get(bot_id)
     if cached is not None:
-        cached_p, cached_ts = cached
-        if (time.monotonic() - cached_ts) <= CACHE_TTL_SEC and cached_p == target_p:
+        cached_status, cached_ts = cached
+        if (time.monotonic() - cached_ts) <= CACHE_TTL_SEC and cached_status in target_set:
             rec = {
                 "ts": now, "bot_id": bot_id, "action": "noop_cached",
-                "current_p": cached_p, "target_p": target_p,
+                "current_status": cached_status, "target_action": action,
                 "reason": reason, "trigger": trigger,
             }
             _audit(rec)
@@ -171,85 +193,78 @@ def _set_p(bot_id: str, target_p: bool, *, dry_run: bool = False,
 
     api, err = _build_api()
     if api is None:
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": "skip_api_unavailable",
-            "target_p": target_p, "reason": reason, "trigger": trigger,
-            "error": err,
-        }
+        rec = {"ts": now, "bot_id": bot_id, "action": "skip_api_unavailable",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": err}
         _audit(rec)
         return rec
 
+    # Read current runtime status — source of truth
     try:
-        current = api.get_params(int(bot_id))
+        bot = api.get_bot(int(bot_id))
+        current_status = int(bot.status)
     except Exception as e:
-        logger.exception("short_bots_guard.read_params_failed bot=%s", bot_id)
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": "skip_read_failed",
-            "target_p": target_p, "reason": reason, "trigger": trigger,
-            "error": str(e),
-        }
+        logger.exception("short_bots_guard.read_status_failed bot=%s", bot_id)
+        rec = {"ts": now, "bot_id": bot_id, "action": "skip_read_failed",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": str(e)}
         _audit(rec)
         return rec
 
-    current_p = bool(current.p) if current.p is not None else True
-    # Update cache from fresh read regardless of branch
-    import time
-    _state_cache[bot_id] = (current_p, time.monotonic())
+    _status_cache[bot_id] = (current_status, time.monotonic())
 
-    if current_p == target_p:
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": "noop_already",
-            "current_p": current_p, "target_p": target_p,
-            "reason": reason, "trigger": trigger,
-        }
+    # Noop if already in target state
+    if current_status in target_set:
+        rec = {"ts": now, "bot_id": bot_id, "action": "noop_already",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
         _audit(rec)
         return rec
 
     if dry_run:
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": "dry_run",
-            "current_p": current_p, "target_p": target_p,
-            "reason": reason, "trigger": trigger,
-        }
+        rec = {"ts": now, "bot_id": bot_id, "action": "dry_run",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
         _audit(rec)
         return rec
 
-    # Construct new params with only p changed
+    # LIVE write via proper endpoint
     try:
-        # Create a new DefaultGridParams with all fields copied + p modified
-        from dataclasses import replace
-        new_params = replace(current, p=target_p)
-        api.set_params(int(bot_id), new_params)
-        # Update cache after successful write
-        _state_cache[bot_id] = (target_p, time.monotonic())
-        action = "paused" if not target_p else "resumed"
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": action,
-            "current_p": current_p, "target_p": target_p,
-            "reason": reason, "trigger": trigger,
-        }
+        if target_paused:
+            api.pause_bot(int(bot_id))  # PUT /bots/{id}/stop
+        else:
+            api.resume_bot(int(bot_id))  # PUT /bots/{id}/start
+        # Optimistically cache target — actual confirmation requires re-read
+        # but the executor's next tick will refresh. Note: STARTING(1) or
+        # STOPPING(11) are transient — cache becomes stale within 1-3s, that's OK.
+        _status_cache[bot_id] = (
+            STATUS_PAUSED if target_paused else STATUS_ACTIVE,
+            time.monotonic(),
+        )
+        rec = {"ts": now, "bot_id": bot_id,
+               "action": "paused" if target_paused else "resumed",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
         _audit(rec)
         logger.info("short_bots_guard.%s bot=%s reason=%s trigger=%s",
-                    action, bot_id, reason, trigger)
+                    rec["action"], bot_id, reason, trigger)
         return rec
     except Exception as e:
-        logger.exception("short_bots_guard.set_params_failed bot=%s", bot_id)
-        rec = {
-            "ts": now, "bot_id": bot_id, "action": "error",
-            "target_p": target_p, "reason": reason, "trigger": trigger,
-            "error": str(e),
-        }
+        logger.exception("short_bots_guard.%s_failed bot=%s", action, bot_id)
+        rec = {"ts": now, "bot_id": bot_id, "action": "error",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": str(e)}
         _audit(rec)
         return rec
 
 
 def pause_bot(bot_id: str, *, dry_run: bool = False, reason: str = "",
               trigger: str = "") -> dict:
-    """Pause bot. Idempotent. Returns audit record."""
-    return _set_p(bot_id, target_p=False, dry_run=dry_run, reason=reason, trigger=trigger)
+    """Pause bot via PUT /bots/{id}/stop. Idempotent. Returns audit record."""
+    return _api_call(bot_id, "pause", dry_run=dry_run, reason=reason, trigger=trigger)
 
 
 def resume_bot(bot_id: str, *, dry_run: bool = False, reason: str = "",
                trigger: str = "") -> dict:
-    """Resume bot. Idempotent."""
-    return _set_p(bot_id, target_p=True, dry_run=dry_run, reason=reason, trigger=trigger)
+    """Resume bot via PUT /bots/{id}/start. Idempotent."""
+    return _api_call(bot_id, "resume", dry_run=dry_run, reason=reason, trigger=trigger)
