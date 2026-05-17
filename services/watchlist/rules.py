@@ -242,11 +242,31 @@ def _read_value(field: str, symbol: str = "BTCUSDT") -> float | None:
     return None
 
 
+# Rules disabled by path-aware audit 2026-05-17 (scripts/watchlist_path_aware_backtest.py).
+# state/watchlist.json is gitignored so per-rule `enabled=false` does NOT propagate
+# across machines / fresh clones. This hardcoded set guarantees a fresh deploy on
+# Mac OR Windows skips these broken rules even if state file is regenerated.
+# To re-enable a rule after re-validation: remove its ID from this set + verify by
+# re-running scripts/watchlist_path_aware_backtest.py with new data.
+HARDCODED_DISABLED_IDS = {
+    # taker_imbalance_long across all 3 symbols — -EV in any execution
+    "a1b2c3d4",  # BTC own taker > 58: mean PnL -0.061%/trade, sum -$10K
+    "eth00002",  # ETH cross-asset taker > 58: -0.049%/trade
+    "xrp00002",  # XRP cross-asset taker > 58: -0.057%/trade
+    # topshort_divergence_long — anti-edge -35 п.п. vs baseline
+    "c9d0e1f2",  # n=17, mean PnL -0.26%/trade, paper "71% pct_up" inverted
+}
+
+
 def evaluate_rules(rules: list[Rule]) -> list[tuple[Rule, float]]:
-    """Return list of (rule, value) for rules that match. Skips disabled."""
+    """Return list of (rule, value) for rules that match. Skips disabled.
+    Hardcoded broken-rule set takes precedence over JSON `enabled` flag —
+    safety net against gitignored watchlist.json drift between machines."""
     fired: list[tuple[Rule, float]] = []
     for rule in rules:
         if not rule.enabled:
+            continue
+        if rule.id in HARDCODED_DISABLED_IDS:
             continue
         v = _read_value(rule.field, symbol=getattr(rule, "symbol", "BTCUSDT"))
         if v is None:

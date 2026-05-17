@@ -182,26 +182,34 @@ def compute_signal(window: pd.DataFrame, params: RangeHunterParams = DEFAULT_PAR
     sell_level = mid * (1.0 + params.width_pct / 100.0)
     levels_source = "mid_symmetric"
 
-    # TV VPVR override: если оператор закинул свежие VAL/VAH через /levels
+    # VPVR override: если TV/local volume profile дал свежие VAL/VAH
     # И они находятся в "разумной близости" от mid (max 2× ширины grid от mid)
     # — используем их вместо симметричных, fill rate должен подняться.
+    # Per-symbol lookup: BTCUSDT→BTCUSD storage key, ETH/XRP — as-is.
+    proximity_score = 0.0  # 0.0 = mid_symmetric, 1.0 = exact snap to VAL & VAH
     try:
         from services.manual_levels import get_levels
-        lv = get_levels("BTCUSD")
+        from services.volume_nodes import SYMBOL_STORAGE_MAP
+        storage_sym = SYMBOL_STORAGE_MAP.get(params.symbol.upper(), params.symbol.upper())
+        lv = get_levels(storage_sym)
         if lv:
             max_offset = mid * params.width_pct * 2 / 100.0  # 2× width до VAL/VAH
             val = lv.get("val")
             vah = lv.get("vah")
             new_buy = buy_level
             new_sell = sell_level
+            snaps = 0
             if val and abs(mid - val) <= max_offset and val < mid:
                 new_buy = float(val)
+                snaps += 1
             if vah and abs(vah - mid) <= max_offset and vah > mid:
                 new_sell = float(vah)
+                snaps += 1
             if new_buy != buy_level or new_sell != sell_level:
                 buy_level = new_buy
                 sell_level = new_sell
                 levels_source = "vpvr_snap"
+                proximity_score = snaps / 2.0  # 0.5 = one-sided, 1.0 = both VAL+VAH
     except Exception:
         pass  # graceful fallback
 
@@ -238,6 +246,7 @@ def compute_signal(window: pd.DataFrame, params: RangeHunterParams = DEFAULT_PAR
     )
     # Прикрепляем источник уровней (динамическое поле, не ломает dataclass)
     object.__setattr__(sig, "levels_source", levels_source)
+    object.__setattr__(sig, "proximity_score", proximity_score)
     return sig
 
 

@@ -1673,6 +1673,143 @@ class TelegramBotApp:
                 pass
             self.bot.send_message(chat_id, "\n".join(lines))
 
+        @self.bot.message_handler(commands=['bot', 'bots'])
+        def handle_bot(message) -> None:
+            """/bot <tier> <cmd> — TG-управление managed botом GinArea.
+            Commands:
+              pause       — set p=False (idempotent)
+              resume      — set p=True
+              status      — read current params via GinArea API
+              resize <N>  — multiply maxQ/minQ × N (testbed only)
+              tighten <N> — multiply gs × N
+              widen <N>   — multiply gs × N
+            tier ∈ T1/T2/T3/TB/LONG-D/LONG-V5  (или bot_id)
+            /bots — список всех managed bots + статус (no args)."""
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            import json as _json
+            from pathlib import Path as _Path
+            ROOT = _Path('/Users/alexeychechikov/code/bot7')
+            args = (message.text or "").split()[1:]
+
+            # Load managed bots
+            managed_path = ROOT / 'state' / 'short_bots_managed.json'
+            try:
+                managed = _json.loads(managed_path.read_text(encoding='utf-8'))
+                bots = managed.get('managed_bots', [])
+            except Exception as e:
+                self.bot.send_message(chat_id, f'❌ short_bots_managed.json read failed: {e}')
+                return
+
+            # /bots — list mode
+            if not args:
+                lines = ["🤖 Managed bots:"]
+                for b in bots:
+                    tb = " [TB]" if b.get('testbed') else ""
+                    lines.append(f"  {b['tier']:10}{tb}  {b['alias']:30}  id={b['bot_id']}  side={b['side']}")
+                lines.append("\nUsage: /bot <tier> <cmd>  — pause/resume/status/resize <N>/tighten <N>/widen <N>")
+                self.bot.send_message(chat_id, "\n".join(lines))
+                return
+
+            tier = args[0]
+            cmd = args[1].lower() if len(args) >= 2 else "status"
+            extra_arg = args[2] if len(args) >= 3 else None
+
+            # Resolve tier → bot_id (also accept raw bot_id directly)
+            bot = None
+            for b in bots:
+                if str(b.get('tier')).lower() == tier.lower() or str(b.get('bot_id')) == tier:
+                    bot = b
+                    break
+            if bot is None:
+                self.bot.send_message(chat_id, f"❌ tier '{tier}' не найден. /bots для списка.")
+                return
+
+            bot_id = str(bot['bot_id'])
+            is_testbed = bool(bot.get('testbed'))
+            tier_label = bot['tier']
+
+            try:
+                if cmd == 'status':
+                    from services.short_bots_guard.control import get_bot_state
+                    st = get_bot_state(bot_id)
+                    msg = (f"🤖 [{tier_label}] {bot.get('alias')}\n"
+                           f"  bot_id: {bot_id}\n"
+                           f"  testbed: {is_testbed}\n"
+                           f"  side: {bot.get('side')}\n"
+                           f"  ok: {st.get('ok')}\n"
+                           f"  active (p): {st.get('p')}\n"
+                           f"  gs (grid_step): {st.get('gs')}\n")
+                    if st.get('error'):
+                        msg += f"  error: {st['error']}\n"
+                    self.bot.send_message(chat_id, msg)
+                    return
+
+                if cmd == 'pause':
+                    from services.short_bots_guard.control import pause_bot
+                    res = pause_bot(bot_id, dry_run=False,
+                                     reason=f"manual TG /bot {tier} pause",
+                                     trigger=f"tg_manual:{chat_id}")
+                    self.bot.send_message(chat_id, f"⏸ [{tier_label}] pause → {res.get('action')}")
+                    return
+
+                if cmd == 'resume':
+                    from services.short_bots_guard.control import resume_bot
+                    res = resume_bot(bot_id, dry_run=False,
+                                      reason=f"manual TG /bot {tier} resume",
+                                      trigger=f"tg_manual:{chat_id}")
+                    self.bot.send_message(chat_id, f"▶ [{tier_label}] resume → {res.get('action')}")
+                    return
+
+                if cmd in ('resize', 'tighten', 'widen'):
+                    if extra_arg is None:
+                        self.bot.send_message(chat_id, f"Usage: /bot {tier} {cmd} <factor>  (e.g. 0.5 / 0.7 / 1.3)")
+                        return
+                    try:
+                        factor = float(extra_arg)
+                    except ValueError:
+                        self.bot.send_message(chat_id, f"❌ factor должен быть число: {extra_arg}")
+                        return
+                    # resize is testbed-only by default; warn for prod
+                    if cmd == 'resize' and not is_testbed:
+                        self.bot.send_message(chat_id,
+                            f"⚠ resize на production bot ({tier_label}) — будет применено LIVE. "
+                            f"Подтверди явно через /bot {tier} resize_force {factor}")
+                        return
+                    from services.bot_brain.actions import dispatch
+                    action_name = {"resize": "resize", "tighten": "tighten_grid",
+                                    "widen": "widen_grid"}[cmd]
+                    res = dispatch(action_name, bot_id, params={"factor": factor},
+                                    mode="live",
+                                    reason=f"manual TG /bot {tier} {cmd} {factor}",
+                                    rule_id=f"tg_manual:{chat_id}")
+                    self.bot.send_message(chat_id,
+                        f"🔧 [{tier_label}] {cmd} × {factor} → {res.get('status')}\n"
+                        f"  details: {res}")
+                    return
+
+                if cmd == 'resize_force':
+                    if extra_arg is None:
+                        self.bot.send_message(chat_id, f"Usage: /bot {tier} resize_force <factor>")
+                        return
+                    factor = float(extra_arg)
+                    from services.bot_brain.actions import dispatch
+                    res = dispatch("resize", bot_id, params={"factor": factor},
+                                    mode="live",
+                                    reason=f"manual TG /bot {tier} resize_force {factor}",
+                                    rule_id=f"tg_manual_force:{chat_id}")
+                    self.bot.send_message(chat_id,
+                        f"🔧 [{tier_label}] resize × {factor} FORCED → {res.get('status')}")
+                    return
+
+                self.bot.send_message(chat_id,
+                    f"❌ unknown command '{cmd}'. Допустимо: pause/resume/status/resize/tighten/widen.")
+            except Exception as e:
+                logger.exception("tg.bot_command_failed tier=%s cmd=%s", tier, cmd)
+                self.bot.send_message(chat_id, f"❌ {cmd} failed: {e}")
+
         @self.bot.message_handler(commands=['levels'])
         def handle_levels(message) -> None:
             """/levels — показать текущие уровни VPVR.

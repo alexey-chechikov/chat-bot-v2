@@ -166,6 +166,34 @@ def _format_alert(side: str, qty_btc: float,
     # Validated offensive entry: SHORT pre-cluster → LONG continuation
     plan = PRE_CASCADE_ENTRY_PLANS.get(side)
     last_price = _read_last_btc_price()
+
+    # Conflict check: if an OPPOSITE cascade fired recently, the validated edge
+    # is suspect — they predict opposite directions. Read cascade_alert_dedup.
+    # For SHORT-side cluster (predicts UP): conflict if cascade_long fired
+    # within last 60 min (2026 inverted edge predicts DOWN).
+    conflict_event: Optional[str] = None
+    try:
+        dedup_path = ROOT / "state" / "cascade_alert_dedup.json"
+        if dedup_path.exists():
+            dedup = json.loads(dedup_path.read_text(encoding="utf-8"))
+            now_utc = now or datetime.now(timezone.utc)
+            opposite_prefix = "long_" if side == "short" else "short_"
+            for cascade_type, ts_iso in dedup.items():
+                if not isinstance(ts_iso, str) or not cascade_type.startswith(opposite_prefix):
+                    continue
+                try:
+                    ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+                age_min = (now_utc - ts).total_seconds() / 60.0
+                if 0 <= age_min <= 60.0:
+                    conflict_event = f"{cascade_type} ({age_min:.0f} мин назад)"
+                    break
+    except (OSError, json.JSONDecodeError):
+        pass
+
     if plan and last_price and last_price > 0:
         tp1 = last_price * (1 + plan["tp1_pct"] / 100)
         tp2 = last_price * (1 + plan["tp2_pct"] / 100)
@@ -175,14 +203,22 @@ def _format_alert(side: str, qty_btc: float,
         rr2 = abs(plan["tp2_pct"]) / risk if risk else 0
         from datetime import timedelta as _td
         exit_at = (now or datetime.now(timezone.utc)) + _td(hours=plan["exit_after_h"])
-        lines.append("💰 ОФФЕНСИВНАЯ опция (validated edge):")
-        lines.append(f"  {plan['edge_note']}")
-        lines.append(f"  Направление: {plan['dir']} (continuation после shorts liquidated)")
-        lines.append(f"  Entry:  ~${last_price:,.0f}")
-        lines.append(f"  Stop:   ${stop:,.0f}   ({plan['stop_pct']:+.2f}%)")
-        lines.append(f"  TP1:    ${tp1:,.0f}   ({plan['tp1_pct']:+.2f}%, R:R 1:{rr1:.1f})")
-        lines.append(f"  TP2:    ${tp2:,.0f}   ({plan['tp2_pct']:+.2f}%, R:R 1:{rr2:.1f})")
-        lines.append(f"  Exit by: {exit_at.strftime('%H:%M UTC')} (+{plan['exit_after_h']}h)")
+        if conflict_event:
+            lines.append("⚠ ОФФЕНСИВНАЯ опция — CONFLICT, ВХОДИТЬ НЕ РЕКОМЕНДУЕТСЯ:")
+            lines.append(f"  ⛔ Конфликт сигналов: {conflict_event} предсказывает противоположное направление")
+            lines.append(f"  ⛔ Edge {plan['edge_note']} проверен БЕЗ учёта одновременных cascade events")
+            lines.append(f"  ⛔ Whipsaw риск: оба сигнала за <60 мин = высокая волатильность, не trade-time")
+            lines.append(f"  Hypothetical plan ({plan['dir']}): entry ~${last_price:,.0f}, stop ${stop:,.0f}, TP2 ${tp2:,.0f}")
+            lines.append(f"  Решение: skip пока один из сигналов не разрешится")
+        else:
+            lines.append("💰 ОФФЕНСИВНАЯ опция (validated edge):")
+            lines.append(f"  {plan['edge_note']}")
+            lines.append(f"  Направление: {plan['dir']} (continuation после shorts liquidated)")
+            lines.append(f"  Entry:  ~${last_price:,.0f}")
+            lines.append(f"  Stop:   ${stop:,.0f}   ({plan['stop_pct']:+.2f}%)")
+            lines.append(f"  TP1:    ${tp1:,.0f}   ({plan['tp1_pct']:+.2f}%, R:R 1:{rr1:.1f})")
+            lines.append(f"  TP2:    ${tp2:,.0f}   ({plan['tp2_pct']:+.2f}%, R:R 1:{rr2:.1f})")
+            lines.append(f"  Exit by: {exit_at.strftime('%H:%M UTC')} (+{plan['exit_after_h']}h)")
     elif side == "long":
         lines.append("ℹ️ LONG pre-cluster: defensive only (edge инвертировался в 2026, см. cascade_long_reversal_short).")
 
