@@ -1784,13 +1784,26 @@ class TelegramBotApp:
                 if cmd == 'status':
                     from services.short_bots_guard.control import get_bot_state
                     st = get_bot_state(bot_id)
+                    # Runtime status enum (source of truth) vs config-level p flag
+                    rt_status = st.get('status_name') or '?'
+                    rt_code = st.get('status')
+                    status_emoji = {
+                        "ACTIVE": "🟢", "PAUSED": "⏸", "FAILED": "🔴",
+                        "STARTING": "🟡", "STOPPING": "🟡", "STOPPED": "⚫",
+                        "FINISHED": "✅", "TP_STOPPED": "💰", "SL_STOPPED": "🛑",
+                    }.get(rt_status, "❓")
                     msg = (f"🤖 [{tier_label}] {bot.get('alias')}\n"
                            f"  bot_id: {bot_id}\n"
                            f"  testbed: {is_testbed}\n"
                            f"  side: {bot.get('side')}\n"
-                           f"  ok: {st.get('ok')}\n"
-                           f"  active (p): {st.get('p')}\n"
+                           f"  {status_emoji} runtime status: {rt_status}({rt_code})\n"
+                           f"  config active (p): {st.get('p')}\n"
+                           f"  otcPassed: {st.get('otcPassed')}\n"
                            f"  gs (grid_step): {st.get('gs')}\n")
+                    if rt_status == "FAILED":
+                        msg += "  ⚠ Бот в FAILED — кликни ▶ Restart в GinArea UI\n"
+                    if rt_status == "ACTIVE" and st.get('otcPassed') is False:
+                        msg += "  ⚠ otcPassed=False — бот активен но ждёт start condition\n"
                     if st.get('error'):
                         msg += f"  error: {st['error']}\n"
                     self.bot.send_message(chat_id, msg)

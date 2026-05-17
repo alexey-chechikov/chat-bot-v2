@@ -100,18 +100,33 @@ def _build_api():
 
 
 def get_bot_state(bot_id: str) -> dict:
-    """Get current bot params. Returns {bot_id, p, ok, error?}."""
+    """Get current bot params + RUNTIME status (BotStatus enum).
+    2026-05-17: added runtime `status` field per docs/api/GINAREA_API_NOTES.md
+    BotStatus enum (2=ACTIVE, 3=PAUSED, 10=FAILED, etc). params.p is
+    config-level (bot.active flag), status is the actual runtime state."""
     api, err = _build_api()
     if api is None:
         return {"bot_id": bot_id, "ok": False, "error": err}
     try:
         params = api.get_params(int(bot_id))
+        # Runtime status — separate from config-level p flag
+        runtime_status = None
+        runtime_status_name = None
+        try:
+            bot = api.get_bot(int(bot_id))
+            runtime_status = int(bot.status)
+            runtime_status_name = bot.status.name
+        except Exception:
+            logger.exception("get_bot_state.runtime_status_read_failed bot=%s", bot_id)
         return {
             "bot_id": bot_id,
             "ok": True,
             "p": bool(params.p),
+            "status": runtime_status,
+            "status_name": runtime_status_name,
             "gs": params.gs,
             "side": int(params.side) if params.side is not None else None,
+            "otcPassed": (params.extra_raw.get("in") or {}).get("otcPassed"),
         }
     except Exception as e:
         logger.exception("short_bots_guard.get_state_failed bot=%s", bot_id)
