@@ -42,6 +42,7 @@ EVENTS_CSV = GINAREA_DIR / "events.csv"
 EXHAUSTION_FIRES_PATH = STATE_DIR / "grid_coordinator_fires.jsonl"
 EXHAUSTION_INTRADAY_FIRES_PATH = STATE_DIR / "grid_coordinator_intraday_fires.jsonl"
 LIQ_CLUSTER_FIRES_PATH = STATE_DIR / "liq_pre_cascade_fires.jsonl"
+TV_ALERTS_PATH = STATE_DIR / "tv_alerts.jsonl"
 
 # Map storage symbol used in manual_levels.json
 LEVELS_SYMBOL_MAP = {
@@ -341,6 +342,51 @@ def _read_liq_cluster_fires_recent(now: datetime, max_age_min: float = 30.0
     return out
 
 
+def _read_tv_alerts_recent(now: datetime, max_age_min: float = 15.0) -> list[dict]:
+    """Recent TV-webhook alerts (last 15 min by default) from tv_alerts.jsonl.
+    Used by R1.7 combo rule: liq_cluster + recent TV CVD-divergence alert.
+    Returns list of {ts, payload, age_min}."""
+    if not TV_ALERTS_PATH.exists():
+        return []
+    out = []
+    try:
+        with TV_ALERTS_PATH.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            chunk = min(size, 64 * 1024)
+            f.seek(size - chunk)
+            tail = f.read().decode("utf-8", errors="ignore")
+        for line in tail.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts_iso = rec.get("ingest_ts")
+            if not ts_iso:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            age = (now - ts).total_seconds() / 60.0
+            if age > max_age_min or age < 0:
+                continue
+            out.append({
+                "ingest_ts": ts_iso,
+                "payload": rec.get("payload") or {},
+                "age_min": round(age, 1),
+            })
+    except OSError:
+        logger.exception("bot_brain.state.tv_alerts_read_failed")
+    out.sort(key=lambda e: e["age_min"])
+    return out
+
+
 def _bot_pnl_24h(bot_id: str, current_profit: Optional[float]) -> Optional[float]:
     """Compute realized PnL over last 24h for a bot by walking back bot_brain_state.jsonl.
     Returns delta = current_profit - profit_24h_ago, or None if insufficient history."""
@@ -519,10 +565,12 @@ def collect_snapshot(now: Optional[datetime] = None) -> dict[str, Any]:
     bots = _read_bots(btc_mid)
     exhaustion = _read_exhaustion_fires_recent(now)
     liq_clusters = _read_liq_cluster_fires_recent(now)
+    tv_alerts = _read_tv_alerts_recent(now)
     # Attach to BTCUSDT market (currently the only symbol they fire on)
     if "BTCUSDT" in market:
         market["BTCUSDT"]["exhaustion_fires_recent"] = exhaustion
         market["BTCUSDT"]["liq_cluster_fires_recent"] = liq_clusters
+        market["BTCUSDT"]["tv_alerts_recent"] = tv_alerts
     return {
         "ts": now.isoformat(timespec="seconds"),
         "version": 2,

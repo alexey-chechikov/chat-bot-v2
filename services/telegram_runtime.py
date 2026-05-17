@@ -1673,6 +1673,54 @@ class TelegramBotApp:
                 pass
             self.bot.send_message(chat_id, "\n".join(lines))
 
+        @self.bot.message_handler(commands=['tv_status', 'tv'])
+        def handle_tv_status(message) -> None:
+            """/tv_status [N] — last N TradingView webhook alerts (default 10).
+            Verifies the TV → bot7 webhook flow is live + shows recent signals."""
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            import json as _json
+            from pathlib import Path as _Path
+            args = (message.text or "").split()[1:]
+            n = int(args[0]) if args and args[0].isdigit() else 10
+            path = _Path('/Users/alexeychechikov/code/bot7/state/tv_alerts.jsonl')
+            if not path.exists():
+                self.bot.send_message(chat_id,
+                    "📡 TV webhook не получал alerts ещё.\n"
+                    "Setup: docs/TV_WEBHOOK_SETUP_2026-05-17.md\n"
+                    "Endpoint: /tv/<TOKEN>/alert на порту 8770")
+                return
+            try:
+                lines = path.read_text(encoding='utf-8').splitlines()
+            except OSError:
+                self.bot.send_message(chat_id, "❌ tv_alerts.jsonl read failed")
+                return
+            recent = []
+            for line in lines[-n:]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    recent.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    continue
+            if not recent:
+                self.bot.send_message(chat_id,
+                    "📡 TV webhook: журнал пуст (или строки невалидны)")
+                return
+            out_lines = [f"📡 TV alerts (last {len(recent)} of {len(lines)} total):"]
+            for r in recent:
+                ts = (r.get('ingest_ts') or '?')[:19]
+                p = r.get('payload') or {}
+                tkr = p.get('ticker', '?')
+                ind = p.get('indicator', '?')
+                dir_ = p.get('direction', '?')
+                price = p.get('price', '?')
+                out_lines.append(f"  {ts}  {tkr:8} {ind:25} {dir_:10} @ {price}")
+            self.bot.send_message(chat_id, "\n".join(out_lines))
+
         @self.bot.message_handler(commands=['bot', 'bots'])
         def handle_bot(message) -> None:
             """/bot <tier> <cmd> — TG-управление managed botом GinArea.

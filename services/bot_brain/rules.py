@@ -188,6 +188,76 @@ def r1_6_pre_cascade_short_HIGH(snapshot: dict) -> list[Proposal]:
     return out
 
 
+def _has_recent_tv_cvd_div(market: dict, expected_direction: str,
+                            max_age_min: float = 15.0) -> bool:
+    """Check tv_alerts_recent for CVD-divergence alert in expected direction
+    within max_age_min. Used by R1.7/R2.7 combo rules.
+
+    expected_direction: "bearish" or "bullish" — per Phase 3.4 finding,
+    OPPOSITE-direction CVD div is the absorption signal that lifts precision.
+    """
+    alerts = market.get("tv_alerts_recent") or []
+    for a in alerts:
+        if a.get("age_min", 999) > max_age_min:
+            continue
+        p = a.get("payload") or {}
+        if p.get("indicator") != "cvd_divergence":
+            continue
+        if p.get("direction") == expected_direction:
+            return True
+    return False
+
+
+def r1_7_pre_cascade_short_TV_CONFIRMED(snapshot: dict) -> list[Proposal]:
+    """HIGHEST-confidence pre-pause: short-side liq_cluster + TV CVD bullish-div alert.
+    Per Phase 3.4 research: opposite-direction CVD div (bullish_div when short-cluster
+    fires) is absorption signal. Expected precision 55-65% (vs 44% baseline /
+    67% R1.6). Confidence 0.85 — TV signal is independent confirmation.
+
+    Fires only when both signals are recent (≤30min cluster + ≤15min TV alert).
+    Stays dormant until TV alerts start arriving (no-op when tv_alerts.jsonl empty).
+    """
+    out: list[Proposal] = []
+    mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
+    if not _has_fresh_liq_cluster(mkt, "short"):
+        return out
+    if not _has_recent_tv_cvd_div(mkt, "bullish"):
+        return out
+    for bot in snapshot.get("bots", []):
+        if bot.get("side") != "short" or bot.get("paused_by_guard"):
+            continue
+        out.append(Proposal(
+            rule_id="R1.7_pre_cascade_short_TV_CONFIRMED",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason="liq-cluster SHORT + TV CVD bullish-div alert (absorption pattern, "
+                   "expected precision 55-65%)",
+            confidence=0.85,
+        ))
+    return out
+
+
+def r2_7_pre_cascade_long_TV_CONFIRMED(snapshot: dict) -> list[Proposal]:
+    """HIGHEST-confidence pre-pause for LONG bots: long-side cluster + TV CVD bearish-div."""
+    out: list[Proposal] = []
+    mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
+    if not _has_fresh_liq_cluster(mkt, "long"):
+        return out
+    if not _has_recent_tv_cvd_div(mkt, "bearish"):
+        return out
+    for bot in snapshot.get("bots", []):
+        if bot.get("side") != "long" or bot.get("paused_by_guard"):
+            continue
+        out.append(Proposal(
+            rule_id="R2.7_pre_cascade_long_TV_CONFIRMED",
+            bot_id=bot["bot_id"], tier=bot["tier"],
+            action="pause", params={},
+            reason="liq-cluster LONG + TV CVD bearish-div alert (absorption pattern)",
+            confidence=0.85,
+        ))
+    return out
+
+
 def r2_6_pre_cascade_long_HIGH(snapshot: dict) -> list[Proposal]:
     """HIGH-confidence pre-pause: long-side cluster + funding < -0.003%/8h.
     Feature search 2026-05-17:
@@ -337,9 +407,11 @@ ALL_RULES = [
     r1_cascade_short_pause,
     r1_5_pre_cascade_short_pause,
     r1_6_pre_cascade_short_HIGH,
+    r1_7_pre_cascade_short_TV_CONFIRMED,
     r2_cascade_long_pause,
     r2_5_pre_cascade_long_pause,
     r2_6_pre_cascade_long_HIGH,
+    r2_7_pre_cascade_long_TV_CONFIRMED,
     r3_vol_high_resize,
     r4_drift_recenter,
     r5_daily_pnl_cap,
