@@ -1847,40 +1847,19 @@ class TelegramBotApp:
                     self.bot.send_message(chat_id, "\n".join(lines))
                     return
 
-                if cmd == 'pause':
-                    # 2026-05-17 incident: pause via set_params(p=false) resets
-                    # GinArea's internal otcPassed flag → on resume bot enters
-                    # "active but never started" state, UI shows Failed. T1
-                    # was damaged during a test. Until we find the proper
-                    # GinArea pause endpoint (likely separate from PUT /params),
-                    # production bots cannot be paused/resumed via /bot command.
-                    # Operator must use GinArea UI directly.
-                    if not is_testbed:
-                        self.bot.send_message(chat_id,
-                            f"⛔ [{tier_label}] /bot pause временно отключено для prod ботов.\n"
-                            f"Причина: pause через PUT /params ломает otcPassed flag → бот в Failed.\n"
-                            f"Используй GinArea UI для пауза/резюм этого бота.\n"
-                            f"Для testbed (TB) команда работает.")
-                        return
-                    from services.short_bots_guard.control import pause_bot
-                    res = pause_bot(bot_id, dry_run=False,
-                                     reason=f"manual TG /bot {tier} pause",
-                                     trigger=f"tg_manual:{chat_id}")
-                    self.bot.send_message(chat_id, f"⏸ [{tier_label}] pause → {res.get('action')}")
-                    return
-
-                if cmd == 'resume':
-                    if not is_testbed:
-                        self.bot.send_message(chat_id,
-                            f"⛔ [{tier_label}] /bot resume временно отключено для prod ботов.\n"
-                            f"Причина: см. /bot {tier} pause выше.\n"
-                            f"Используй GinArea UI для restart этого бота.")
-                        return
-                    from services.short_bots_guard.control import resume_bot
-                    res = resume_bot(bot_id, dry_run=False,
-                                      reason=f"manual TG /bot {tier} resume",
-                                      trigger=f"tg_manual:{chat_id}")
-                    self.bot.send_message(chat_id, f"▶ [{tier_label}] resume → {res.get('action')}")
+                if cmd in ('pause', 'resume'):
+                    # 2026-05-17: scripts/_diag_tb_pause_strategies.py confirmed
+                    # ALL set_params-based pause/resume strategies → status FAILED.
+                    # set_params IS edit-default-config, NOT GinArea's pause API.
+                    # Disabled for ALL tiers (was: testbed-only) until proper
+                    # endpoint identified via DevTools capture (см.
+                    # project_ginarea_pause_broken.md).
+                    self.bot.send_message(chat_id,
+                        f"⛔ /bot {cmd} полностью отключено (для всех бот'ов включая TB).\n"
+                        f"Причина: подтверждено что set_params(p=false/true) ломает\n"
+                        f"бота в status=FAILED(10) — это не pause API, это edit-config.\n"
+                        f"Используй GinArea UI напрямую для pause/resume.\n"
+                        f"Reopened когда найдём proper endpoint (DevTools capture).")
                     return
 
                 if cmd in ('resize', 'tighten', 'widen'):
