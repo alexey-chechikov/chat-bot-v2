@@ -1752,13 +1752,44 @@ class TelegramBotApp:
                 self.bot.send_message(chat_id, f'❌ short_bots_managed.json read failed: {e}')
                 return
 
-            # /bots — list mode
+            # /bots — overview with runtime status + position
             if not args:
+                from services.short_bots_guard.control import _build_api
+                api, api_err = _build_api()
                 lines = ["🤖 Managed bots:"]
-                for b in bots:
-                    tb = " [TB]" if b.get('testbed') else ""
-                    lines.append(f"  {b['tier']:10}{tb}  {b['alias']:30}  id={b['bot_id']}  side={b['side']}")
-                lines.append("\nUsage: /bot <tier> <cmd>  — pause/resume/status/resize <N>/tighten <N>/widen <N>")
+                if api is None:
+                    lines.append(f"  ⚠ API unavailable: {api_err}")
+                    for b in bots:
+                        tb = " [TB]" if b.get('testbed') else ""
+                        lines.append(f"  {b['tier']:8}{tb}  {b['alias']:30}  id={b['bot_id']}")
+                else:
+                    status_emoji = {
+                        "ACTIVE": "🟢", "PAUSED": "⏸", "FAILED": "🔴",
+                        "STARTING": "🟡", "STOPPING": "🟡", "STOPPED": "⚫",
+                        "FINISHED": "✅", "TP_STOPPED": "💰", "SL_STOPPED": "🛑",
+                        "CREATED": "🆕", "DISABLE_IN": "🟠", "CLOSING": "🟠",
+                    }
+                    for b in bots:
+                        tb = " [TB]" if b.get('testbed') else ""
+                        bid = str(b['bot_id'])
+                        try:
+                            bot_obj = api.get_bot(int(bid))
+                            stat = api.get_stat(int(bid))
+                            emo = status_emoji.get(bot_obj.status.name, "❓")
+                            pos = getattr(stat, 'position', None) or 0
+                            profit = getattr(stat, 'currentProfit', None) or getattr(stat, 'current_profit', None) or 0
+                            lines.append(
+                                f"  {emo} {b['tier']:8}{tb}  {bot_obj.status.name:9}  "
+                                f"pos={pos:>+9}  unr=${float(profit):>+7.2f}"
+                            )
+                        except Exception:
+                            lines.append(f"  ❓ {b['tier']:8}{tb}  ERR")
+                lines.append("\nUsage:")
+                lines.append("  /bot <tier> status    — детали бота")
+                lines.append("  /bot <tier> pause     — остановить (PUT /stop)")
+                lines.append("  /bot <tier> resume    — запустить (PUT /start)")
+                lines.append("  /bot <tier> history   — последние proposals")
+                lines.append("  /bot <tier> resize <N> | tighten <N> | widen <N>")
                 self.bot.send_message(chat_id, "\n".join(lines))
                 return
 
