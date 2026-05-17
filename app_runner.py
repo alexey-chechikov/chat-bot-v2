@@ -859,28 +859,34 @@ async def _run_paper_grid(stop_event: asyncio.Event, *, symbol: str) -> None:
 
 
 async def _run_bot_brain_executor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
-    """Bot Brain decision/action layer — DISABLED 2026-05-17 per operator request.
-    User reported: "ОН СПАМИТ АПИ И ДЕЛАЕТ ЭТО НЕПРАВИЛЬНО".
+    """Bot Brain decision/action layer — reads latest perception snapshot,
+    evaluates rules R1-R7, dispatches actions per risk-tier policy.
 
-    Re-enable by reverting this stub to call run_loop again. Investigation
-    todo: dedup window (5min may be too short for already-paused state),
-    bot-state-already-target check before API call, batch reads.
+    Re-enabled 2026-05-17 after:
+      1. set_params(p=...) replaced with proper /start /stop endpoints
+      2. tight filters: T1+TB only, BTC 15m move >=1.5%, liq qty >=1.5 BTC
+      3. 30-min dedup window + 60s API status cache
+      4. empty-response-body handling in client.request
+      5. all manual /bot pause/resume tests passed on TB
 
-    Perception layer (_run_bot_brain_state) remains active — only ACTIONS
-    are disabled. Snapshot data continues for manual analysis."""
-    logger.info("bot_brain.executor.DISABLED — per operator 2026-05-17 (API spam concern)")
-    return
+    Expected fire rate: 0-3/day on T1+TB combined (was 30+/h with broken
+    set_params spam)."""
+    from services.bot_brain.executor import run_loop
+    await run_loop(stop_event=stop_event, telegram_app=telegram_app, interval_sec=60)
 
 
 async def _run_short_bots_guard(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """SHORT bots auto-pause при cascade_short triggers.
-    DISABLED 2026-05-17 per operator request — same API-spam concern as
-    bot_brain_executor. Both services call GinArea control.pause_bot/resume_bot.
 
-    Re-enable only after dedup/throttle audit. Cascade detection itself
-    (cascade_alert) keeps running — only the auto-pause action is paused."""
-    logger.info("short_bots_guard.DISABLED — per operator 2026-05-17 (API spam concern)")
-    return
+    Re-enabled 2026-05-17 after pause/resume fix + tight filters.
+    Config: state/short_bots_managed.json defines per-tier triggers
+    (cascade_short_5.0/_2.0 → only T1+TB; cascade_long_5.0/_2.0 → LONG-D/V5).
+    T2/T3 excluded by operator directive (wider grids absorb cascades).
+    Now uses captured /start and /stop endpoints via control.pause_bot/resume_bot."""
+    from services.short_bots_guard.loop import short_bots_guard_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "MARGIN_ALERT") if telegram_app else None
+    await short_bots_guard_loop(stop_event=stop_event, send_fn=send_fn)
 
 
 async def _run_volume_nodes_refresh(stop_event: asyncio.Event, *, telegram_app=None) -> None:
