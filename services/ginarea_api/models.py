@@ -141,10 +141,24 @@ class DefaultGridParams:
     q: QuantityParams = field(default_factory=QuantityParams)
     tr: TrailingParams = field(default_factory=TrailingParams)
     slp: StopLossProfileParams = field(default_factory=StopLossProfileParams)
+    # 2026-05-17: passthrough for fields not explicitly modeled (e.g. `in`
+    # start/stop conditions). Previously these were silently dropped by
+    # from_dict → set_params caused GinArea API to reject with
+    # `conditions array is empty in start block` errorCode:-1.
+    # Fix: preserve raw dict, re-emit unknown keys on to_dict.
+    extra_raw: dict = field(default_factory=dict)
+
+    _EXPLICIT_KEYS = frozenset({
+        "gs", "gsr", "maxOp", "side", "p", "cf", "hedge", "leverage", "ul",
+        "dsblin", "dsblinbtr", "dsblinbap", "obap", "ris", "slt", "tsl",
+        "lsl", "ttp", "ttpinc", "border", "gap", "q", "tr", "slp",
+    })
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> DefaultGridParams:
         side = d.get("side")
+        # Capture any keys we don't explicitly model — pass them through verbatim
+        extras = {k: v for k, v in d.items() if k not in cls._EXPLICIT_KEYS}
         return cls(
             gs=d.get("gs"),
             gsr=d.get("gsr"),
@@ -170,10 +184,14 @@ class DefaultGridParams:
             q=QuantityParams.from_dict(dict(d.get("q") or {})),
             tr=TrailingParams.from_dict(dict(d.get("tr") or {})),
             slp=StopLossProfileParams.from_dict(dict(d.get("slp") or {})),
+            extra_raw=extras,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        # Start from extras (passthrough fields like `in`, `stop`), then overlay
+        # explicit modeled fields — explicit values win on conflict.
+        out: dict[str, Any] = dict(self.extra_raw or {})
+        out.update({
             "gs": self.gs,
             "gsr": self.gsr,
             "maxOp": self.maxOp,
@@ -198,7 +216,8 @@ class DefaultGridParams:
             "q": self.q.to_dict(),
             "tr": self.tr.to_dict(),
             "slp": self.slp.to_dict(),
-        }
+        })
+        return out
 
 
 @dataclass(frozen=True, slots=True)

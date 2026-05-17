@@ -859,25 +859,28 @@ async def _run_paper_grid(stop_event: asyncio.Event, *, symbol: str) -> None:
 
 
 async def _run_bot_brain_executor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
-    """Bot Brain decision/action layer — reads latest perception snapshot,
-    evaluates rules R1-R6, dispatches actions per risk-tier policy.
-      - production bots: pause/resume LIVE, risky actions DRY-RUN only
-      - testbed bot (tier=TB): all actions LIVE
-    Outputs: state/bot_brain_proposals.jsonl + state/bot_brain_actions.jsonl,
-    plus TG MARGIN_ALERT cards for live actions."""
-    from services.bot_brain.executor import run_loop
-    await run_loop(stop_event=stop_event, telegram_app=telegram_app, interval_sec=60)
+    """Bot Brain decision/action layer — DISABLED 2026-05-17 per operator request.
+    User reported: "ОН СПАМИТ АПИ И ДЕЛАЕТ ЭТО НЕПРАВИЛЬНО".
+
+    Re-enable by reverting this stub to call run_loop again. Investigation
+    todo: dedup window (5min may be too short for already-paused state),
+    bot-state-already-target check before API call, batch reads.
+
+    Perception layer (_run_bot_brain_state) remains active — only ACTIONS
+    are disabled. Snapshot data continues for manual analysis."""
+    logger.info("bot_brain.executor.DISABLED — per operator 2026-05-17 (API spam concern)")
+    return
 
 
 async def _run_short_bots_guard(stop_event: asyncio.Event, *, telegram_app=None) -> None:
-    """SHORT bots auto-pause при cascade_short triggers (validated edge 2026:
-    70% pct_up 4h после short-cascade → grid SHORT в риске).
-    Управляет через GinArea API set_params(p=false/true) для bot_ids из
-    state/short_bots_managed.json. Audit в state/short_bots_audit.jsonl."""
-    from services.short_bots_guard.loop import short_bots_guard_loop
-    from services.telegram.channel_router import build_send_fn
-    send_fn = build_send_fn(telegram_app, "MARGIN_ALERT") if telegram_app else None
-    await short_bots_guard_loop(stop_event=stop_event, send_fn=send_fn)
+    """SHORT bots auto-pause при cascade_short triggers.
+    DISABLED 2026-05-17 per operator request — same API-spam concern as
+    bot_brain_executor. Both services call GinArea control.pause_bot/resume_bot.
+
+    Re-enable only after dedup/throttle audit. Cascade detection itself
+    (cascade_alert) keeps running — only the auto-pause action is paused."""
+    logger.info("short_bots_guard.DISABLED — per operator 2026-05-17 (API spam concern)")
+    return
 
 
 async def _run_volume_nodes_refresh(stop_event: asyncio.Event, *, telegram_app=None) -> None:
