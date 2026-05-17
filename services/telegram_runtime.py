@@ -2787,6 +2787,43 @@ class TelegramBotApp:
                 logger.exception("range_hunter.callback_failed")
                 self.bot.answer_callback_query(call.id, "Ошибка")
 
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("td:"))
+        def handle_twap_defender_callback(call) -> None:
+            """Inline-кнопки [✅ Executed] / [⏭ Skip] / [🔕 Mute 1h] для TWAP defender."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, alert_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            action_map = {"exec": "executed", "skip": "skipped", "mute": "muted"}
+            if action not in action_map:
+                self.bot.answer_callback_query(call.id, f"⚠ unknown action '{action}'")
+                return
+            try:
+                from services.twap_defender.journal import mark_user_action
+                ok = mark_user_action(alert_id, action_map[action])
+                if ok:
+                    msg = {
+                        "exec": "✅ Зафиксировано: контра-trade выполнен",
+                        "skip": "⏭ Пропущено (для статистики)",
+                        "mute": "🔕 Серия muted на 60 мин",
+                    }[action]
+                else:
+                    msg = f"⚠ alert_id {alert_id} не найден"
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("twap_defender.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("brain:"))
         def handle_brain_callback(call) -> None:
             """Bot Brain inline buttons: [✅ Apply] [⏭ Skip] [🚫 Disable rule].

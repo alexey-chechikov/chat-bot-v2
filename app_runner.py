@@ -609,6 +609,16 @@ def _rh_params_for(variant: str, symbol: str):
     return RangeHunterParams(symbol=symbol)
 
 
+async def _run_twap_defender(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """TWAP defender — TG-сигналы для защиты от bleed managed-bots.
+
+    Каждую мин сканирует managed-bots. Если |pos_usd| > $50k И растёт 30 мин
+    подряд → шлёт TG-карточку с предложением market $1k контра-trade.
+    До 12 шагов / 5-мин gap / 60-мин mute. Не паузит — T2/T3 директива цела."""
+    from services.twap_defender.loop import run_loop
+    await run_loop(stop_event=stop_event, send_fn=_build_rh_send_fn(telegram_app))
+
+
 async def _run_range_hunter_signal(stop_event: asyncio.Event, *, telegram_app=None,
                                     symbol: str = "BTCUSDT", variant: str = "1m") -> None:
     """Range Hunter — TG-эмиттер semi-manual mean-revert стратегии.
@@ -1039,6 +1049,7 @@ async def main(
     cascade_accuracy_task = asyncio.create_task(_run_cascade_accuracy_eval(stop_event, telegram_app=app), name="cascade_accuracy_eval")
     cliff_monitor_task = asyncio.create_task(_run_cliff_monitor(stop_event, telegram_app=app), name="cliff_monitor")
     weekly_report_task = asyncio.create_task(_run_weekly_self_report(stop_event, telegram_app=app), name="weekly_self_report")
+    twap_defender_task = asyncio.create_task(_run_twap_defender(stop_event, telegram_app=app), name="twap_defender")
     range_hunter_signal_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_signal_btc")
     range_hunter_outcome_task = asyncio.create_task(_run_range_hunter_outcome(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_outcome_btc")
     range_hunter_signal_eth_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="ETHUSDT", variant="1m"), name="range_hunter_signal_eth")
@@ -1085,6 +1096,7 @@ async def main(
         decision_log_task, dashboard_task, dashboard_http_task, setup_detector_task,
         setup_tracker_task, exit_advisor_task, market_intelligence_task,
         market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
+        twap_defender_task,
         range_hunter_signal_task, range_hunter_outcome_task,
         range_hunter_signal_eth_task, range_hunter_outcome_eth_task,
         range_hunter_signal_xrp_task, range_hunter_outcome_xrp_task,
