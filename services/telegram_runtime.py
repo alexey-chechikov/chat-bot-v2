@@ -2751,6 +2751,147 @@ class TelegramBotApp:
                 logger.exception("range_hunter.callback_failed")
                 self.bot.answer_callback_query(call.id, "Ошибка")
 
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("brain:"))
+        def handle_brain_callback(call) -> None:
+            """Bot Brain inline buttons: [✅ Apply] [⏭ Skip] [🚫 Disable rule].
+
+            callback_data format: brain:<verb>:<arg>
+              brain:apply:<proposal_id>     — execute proposal action LIVE
+              brain:skip:<proposal_id>      — log decision, no action
+              brain:disable:<rule_id>       — disable rule via
+                                              state/bot_brain_rules_disabled.json
+
+            Proposals saved to state/bot_brain_proposals.jsonl include a
+            unique proposal_id field. On Apply we look up the proposal
+            and dispatch through services.bot_brain.actions.dispatch().
+            On Disable we persist to a JSON set that rules.evaluate_all
+            consults before firing."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, verb, arg = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            import json as _json
+            from pathlib import Path as _Path
+            ROOT = _Path('/Users/alexeychechikov/code/bot7')
+            proposals_path = ROOT / 'state' / 'bot_brain_proposals.jsonl'
+            disabled_path = ROOT / 'state' / 'bot_brain_rules_disabled.json'
+
+            def _find_proposal(pid: str) -> dict | None:
+                if not proposals_path.exists():
+                    return None
+                try:
+                    with proposals_path.open(encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                r = _json.loads(line)
+                            except _json.JSONDecodeError:
+                                continue
+                            if r.get('proposal_id') == pid:
+                                return r
+                except OSError:
+                    pass
+                return None
+
+            def _record_decision(record: dict) -> None:
+                """Append operator decision to bot_brain_decisions.jsonl."""
+                try:
+                    decisions_path = ROOT / 'state' / 'bot_brain_decisions.jsonl'
+                    decisions_path.parent.mkdir(parents=True, exist_ok=True)
+                    with decisions_path.open('a', encoding='utf-8') as f:
+                        f.write(_json.dumps(record, ensure_ascii=False) + "\n")
+                except OSError:
+                    logger.exception("brain.decision_log_failed")
+
+            from datetime import datetime as _dt, timezone as _tz
+            now_iso = _dt.now(_tz.utc).isoformat(timespec='seconds')
+
+            try:
+                if verb == 'apply':
+                    proposal = _find_proposal(arg)
+                    if proposal is None:
+                        self.bot.answer_callback_query(call.id, f"⚠ proposal {arg} не найден")
+                        return
+                    # Check if action is currently blocked (e.g. set_params-based
+                    # pause is DISABLED until proper endpoint found)
+                    action = proposal.get('action')
+                    if action in ('pause', 'resume'):
+                        self.bot.answer_callback_query(call.id,
+                            f"⛔ {action} временно отключён (set_params broken)")
+                        _record_decision({"ts": now_iso, "verb": "apply_blocked",
+                                          "proposal_id": arg, "action": action,
+                                          "chat_id": chat_id})
+                        return
+                    # Otherwise dispatch via bot_brain.actions
+                    from services.bot_brain.actions import dispatch
+                    bot_id = proposal.get('bot_id')
+                    rule_id = proposal.get('rule_id')
+                    params = proposal.get('params') or {}
+                    result = dispatch(action, str(bot_id), params=params,
+                                       mode='live',
+                                       reason=f"manual TG apply by chat {chat_id}",
+                                       rule_id=rule_id or 'manual')
+                    _record_decision({"ts": now_iso, "verb": "apply", "proposal_id": arg,
+                                      "action": action, "bot_id": bot_id,
+                                      "result_status": result.get('status'),
+                                      "chat_id": chat_id})
+                    self.bot.answer_callback_query(call.id,
+                        f"✅ Applied: {action} → {result.get('status')}")
+                    try:
+                        self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                            reply_markup=None)
+                    except Exception:
+                        pass
+                    return
+
+                if verb == 'skip':
+                    _record_decision({"ts": now_iso, "verb": "skip",
+                                      "proposal_id": arg, "chat_id": chat_id})
+                    self.bot.answer_callback_query(call.id, "⏭ Skipped (logged)")
+                    try:
+                        self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                            reply_markup=None)
+                    except Exception:
+                        pass
+                    return
+
+                if verb == 'disable':
+                    # Persist rule_id to disabled set
+                    disabled = {"rule_ids": []}
+                    if disabled_path.exists():
+                        try:
+                            disabled = _json.loads(disabled_path.read_text(encoding='utf-8'))
+                        except (_json.JSONDecodeError, OSError):
+                            pass
+                    rule_ids = set(disabled.get('rule_ids', []))
+                    rule_ids.add(arg)
+                    disabled['rule_ids'] = sorted(rule_ids)
+                    disabled['updated_at'] = now_iso
+                    try:
+                        disabled_path.parent.mkdir(parents=True, exist_ok=True)
+                        disabled_path.write_text(
+                            _json.dumps(disabled, ensure_ascii=False, indent=2),
+                            encoding='utf-8')
+                    except OSError:
+                        logger.exception("brain.disable_write_failed")
+                    _record_decision({"ts": now_iso, "verb": "disable_rule",
+                                      "rule_id": arg, "chat_id": chat_id})
+                    self.bot.answer_callback_query(call.id,
+                        f"🚫 Rule {arg} disabled — see state/bot_brain_rules_disabled.json")
+                    return
+
+                self.bot.answer_callback_query(call.id, f"⚠ unknown verb '{verb}'")
+            except Exception:
+                logger.exception("brain.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("decision_log:"))
         def handle_decision_log_callback(call) -> None:
             chat_id = int(call.message.chat.id)

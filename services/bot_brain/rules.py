@@ -529,11 +529,31 @@ ALL_RULES = [
 ]
 
 
+def _load_disabled_rule_ids() -> set[str]:
+    """Read state/bot_brain_rules_disabled.json — rule_ids the operator
+    suppressed via TG inline button [🚫 Disable]. Re-read every call so
+    changes take effect without restart."""
+    from pathlib import Path as _P
+    import json as _json
+    p = _P(__file__).resolve().parents[2] / "state" / "bot_brain_rules_disabled.json"
+    if not p.exists():
+        return set()
+    try:
+        d = _json.loads(p.read_text(encoding="utf-8"))
+        return set(d.get("rule_ids", []))
+    except (OSError, _json.JSONDecodeError):
+        return set()
+
+
 def evaluate_all(snapshot: dict) -> list[Proposal]:
+    disabled_ids = _load_disabled_rule_ids()
     proposals: list[Proposal] = []
     for rule_fn in ALL_RULES:
         try:
-            proposals.extend(rule_fn(snapshot))
+            for p in rule_fn(snapshot):
+                if p.rule_id in disabled_ids:
+                    continue
+                proposals.append(p)
         except Exception:
             logger.exception("bot_brain.rule_eval_failed rule=%s", rule_fn.__name__)
     return proposals
