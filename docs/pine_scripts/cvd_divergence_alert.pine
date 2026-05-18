@@ -52,14 +52,22 @@ bearish_div = (close >= price_high * (1 - price_tolerance)) and (cvd < cvd_high 
 // Interpretation: selling pressure exhausted, buyers absorbing.
 bullish_div = (close <= price_low * (1 + price_tolerance)) and (cvd > cvd_low * (1 + cvd_gap))
 
-plotshape(show_markers and bearish_div, "Bear Div", style=shape.triangledown,
+// EDGE-triggered alerts: fire only on TRANSITION (false→true), not every bar.
+// 2026-05-18 fix: previous version с "once per bar close" сетингом TV давал
+// alert каждую минуту пока condition TRUE — 345 alerts/day = spam.
+// Теперь — один alert на возникновение divergence, повторно не сработает пока
+// condition не отвалится и не появится снова.
+bearish_div_edge = bearish_div and not bearish_div[1]
+bullish_div_edge = bullish_div and not bullish_div[1]
+
+plotshape(show_markers and bearish_div_edge, "Bear Div", style=shape.triangledown,
     color=color.red, size=size.small, location=location.top)
-plotshape(show_markers and bullish_div, "Bull Div", style=shape.triangleup,
+plotshape(show_markers and bullish_div_edge, "Bull Div", style=shape.triangleup,
     color=color.green, size=size.small, location=location.bottom)
 
-// ─── alerts (one per bar close) ──────────────────────────────────────────
-alertcondition(bearish_div, "CVD Bearish Divergence",
+// ─── alerts (edge-triggered: once per divergence event, не каждый бар) ──
+alertcondition(bearish_div_edge, "CVD Bearish Divergence",
     '{"ticker":"{{ticker}}","indicator":"cvd_divergence","direction":"bearish","price":{{close}},"timeframe":"{{interval}}","ts":"{{time}}"}')
 
-alertcondition(bullish_div, "CVD Bullish Divergence",
+alertcondition(bullish_div_edge, "CVD Bullish Divergence",
     '{"ticker":"{{ticker}}","indicator":"cvd_divergence","direction":"bullish","price":{{close}},"timeframe":"{{interval}}","ts":"{{time}}"}')

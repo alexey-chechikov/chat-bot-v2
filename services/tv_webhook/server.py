@@ -61,6 +61,33 @@ def _get_or_create_token() -> str:
     return token
 
 
+# Dedup window: same (indicator, direction, ticker) фильтруется в течение этого периода.
+# Защита от Pine alert "once per bar close" который шлёт каждую минуту пока условие TRUE.
+_DEDUP_WINDOW_SEC = 30 * 60  # 30 минут
+_recent_dedup: dict[tuple, float] = {}  # in-memory; persisted only via journal
+
+
+def _is_duplicate(payload: dict, now_ts: float) -> bool:
+    """Check if (indicator, direction, ticker) was seen within DEDUP_WINDOW."""
+    key = (
+        str(payload.get("indicator", "")),
+        str(payload.get("direction", "")),
+        str(payload.get("ticker", "")),
+    )
+    if not any(key):
+        return False
+    last = _recent_dedup.get(key)
+    if last is not None and (now_ts - last) < _DEDUP_WINDOW_SEC:
+        return True
+    _recent_dedup[key] = now_ts
+    # GC old entries (keep cache small)
+    if len(_recent_dedup) > 100:
+        for k, ts in list(_recent_dedup.items()):
+            if (now_ts - ts) > _DEDUP_WINDOW_SEC * 2:
+                _recent_dedup.pop(k, None)
+    return False
+
+
 def _append_alert(record: dict) -> None:
     try:
         _ALERTS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -97,15 +124,22 @@ def _make_handler(token: str) -> type[http.server.BaseHTTPRequestHandler]:
             except json.JSONDecodeError:
                 payload = {"raw": body.strip()}
 
-            record = {
-                "ingest_ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "remote_addr": self.client_address[0],
-                "headers_ua": self.headers.get("User-Agent"),
-                "payload": payload,
-            }
-            _append_alert(record)
-            logger.info("tv_webhook.alert_received indicator=%s direction=%s ticker=%s",
-                        payload.get("indicator"), payload.get("direction"), payload.get("ticker"))
+            now_dt = datetime.now(timezone.utc)
+            if _is_duplicate(payload, now_dt.timestamp()):
+                logger.info("tv_webhook.deduped indicator=%s direction=%s ticker=%s (within %dmin)",
+                            payload.get("indicator"), payload.get("direction"),
+                            payload.get("ticker"), _DEDUP_WINDOW_SEC // 60)
+            else:
+                record = {
+                    "ingest_ts": now_dt.isoformat(timespec="seconds"),
+                    "remote_addr": self.client_address[0],
+                    "headers_ua": self.headers.get("User-Agent"),
+                    "payload": payload,
+                }
+                _append_alert(record)
+                logger.info("tv_webhook.alert_received indicator=%s direction=%s ticker=%s",
+                            payload.get("indicator"), payload.get("direction"),
+                            payload.get("ticker"))
 
             # Respond OK quickly — TV doesn't care about body
             self.send_response(200)

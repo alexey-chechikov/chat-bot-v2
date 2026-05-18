@@ -29,19 +29,21 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 # ─── Pause-eligibility policy ────────────────────────────────────────────────
-# Per-tier filter: which managed bots are allowed to be auto-paused at all.
+# Per-tier filter: которые боты bot7 может авто-паузить.
 #
-# 2026-05-17 operator directive: "T2 и T3 вообще не нужно ставить на паузу".
-# T2/T3 имеют широкие grid-steps, переживают каскады сами.
+# 2026-05-17 operator directive: T2/T3 ВООБЩЕ не паузить (отдельный фильтр позже).
+# 2026-05-18 A/B experiment: T1 убран — control group (не трогаем).
+# 2026-05-18 operator clarification: LONG-D + LONG-V5 ТОЖЕ убраны.
+#   Логика: на падении (cascade_long) LONG-grid bots должны набирать дешёвый
+#   инвентарь — это их работа, не баг. Пауза = режем edge на каждом каскаде.
+#   Аналогично для SHORT-grid на росте. Защита через паузу = вред.
 #
-# 2026-05-18 A/B experiment: T1 убран из set — оператор хочет сравнить
-# эффективность auto-pause guard сравнивая T1 (без pause) vs TB (с pause)
-# при тех же других настройках. Это касается ВСЕХ bot_brain pause rules
-# (r1_cascade_short_pause, r1_5_*, r1_6_*, и т.д.), не только cascade_short_*.*
-# в short_bots_managed.json.
+# Итого: bot7 авто-паузит ТОЛЬКО TB (testbed). Все остальные = control group,
+# оператор управляет вручную. Через 7-14 дней A/B сравнения решаем: помогает
+# auto-pause или мешает.
 #
-# LONG-D/V5 — отдельные хеджи, остаются под price-movement gates.
-PAUSE_ALLOWED_TIERS = {"TB", "LONG-D", "LONG-V5"}
+# См. memory: project_pause_policy.md + project_t2_t3_separate_filter.md
+PAUSE_ALLOWED_TIERS = {"TB"}
 
 # Minimum BTC 15-min one-sided move (absolute %) required to fire pre-cascade
 # pause. Below this — micro-move, not worth pausing for. Operator: pause should

@@ -23,12 +23,14 @@
       "_note_2026_05_18": "T1 removed: A/B experiment"
     },
     "cascade_long_5.0": {
-      "affect_tiers": ["LONG-D", "LONG-V5"],
-      "pause_hours": 4.0
+      "affect_tiers": [],
+      "pause_hours": 4.0,
+      "_note_2026_05_18": "LONG-D/V5 убраны — оператор: grid LONG должен набирать дешёвый инвентарь при падении, пауза вредит"
     },
     "cascade_long_2.0": {
-      "affect_tiers": ["LONG-D", "LONG-V5"],
-      "pause_hours": 2.0
+      "affect_tiers": [],
+      "pause_hours": 2.0,
+      "_note_2026_05_18": "LONG-D/V5 убраны (см. выше)"
     }
   }
 }
