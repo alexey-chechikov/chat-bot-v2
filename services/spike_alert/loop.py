@@ -146,6 +146,32 @@ def _check_one_symbol(symbol: str, deriv_live: dict, now: datetime,
             send_fn(text)
         except Exception:
             logger.exception("spike_alert.send_failed symbol=%s", symbol)
+
+    # Paper-trade BOTH directions (фейд + продолжение) — оператор спросил
+    # "как использовать сигналы которые в обе стороны?". Через weekly
+    # aggregator увидим какое направление имеет edge.
+    if symbol == "BTCUSDT":
+        try:
+            from services.paper_signal_tracker.journal import record_paper_signal
+            # fade: торгуем ПРОТИВ движения
+            fade_side = "SHORT" if direction == "up" else "LONG"
+            # continuation: торгуем ПО движению
+            cont_side = "LONG" if direction == "up" else "SHORT"
+            record_paper_signal(
+                source="spike_alert", side=fade_side, entry=float(price),
+                stop_pct=-0.5, tp_pct=0.75, hold_h=2,
+                context=f"{direction}_fade_taker{taker_pct:.0f}",
+                now=now,
+            )
+            record_paper_signal(
+                source="spike_alert", side=cont_side, entry=float(price),
+                stop_pct=-0.5, tp_pct=0.75, hold_h=2,
+                context=f"{direction}_continuation_taker{taker_pct:.0f}",
+                now=now,
+            )
+        except Exception:
+            logger.exception("spike_alert.paper_signal_failed")
+
     dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

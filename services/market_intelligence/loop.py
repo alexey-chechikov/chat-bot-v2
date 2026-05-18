@@ -155,6 +155,26 @@ def _tick(
             if msg and _send(msg, send_fn, logger):
                 last_confluence_sent_holder[0] = now
                 _tick.last_confluence_sent = now  # type: ignore[attr-defined]
+            # Paper-trade в направлении confluence bias — независимо от TG send.
+            try:
+                from services.paper_signal_tracker.journal import record_paper_signal
+                bias_str = str(confluence.bias.value)
+                if "bull" in bias_str:
+                    trade_side = "LONG"
+                elif "bear" in bias_str:
+                    trade_side = "SHORT"
+                else:
+                    trade_side = None
+                if trade_side and current_price and current_price > 0:
+                    record_paper_signal(
+                        source="market_intel", side=trade_side,
+                        entry=float(current_price),
+                        stop_pct=-0.5, tp_pct=0.75, hold_h=4,
+                        context=f"confluence_{bias_str}_score{confluence.score:.0f}",
+                        now=now,
+                    )
+            except Exception:
+                logger.exception("market_intelligence.paper_signal_failed")
 
 
 def _send(msg: str, send_fn: Any, log) -> bool:

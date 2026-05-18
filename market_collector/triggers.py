@@ -140,6 +140,23 @@ class TriggerChecker:
                     {"level": lvl, "direction": direction, "price": round(price, 2)},
                     dedup_key=dedup_key,
                 )
+                # Paper-trade in break direction: continuation hypothesis.
+                # Через weekly aggregator увидим какие уровни (по типу/величине)
+                # дают edge — потом фильтр или промаут.
+                try:
+                    import sys as _sys
+                    from pathlib import Path as _P
+                    _sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+                    from services.paper_signal_tracker.journal import record_paper_signal
+                    trade_side = "LONG" if direction == "up" else "SHORT"
+                    record_paper_signal(
+                        source="level_break", side=trade_side,
+                        entry=float(price),
+                        stop_pct=-0.5, tp_pct=0.75, hold_h=2,
+                        context=f"break_{direction}_lvl_{int(lvl)}",
+                    )
+                except Exception:
+                    logger.exception("trigger.level_break_paper_failed")
 
     def run(self, check_interval_sec: int = 30) -> None:
         while not self._stop.wait(check_interval_sec):

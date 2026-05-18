@@ -368,6 +368,33 @@ async def cascade_accuracy_eval_loop(stop_event: asyncio.Event,
     logger.info("cascade_accuracy_eval.stopped")
 
 
+def _record_paper_cascade(side: str, threshold: float, last_price: float | None,
+                           now: datetime) -> None:
+    """Записывает hypothetical paper-trade в state/paper_signals.jsonl.
+
+    Direction map (validated в state/cascade_backtest_combined.json):
+      long_liq cascade (price dropped, longs liquidated) → SHORT continuation (2026 inversion)
+      short_liq cascade (price rose, shorts liquidated)  → LONG fade (still works)
+
+    Через 7-14 дней weekly aggregator покажет real-world win rate.
+    """
+    if last_price is None or last_price <= 0:
+        return
+    try:
+        from services.paper_signal_tracker.journal import record_paper_signal
+        trade_side = "SHORT" if side == "long" else "LONG"
+        record_paper_signal(
+            source="cascade_alert",
+            side=trade_side,
+            entry=float(last_price),
+            stop_pct=-0.5, tp_pct=0.75, hold_h=4,
+            context=f"{side}_liq_{threshold:.1f}btc",
+            now=now,
+        )
+    except Exception:
+        logger.exception("cascade_alert.paper_signal_failed")
+
+
 def _record_cascade_prognosis(side: str, threshold: float, qty_btc: float,
                               last_price: float | None, now: datetime) -> None:
     """Best-effort journal write for accuracy tracker. Never raises."""
@@ -428,6 +455,7 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                     except Exception:
                         logger.exception("cascade_alert.mega_send_failed")
                 _record_cascade_prognosis(side, THRESHOLD_BTC_MEGA, mega_qty, last_price, now)
+                _record_paper_cascade(side, THRESHOLD_BTC_MEGA, last_price, now)
                 dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             for side, qty in (("long", long_btc), ("short", short_btc)):
@@ -458,6 +486,7 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                     except Exception:
                         logger.exception("cascade_alert.send_failed")
                 _record_cascade_prognosis(side, threshold, qty, last_price, now)
+                _record_paper_cascade(side, threshold, last_price, now)
 
                 # Auto paper trade (B2): originally opened a virtual position
                 # on every cascade. Disabled 2026-05-08 — live data showed
