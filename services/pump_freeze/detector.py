@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Optional
 
 from services.pump_freeze.config import (
-    MIN_PULLBACK_PCT,
     PUMP_THRESHOLD_PCT,
     PUMP_WINDOW_MIN,
 )
@@ -23,16 +22,17 @@ class MoveEvent:
     move_pct: float           # signed % move over window (negative for down)
     price_window_start: float
     price_now: float
-    max_opposite_retracement_pct: float
+    max_opposite_retracement_pct: float  # informational, no longer filter
 
 
 def detect_move(bars: list[tuple[datetime, float, float, float]],
                 *, direction: str,
                 threshold_pct: float = PUMP_THRESHOLD_PCT,
                 window_min: int = PUMP_WINDOW_MIN,
-                max_retrace_pct: float = MIN_PULLBACK_PCT,
                 ) -> Optional[MoveEvent]:
-    """Generic one-way move detector.
+    """Generic move detector — fires on ANY ≥threshold_pct move regardless
+    of intermediate retracement (whipsaw events тоже включаются — оператор
+    хочет паузить и их per Win-колеги verification 2026-05-18).
 
     bars: [(ts, high, low, close)] sorted ascending. Need ≥window_min+1.
     direction: 'up' (pump) или 'down' (dump).
@@ -53,18 +53,13 @@ def detect_move(bars: list[tuple[datetime, float, float, float]],
     if direction == "up":
         if move_pct < threshold_pct:
             return None
-        # max opposite retracement = max DOWN deviation from start during climb
         min_low = min(b[2] for b in tail)
         retrace = (start_close - min_low) / start_close * 100.0
-    else:  # down
+    else:
         if move_pct > -threshold_pct:
             return None
-        # max opposite retracement = max UP deviation from start during dump
         max_high = max(b[1] for b in tail)
         retrace = (max_high - start_close) / start_close * 100.0
-
-    if retrace >= max_retrace_pct:
-        return None
 
     return MoveEvent(
         detected_at=last_ts, direction=direction,

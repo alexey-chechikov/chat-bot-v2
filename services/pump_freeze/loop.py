@@ -17,6 +17,7 @@ from typing import Callable, Optional
 from services.pump_freeze.config import (
     APPLIES_TO_BOTS,
     MIN_POSITION_USD_TO_TRIGGER,
+    PUMP_COOLDOWN_MIN,
     RESUME_RETRACEMENT_PCT,
     RESUME_TIMEOUT_HOURS,
     TICK_INTERVAL_SEC,
@@ -27,6 +28,7 @@ from services.pump_freeze.freezer import (
     frozen_info,
     get_extreme_during_freeze,
     is_frozen,
+    last_resume_ts,
     position_usd_abs,
     resume,
     update_extreme,
@@ -159,6 +161,13 @@ def tick(*, send_fn: Optional[Callable] = None,
         event = up_event if side == "short" else down_event
         if event is None:
             continue
+
+        # Cooldown: don't re-freeze same bot within N min after resume.
+        last_resume = last_resume_ts(bot_id)
+        if last_resume is not None:
+            elapsed_min = (now - last_resume).total_seconds() / 60.0
+            if elapsed_min < PUMP_COOLDOWN_MIN:
+                continue
 
         pos_usd = position_usd_abs(raw_pos, side, current_price)
         if pos_usd < MIN_POSITION_USD_TO_TRIGGER:

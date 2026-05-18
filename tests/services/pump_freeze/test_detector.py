@@ -35,14 +35,17 @@ def test_up_pump_not_fired_below_threshold():
     assert detect_move(bars, direction="up") is None
 
 
-def test_up_pump_not_fired_with_pullback():
+def test_up_pump_FIRES_with_pullback_now():
+    """Whipsaw events (с intermediate pullback) теперь паузим тоже
+    (per Win-колеги verification 2026-05-18: one-way filter removed)."""
     base_ts = datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc)
     bars = []
     for i in range(31):
         cl = 80000 + (81600 - 80000) * i / 30
-        low = 79500 if i == 5 else cl  # -0.625% pullback
+        low = 79500 if i == 5 else cl  # -0.625% pullback intermediate
         bars.append((base_ts + timedelta(minutes=i), cl, low, cl))
-    assert detect_move(bars, direction="up") is None
+    ev = detect_move(bars, direction="up")
+    assert ev is not None  # NEW: fires even with pullback (whipsaw тоже паузим)
 
 
 def test_up_pump_does_not_trigger_dump_check():
@@ -65,14 +68,15 @@ def test_down_dump_not_fired_below_threshold():
     assert detect_move(bars, direction="down") is None
 
 
-def test_down_dump_not_fired_with_up_retracement():
+def test_down_dump_FIRES_with_up_retracement_now():
+    """Whipsaw dumps (с intermediate up bounce) тоже fire — one-way filter removed."""
     base_ts = datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc)
     bars = []
     for i in range(31):
         cl = 80000 + (78400 - 80000) * i / 30
-        hi = 80500 if i == 5 else cl  # +0.625% up retracement
+        hi = 80500 if i == 5 else cl  # +0.625% bounce intermediate
         bars.append((base_ts + timedelta(minutes=i), hi, cl, cl))
-    assert detect_move(bars, direction="down") is None
+    assert detect_move(bars, direction="down") is not None
 
 
 def test_down_dump_does_not_trigger_pump_check():

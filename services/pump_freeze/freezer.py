@@ -53,6 +53,17 @@ def frozen_info(bot_id: str) -> Optional[dict]:
     return _read_state().get("frozen", {}).get(bot_id)
 
 
+def last_resume_ts(bot_id: str) -> Optional[datetime]:
+    """Last resume timestamp per bot — для cooldown enforcement."""
+    ts_str = _read_state().get("last_resume_ts", {}).get(bot_id)
+    if not ts_str:
+        return None
+    try:
+        return datetime.fromisoformat(ts_str)
+    except ValueError:
+        return None
+
+
 def position_usd_abs(raw_pos: float, side: str, mid_btc: float) -> float:
     """SHORT inverse XBTUSD: |BTC| × mid; LONG linear XBTUSDT: |USDT|."""
     if side == "short":
@@ -150,6 +161,8 @@ def resume(*, bot_id: str, alias: str, tier: str, side: str,
     }
     _append_journal(record)
     del state["frozen"][bot_id]
+    # Track last_resume_ts per bot для cooldown enforcement в loop.tick()
+    state.setdefault("last_resume_ts", {})[bot_id] = now.isoformat(timespec="seconds")
     _write_state(state)
 
     if send_fn is not None:
