@@ -331,16 +331,22 @@ def check_and_alert(
         text, plan_info = _format_alert(side, qty, long_btc=long_btc,
                                           short_btc=short_btc, now=now)
         signal_id = f"pc_{now.strftime('%Y%m%d_%H%M%S')}_{side}"
-        kb = _build_keyboard(signal_id) if plan_info.get("actionable") else None
-        try:
-            # Try (text, reply_markup=kb); fall back to (text) for older send_fn.
+        # 2026-05-18: TG send ТОЛЬКО для actionable plans (defensive-only
+        # и conflict cases — silent, только в journal). Оператор:
+        # "сколько текста, и каждое надо анализировать на адекватность".
+        if plan_info.get("actionable"):
+            kb = _build_keyboard(signal_id)
             try:
-                send_fn(text, reply_markup=kb)
-            except TypeError:
-                send_fn(text)
-        except Exception:
-            logger.exception("liq_pre_cascade.send_failed side=%s", side)
-            continue
+                try:
+                    send_fn(text, reply_markup=kb)
+                except TypeError:
+                    send_fn(text)
+            except Exception:
+                logger.exception("liq_pre_cascade.send_failed side=%s", side)
+                continue
+        else:
+            logger.info("liq_pre_cascade.silent_journal side=%s reason=%s",
+                        side, "conflict" if plan_info.get("has_conflict") else "defensive_only")
 
         entry = {
             "signal_id": signal_id,
