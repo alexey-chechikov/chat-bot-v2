@@ -1,0 +1,13 @@
+{
+  "_note_2026_05_18": "Operator policy: TB паузится ТОЛЬКО на cascade_short_5.0 через short_bots_guard JSON. Bot_brain duplicate pause rules отключены. Резайз/реанкор/cap/exhaustion остаются (не pause-actions).",
+  "rule_ids": [
+    "R1_cascade_short_pause",
+    "R1.5_pre_cascade_short_pause",
+    "R1.6_pre_cascade_short_HIGH",
+    "R1.7_pre_cascade_short_TV_CONFIRMED",
+    "R2_cascade_long_pause",
+    "R2.5_pre_cascade_long_pause",
+    "R2.6_pre_cascade_long_HIGH",
+    "R2.7_pre_cascade_long_TV_CONFIRMED"
+  ]
+}

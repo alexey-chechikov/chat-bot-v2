@@ -17,10 +17,10 @@
       "_note_2026_05_18": "T1 removed: A/B experiment — TB w/ auto-pause vs T1 w/o (same settings) for effectiveness comparison"
     },
     "cascade_short_2.0": {
-      "affect_tiers": ["TB"],
+      "affect_tiers": [],
       "pause_hours": 2.0,
       "_note_2026_05_17": "T2 removed by operator directive",
-      "_note_2026_05_18": "T1 removed: A/B experiment"
+      "_note_2026_05_18": "TB removed: оператор хочет пауза ТОЛЬКО на cascade_short_5.0 (5+ BTC), 2.0 слишком чувствительный — пауза на каждом микро-каскаде режет grid"
     },
     "cascade_long_5.0": {
       "affect_tiers": [],
