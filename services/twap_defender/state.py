@@ -7,14 +7,19 @@ from __future__ import annotations
 
 from typing import Optional
 
-# Порог |pos_usd|, после которого считаем что бот "bleed"
-BLEED_THRESHOLD_USD = 50_000.0
+# Порог |pos_usd|, после которого считаем что бот "bleed".
+# 2026-05-18: после retro-analysis выбран $10k + SHORT-only filter.
+#   - $50k не срабатывал никогда
+#   - $15-25k шумел на LONG-D/V5 которые НОРМАЛЬНО в $25-35k диапазоне
+#   - Asymmetric bleed measured (8.3:1) — это SHORT-side problem only:
+#     SHORT-боты копят losing position на пампах, LONG разгружаются по TP.
+#   - SHORT-боты T1/T2/T3/TB peak в норме $1-5k; $10k = real bleed signal.
+BLEED_THRESHOLD_USD = 10_000.0
+STEP_QTY_USD = 500.0
+MIN_GROWTH_30MIN_USD = 500.0
 
-# Шаг TWAP — фиксированный $1k за emit
-STEP_QTY_USD = 1_000.0
-
-# Минимальный 30-мин рост позиции, чтобы считать "growing"
-MIN_GROWTH_30MIN_USD = 1_000.0
+# Side filter: TWAP defender работает ТОЛЬКО для SHORT-side bots.
+WATCH_SIDES = ("short",)
 
 
 def _position_to_usd(position: float, side: str, btc_mid: float) -> float:
@@ -45,6 +50,8 @@ def detect_bleed(bot_state: dict, position_30min_ago_btc: Optional[float],
     side = bot_state.get("side", "short")
     if pos is None or btc_mid is None or btc_mid <= 0:
         return None
+    if side not in WATCH_SIDES:
+        return None  # LONG bots — asymmetric bleed только SHORT, см. memo выше
 
     pos_usd_abs = _position_to_usd(pos, side, btc_mid)
     if pos_usd_abs < BLEED_THRESHOLD_USD:

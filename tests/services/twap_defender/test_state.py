@@ -15,9 +15,9 @@ def _bot(side="short", pos_btc=-0.7):
 
 
 def test_below_threshold_no_alert():
-    # |pos| = 0.5 BTC × $80k = $40k < $50k threshold
-    bot = _bot(pos_btc=-0.5)
-    assert detect_bleed(bot, position_30min_ago_btc=-0.1, btc_mid=80_000) is None
+    # |pos| = 0.05 BTC × $80k = $4k < $10k threshold
+    bot = _bot(pos_btc=-0.05)
+    assert detect_bleed(bot, position_30min_ago_btc=-0.01, btc_mid=80_000) is None
 
 
 def test_growing_above_threshold_short():
@@ -38,26 +38,17 @@ def test_not_growing_no_alert():
 
 
 def test_growth_under_min_threshold_no_alert():
-    # Pos $51k now, $50.5k 30min ago → delta $500 < $1k min growth
-    bot = _bot(pos_btc=-0.6375)  # 0.6375 × 80k ≈ 51k
-    assert detect_bleed(bot, position_30min_ago_btc=-0.63, btc_mid=80_000) is None
+    # Pos $11k now, $10.7k 30min ago → delta $300 < $500 min growth
+    bot = _bot(pos_btc=-0.1375)  # 0.1375 × 80k = $11k
+    assert detect_bleed(bot, position_30min_ago_btc=-0.1338, btc_mid=80_000) is None
 
 
-def test_long_bot_position_is_usd_already():
-    # LONG bots use linear XBTUSDT — position field is in USDT, NOT BTC.
-    # pos=55000 USDT > $50k threshold; pos_30=45000 → delta $10k.
+def test_long_bots_filtered_out():
+    """LONG-side фильтруется: TWAP defender работает ТОЛЬКО для SHORT.
+    LONG-D/V5 нормально работают $25-35k, asymmetric bleed их не касается."""
     bot = _bot(side="long", pos_btc=55_000)
-    alert = detect_bleed(bot, position_30min_ago_btc=45_000, btc_mid=80_000)
-    assert alert is not None
-    assert alert["suggested_side"] == "sell"  # opposite of LONG
-    assert alert["position_usd_abs"] == 55_000  # NOT 55000 × 80000
-    assert alert["delta_30min_usd"] == 10_000
-
-
-def test_long_bot_below_threshold_in_usd():
-    # LONG pos 27200 USDT < $50k threshold → no alert
-    bot = _bot(side="long", pos_btc=27_200)
-    assert detect_bleed(bot, position_30min_ago_btc=20_000, btc_mid=80_000) is None
+    alert = detect_bleed(bot, position_30min_ago_btc=20_000, btc_mid=80_000)
+    assert alert is None  # SIDE FILTER — даже большая LONG позиция не триггерит
 
 
 def test_no_history_skips():
@@ -77,5 +68,5 @@ def test_format_tg_card_contains_key_fields():
 
 
 def test_thresholds_match_spec():
-    assert BLEED_THRESHOLD_USD == 50_000.0
-    assert MIN_GROWTH_30MIN_USD == 1_000.0
+    assert BLEED_THRESHOLD_USD == 10_000.0
+    assert MIN_GROWTH_30MIN_USD == 500.0

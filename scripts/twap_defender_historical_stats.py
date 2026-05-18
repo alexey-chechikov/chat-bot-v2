@@ -25,8 +25,10 @@ MANAGED = {
     "4525648417": ("TB", "short"),
 }
 
-BLEED_THRESHOLD_USD = 50_000.0
-GROWTH_THRESHOLD_USD = 1_000.0
+# 2026-05-18 update: пороги синхронизированы с services/twap_defender/state.py
+BLEED_THRESHOLD_USD = 10_000.0
+GROWTH_THRESHOLD_USD = 500.0
+WATCH_SIDES = ("short",)
 
 
 def _load_snapshots():
@@ -88,6 +90,9 @@ def main():
 
     total_alerts = 0
     for bid, (alias, side) in MANAGED.items():
+        if side not in WATCH_SIDES:
+            print(f"  {alias:8} side={side:5}  SKIPPED (side filter — SHORT-only)")
+            continue
         traj = sorted(by_bot[bid], key=lambda t: t[0])
         if not traj:
             print(f"  {alias:8}  no snapshots")
