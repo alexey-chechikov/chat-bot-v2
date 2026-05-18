@@ -675,6 +675,30 @@ async def _run_daily_digest(stop_event: asyncio.Event, *, telegram_app=None) -> 
             continue
 
 
+async def _run_pump_freeze(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Pump-freeze: при ≥1.5%/30мин one-way BTC pump → пауза TB бота через
+    GinArea pause API. Resume на -1% retracement OR 2h timeout. Применяется
+    ТОЛЬКО к TB testbed per оператор policy.
+
+    Replaces noisy cascade_short_5.0 (5 BTC liq fires на 1-1.5% движениях
+    тоже — too noisy). PUMP-based detection более точный."""
+    from services.pump_freeze.loop import pump_freeze_loop
+    send_fn = None
+    if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
+        chat_ids = list(telegram_app.allowed_chat_ids)
+        bot = telegram_app.bot
+
+        def _send(text: str) -> None:
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, text)
+                except Exception:
+                    logger.exception("pump_freeze.send_failed cid=%s", cid)
+
+        send_fn = _send
+    await pump_freeze_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_paper_signal_evaluator(stop_event: asyncio.Event) -> None:
     """Paper-signal outcome evaluator: каждые 5 мин закрывает pending
     paper-trades по TP/SL/timeout. Источники: cascade_alert, spike_alert,
@@ -1132,6 +1156,7 @@ async def main(
     weekly_report_task = asyncio.create_task(_run_weekly_self_report(stop_event, telegram_app=app), name="weekly_self_report")
     twap_defender_task = asyncio.create_task(_run_twap_defender(stop_event, telegram_app=app), name="twap_defender")
     paper_signal_eval_task = asyncio.create_task(_run_paper_signal_evaluator(stop_event), name="paper_signal_evaluator")
+    pump_freeze_task = asyncio.create_task(_run_pump_freeze(stop_event, telegram_app=app), name="pump_freeze")
     paper_signal_weekly_task = asyncio.create_task(_run_paper_signal_weekly_report(stop_event, telegram_app=app), name="paper_signal_weekly")
     daily_digest_task = asyncio.create_task(_run_daily_digest(stop_event, telegram_app=app), name="daily_digest")
     session_breakout_signal_task = asyncio.create_task(_run_session_breakout_signal(stop_event, telegram_app=app), name="session_breakout_signal")
@@ -1186,6 +1211,7 @@ async def main(
         market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
         twap_defender_task,
         paper_signal_eval_task,
+        pump_freeze_task,
         paper_signal_weekly_task,
         daily_digest_task,
         session_breakout_signal_task, session_breakout_outcome_task,
