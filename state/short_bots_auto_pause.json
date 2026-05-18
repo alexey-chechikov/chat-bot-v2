@@ -1,0 +1,35 @@
+{
+  "triggers": {
+    "cascade_short_5.0": {
+      "last_fire_ts": "2026-05-18T06:10:21+00:00",
+      "last_action_ts": "2026-05-18T06:10:59+00:00",
+      "affected": [
+        "SHORT-T1",
+        "SHORT-Ttestmac"
+      ]
+    },
+    "cascade_long_2.0": {
+      "last_fire_ts": "2026-05-18T02:51:54+00:00",
+      "last_action_ts": "2026-05-18T02:51:58+00:00",
+      "affected": []
+    },
+    "cascade_long_5.0": {
+      "last_fire_ts": "2026-05-18T01:22:09+00:00",
+      "last_action_ts": "2026-05-18T01:22:38+00:00",
+      "affected": []
+    },
+    "cascade_short_2.0": {
+      "last_fire_ts": "2026-05-18T01:33:29+00:00",
+      "last_action_ts": "2026-05-18T01:34:07+00:00",
+      "affected": []
+    }
+  },
+  "paused": {
+    "4525648417": {
+      "until_ts": "2026-05-18T10:10:21+00:00",
+      "trigger": "cascade_short_5.0",
+      "alias": "SHORT-Ttestmac",
+      "tier": "TB"
+    }
+  }
+}

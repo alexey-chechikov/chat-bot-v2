@@ -11,14 +11,16 @@
   ],
   "pause_triggers": {
     "cascade_short_5.0": {
-      "affect_tiers": ["T1", "TB"],
+      "affect_tiers": ["TB"],
       "pause_hours": 4.0,
-      "_note_2026_05_17": "T2/T3 removed by operator directive — they have wider grids and survive cascades without pause"
+      "_note_2026_05_17": "T2/T3 removed by operator directive — they have wider grids and survive cascades without pause",
+      "_note_2026_05_18": "T1 removed: A/B experiment — TB w/ auto-pause vs T1 w/o (same settings) for effectiveness comparison"
     },
     "cascade_short_2.0": {
-      "affect_tiers": ["T1", "TB"],
+      "affect_tiers": ["TB"],
       "pause_hours": 2.0,
-      "_note_2026_05_17": "T2 removed by operator directive"
+      "_note_2026_05_17": "T2 removed by operator directive",
+      "_note_2026_05_18": "T1 removed: A/B experiment"
     },
     "cascade_long_5.0": {
       "affect_tiers": ["LONG-D", "LONG-V5"],
