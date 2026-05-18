@@ -460,24 +460,14 @@ async def _run_exit_advisor(stop_event: asyncio.Event, *, telegram_app=None) -> 
     playbook context + HARD BAN list. Включён по умолчанию.
     Чтобы выключить (если что-то опять не так): EXIT_ADVISOR_SEND_TELEGRAM=0
     """
+    # 2026-05-18 (Phase 2 audit): send_fn → _build_rh_send_fn для inline кнопок
+    # [A: Hedge] [B: Close 25%] [C: Hold] на advisory cards.
     import os as _os
     from services.exit_advisor.loop import exit_advisor_loop
 
-    send_fn = None
     enable_telegram = _os.environ.get("EXIT_ADVISOR_SEND_TELEGRAM", "1") == "1"
-    if enable_telegram and telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
-        chat_ids = list(telegram_app.allowed_chat_ids)
-        bot = telegram_app.bot
-
-        def _send(text: str) -> None:
-            for cid in chat_ids:
-                try:
-                    bot.send_message(cid, text)
-                except Exception:
-                    logger.exception("exit_advisor.telegram_send_failed cid=%s", cid)
-
-        send_fn = _send
-    else:
+    send_fn = _build_rh_send_fn(telegram_app) if enable_telegram else None
+    if not enable_telegram:
         logger.warning("exit_advisor.telegram_disabled (set EXIT_ADVISOR_SEND_TELEGRAM=1 to enable)")
 
     await exit_advisor_loop(stop_event=stop_event, send_fn=send_fn)
@@ -528,10 +518,12 @@ async def _run_cascade_accuracy_eval(stop_event: asyncio.Event, *, telegram_app=
 async def _run_liq_pre_cascade(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Phase-1 pre-cascade signal по кластеризации мелких liq (R&D 2026-05-13).
     Если >=0.3 BTC liq на одной стороне за 5 мин (и нет уже >=5 BTC) — TG-alert
-    'возможен каскад через 10-20 мин'. Cooldown 30 мин/сторона."""
+    'возможен каскад через 10-20 мин'. Cooldown 30 мин/сторона.
+
+    2026-05-18: send_fn расширен до reply_markup (Phase 2 audit) — карточка
+    с offensive plan получает inline кнопки [✅ Placed] [⏭ Skip]."""
     from services.pre_cascade_alert.liq_clustering import liq_pre_cascade_loop
-    from services.telegram.channel_router import build_send_fn
-    send_fn = build_send_fn(telegram_app, "LIQ_CLUSTER_BUILD") if telegram_app else None
+    send_fn = _build_rh_send_fn(telegram_app)
     await liq_pre_cascade_loop(stop_event=stop_event, send_fn=send_fn)
 
 
@@ -655,28 +647,31 @@ async def _run_range_hunter_signal(stop_event: asyncio.Event, *, telegram_app=No
 async def _run_range_hunter_outcome(stop_event: asyncio.Event, *, telegram_app=None,
                                      symbol: str = "BTCUSDT", variant: str = "1m") -> None:
     """Outcome tracker: следит за placed signals, симулирует fill BUY/SELL/SL/timeout
-    на свежих данных, пишет результат в journal. Hedge advisor."""
+    на свежих данных, пишет результат в journal. Hedge advisor.
+
+    2026-05-18 (Phase 2 audit): hedge_send_fn перешёл на _build_rh_send_fn —
+    advisory карточки получают inline кнопки [A: Hedged] / [B: Closed] / [C: Hold]."""
     from services.range_hunter.loop import range_hunter_outcome_loop
-    from services.telegram.channel_router import build_send_fn
-    hedge_send = build_send_fn(telegram_app, "SETUP_ON") if telegram_app else None
     params = _rh_params_for(variant, symbol)
     await range_hunter_outcome_loop(stop_event=stop_event,
-                                     hedge_send_fn=hedge_send,
+                                     hedge_send_fn=_build_rh_send_fn(telegram_app),
                                      params=params)
 
 
 async def _run_cliff_monitor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Cliff monitor: каждые 5 мин проверяет SHORT-T2 боты + bag aggregate.
-    Per-bot пороги: WARNING −$1500, DANGER −$3000. Bag: суммы по всем SHORT."""
+    Per-bot пороги: WARNING −$1500, DANGER −$3000. Bag: суммы по всем SHORT.
+
+    2026-05-18 (Phase 2 audit): send_fn → _build_rh_send_fn для inline кнопок
+    [⛔ Pause bot] [✓ Ack] на per-bot cliff alert."""
     import csv as _csv
     from pathlib import Path as _Path
     from services.ginarea_api.cliff_monitor import (
         check_short_t2_bots,
         check_short_bag_aggregate,
     )
-    from services.telegram.channel_router import build_send_fn
 
-    send_fn = build_send_fn(telegram_app, "MARGIN_ALERT") if telegram_app else None
+    send_fn = _build_rh_send_fn(telegram_app)
 
     snapshots_csv = _Path("ginarea_live/snapshots.csv")
     interval_sec = 300  # 5 min

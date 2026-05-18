@@ -69,6 +69,42 @@ def _append_journal(entry: dict, path: Path = JOURNAL_PATH) -> None:
         logger.exception("liq_pre_cascade.journal_failed")
 
 
+def mark_user_action(signal_id: str, action: str, *,
+                     now: Optional[datetime] = None,
+                     path: Path = JOURNAL_PATH) -> bool:
+    """Mark inline-button choice on offensive plan. action: 'placed' | 'skipped'.
+    Returns True if signal found in journal."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if not path.exists():
+        return False
+    rows: list[dict] = []
+    found = False
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("signal_id") == signal_id:
+                r["user_action"] = action
+                if action == "placed":
+                    r["placed_at"] = now.isoformat(timespec="seconds")
+                found = True
+            rows.append(r)
+        if found:
+            path.write_text(
+                "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        logger.exception("liq_pre_cascade.mark_user_action_failed")
+    return found
+
+
 def _liq_window_sums(now_utc: datetime, window_min: int,
                      liq_csv: Path = LIQ_CSV) -> tuple[float, float]:
     """Sum liq qty per side in [now-window, now]."""
@@ -138,14 +174,22 @@ PRE_CASCADE_ENTRY_PLANS = {
 
 def _format_alert(side: str, qty_btc: float,
                   long_btc: float = 0.0, short_btc: float = 0.0,
-                  now: Optional[datetime] = None) -> str:
+                  now: Optional[datetime] = None) -> tuple[str, dict]:
+    """Build TG card text + structured plan dict.
+
+    Returns (text, plan_info). plan_info has:
+      - 'actionable': bool — есть ли trade plan (для inline buttons)
+      - 'trade_dir': 'LONG' | 'SHORT' | None
+      - 'entry', 'stop', 'tp1', 'tp2', 'exit_by_ts' (if actionable)
+      - 'has_conflict': bool
+    """
     direction_word = "LONG" if side == "long" else "SHORT"
     lines = [
         f"🔍 PRE-CASCADE liq cluster: {direction_word}",
-        f"За последние {WINDOW_MINUTES} мин: {qty_btc:.2f} BTC liq на стороне {side}",
-        f"(baseline ~0.01 BTC за 5 мин)",
+        f"За последние {WINDOW_MINUTES} мин: {qty_btc:.2f} BTC ликвидировано (baseline ~0.01)",
         "",
     ]
+    confidence = "MED"
     try:
         from services.pre_cascade_alert.multi_feature_score import (
             compute_score, is_high_confidence,
@@ -153,14 +197,11 @@ def _format_alert(side: str, qty_btc: float,
         score = compute_score(
             liq_long_5min=long_btc, liq_short_5min=short_btc, now=now,
         )
-        conf = "HIGH" if is_high_confidence(score) else "MED"
-        lines.append(f"📊 Score: {score.total:.2f} [{conf}]  ({score.components_text})")
-        lines.append("")
+        confidence = "HIGH" if is_high_confidence(score) else "MED"
     except Exception:
         logger.exception("liq_pre_cascade.score_failed")
 
-    lines.append(f"R&D-сигнал: возможен каскад >=5 BTC через 10-20 мин в эту же сторону.")
-    lines.append(f"⚠ НЕ открывать новые {direction_word}-позиции в ближайшие 20 мин.")
+    lines.append(f"⚠ НЕ открывать новые {direction_word}-позиции 20 мин (возможен каскад)")
     lines.append("")
 
     # Validated offensive entry: SHORT pre-cluster → LONG continuation
@@ -194,6 +235,10 @@ def _format_alert(side: str, qty_btc: float,
     except (OSError, json.JSONDecodeError):
         pass
 
+    plan_info: dict = {"actionable": False, "trade_dir": None,
+                        "has_conflict": bool(conflict_event),
+                        "confidence": confidence}
+
     if plan and last_price and last_price > 0:
         tp1 = last_price * (1 + plan["tp1_pct"] / 100)
         tp2 = last_price * (1 + plan["tp2_pct"] / 100)
@@ -204,32 +249,49 @@ def _format_alert(side: str, qty_btc: float,
         from datetime import timedelta as _td
         exit_at = (now or datetime.now(timezone.utc)) + _td(hours=plan["exit_after_h"])
         if conflict_event:
-            lines.append("⚠ ОФФЕНСИВНАЯ опция — CONFLICT, ВХОДИТЬ НЕ РЕКОМЕНДУЕТСЯ:")
-            lines.append(f"  ⛔ Конфликт сигналов: {conflict_event} предсказывает противоположное направление")
-            lines.append(f"  ⛔ Edge {plan['edge_note']} проверен БЕЗ учёта одновременных cascade events")
-            lines.append(f"  ⛔ Whipsaw риск: оба сигнала за <60 мин = высокая волатильность, не trade-time")
-            lines.append(f"  Hypothetical plan ({plan['dir']}): entry ~${last_price:,.0f}, stop ${stop:,.0f}, TP2 ${tp2:,.0f}")
-            lines.append(f"  Решение: skip пока один из сигналов не разрешится")
+            lines.append(f"⚠ Offensive option — CONFLICT с {conflict_event}, SKIP")
+            lines.append(f"  (оба сигнала за <60 мин = whipsaw, edge не работает)")
         else:
-            lines.append("💰 ОФФЕНСИВНАЯ опция (validated edge):")
-            lines.append(f"  {plan['edge_note']}")
-            lines.append(f"  Направление: {plan['dir']} (continuation после shorts liquidated)")
-            lines.append(f"  Entry:  ~${last_price:,.0f}")
-            lines.append(f"  Stop:   ${stop:,.0f}   ({plan['stop_pct']:+.2f}%)")
-            lines.append(f"  TP1:    ${tp1:,.0f}   ({plan['tp1_pct']:+.2f}%, R:R 1:{rr1:.1f})")
-            lines.append(f"  TP2:    ${tp2:,.0f}   ({plan['tp2_pct']:+.2f}%, R:R 1:{rr2:.1f})")
-            lines.append(f"  Exit by: {exit_at.strftime('%H:%M UTC')} (+{plan['exit_after_h']}h)")
+            lines.append(f"💰 Offensive entry [{confidence}]:")
+            lines.append(f"  {plan['dir']}  entry ~${last_price:,.0f}")
+            lines.append(f"  Stop: ${stop:,.0f} ({plan['stop_pct']:+.2f}%)")
+            lines.append(f"  TP1:  ${tp1:,.0f} (R:R 1:{rr1:.1f})")
+            lines.append(f"  TP2:  ${tp2:,.0f} (R:R 1:{rr2:.1f})")
+            lines.append(f"  Exit by {exit_at.strftime('%H:%M UTC')} (+{plan['exit_after_h']}h)")
+            lines.append(f"  Edge: {plan['edge_note']}")
+            plan_info.update({
+                "actionable": True,
+                "trade_dir": plan["dir"],
+                "entry": round(last_price, 2),
+                "stop": round(stop, 2),
+                "tp1": round(tp1, 2),
+                "tp2": round(tp2, 2),
+                "exit_by_ts": exit_at.isoformat(timespec="seconds"),
+                "edge_note": plan["edge_note"],
+            })
     elif side == "long":
-        lines.append("ℹ️ LONG pre-cluster: defensive only (edge инвертировался в 2026, см. cascade_long_reversal_short).")
+        lines.append("ℹ️ LONG cluster: defensive only (edge инвертировался в 2026)")
 
-    lines.append("")
-    lines.append(f"Phase-2 score (liq+oi+funding+ls). См. PRE_CASCADE_SIGNAL_R&D.md.")
-    return "\n".join(lines)
+    return "\n".join(lines), plan_info
+
+
+def _build_keyboard(signal_id: str):
+    """Inline buttons for actionable pre-cascade offensive plan."""
+    try:
+        from telebot import types
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            types.InlineKeyboardButton("✅ Placed", callback_data=f"pc:placed:{signal_id}"),
+            types.InlineKeyboardButton("⏭ Skip", callback_data=f"pc:skip:{signal_id}"),
+        )
+        return kb
+    except Exception:
+        return None
 
 
 def check_and_alert(
     *,
-    send_fn: Callable[[str], None],
+    send_fn: Callable,
     now: Optional[datetime] = None,
     state_path: Path = STATE_PATH,
     journal_path: Path = JOURNAL_PATH,
@@ -266,19 +328,38 @@ def check_and_alert(
             except ValueError:
                 pass
 
-        text = _format_alert(side, qty, long_btc=long_btc, short_btc=short_btc, now=now)
+        text, plan_info = _format_alert(side, qty, long_btc=long_btc,
+                                          short_btc=short_btc, now=now)
+        signal_id = f"pc_{now.strftime('%Y%m%d_%H%M%S')}_{side}"
+        kb = _build_keyboard(signal_id) if plan_info.get("actionable") else None
         try:
-            send_fn(text)
+            # Try (text, reply_markup=kb); fall back to (text) for older send_fn.
+            try:
+                send_fn(text, reply_markup=kb)
+            except TypeError:
+                send_fn(text)
         except Exception:
             logger.exception("liq_pre_cascade.send_failed side=%s", side)
             continue
 
         entry = {
+            "signal_id": signal_id,
             "ts": now.isoformat(timespec="seconds"),
             "side": side,
             "qty_btc": round(qty, 4),
             "window_min": window_min,
             "threshold_btc": cluster_threshold,
+            "actionable": plan_info.get("actionable", False),
+            "confidence": plan_info.get("confidence"),
+            "has_conflict": plan_info.get("has_conflict", False),
+            "trade_dir": plan_info.get("trade_dir"),
+            "entry": plan_info.get("entry"),
+            "stop": plan_info.get("stop"),
+            "tp1": plan_info.get("tp1"),
+            "tp2": plan_info.get("tp2"),
+            "exit_by_ts": plan_info.get("exit_by_ts"),
+            "user_action": None,
+            "placed_at": None,
         }
         _append_journal(entry, journal_path)
         fired.append(entry)

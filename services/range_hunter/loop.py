@@ -556,13 +556,32 @@ def check_outcomes(*, csv_path: Path = MARKET_1M_CSV,
             advice = hedge_advice(rec, df, now=now)
             if advice:
                 try:
-                    hedge_send_fn(advice)
+                    kb = _build_hedge_keyboard(rec["signal_id"])
+                    try:
+                        hedge_send_fn(advice, reply_markup=kb)
+                    except TypeError:
+                        hedge_send_fn(advice)
                     update_record(rec["signal_id"],
                                   {"hedge_suggested_at": now.isoformat(timespec="seconds")},
                                   path=journal_path)
                 except Exception:
                     logger.exception("range_hunter.hedge_send_failed")
     return n_resolved
+
+
+def _build_hedge_keyboard(signal_id: str):
+    """Inline buttons for hedge advisory — 3 actions: hedged/closed/hold."""
+    try:
+        from telebot import types
+        kb = types.InlineKeyboardMarkup(row_width=3)
+        kb.add(
+            types.InlineKeyboardButton("A: Hedged", callback_data=f"rh_hedge:hedged:{signal_id}"),
+            types.InlineKeyboardButton("B: Closed", callback_data=f"rh_hedge:closed:{signal_id}"),
+            types.InlineKeyboardButton("C: Hold", callback_data=f"rh_hedge:hold:{signal_id}"),
+        )
+        return kb
+    except Exception:
+        return None
 
 
 # ──────────────────────────────────────────────────────────────────────

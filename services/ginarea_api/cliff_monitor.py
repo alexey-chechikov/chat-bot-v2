@@ -113,7 +113,11 @@ def check_short_t2_bots(
         msg = _format_alert(b, sev, unreal)
         if send_fn is not None:
             try:
-                send_fn(msg)
+                kb = _build_cliff_keyboard(bot_id)
+                try:
+                    send_fn(msg, reply_markup=kb)
+                except TypeError:
+                    send_fn(msg)
             except Exception:
                 logger.exception("cliff_monitor.send_failed bot_id=%s", bot_id)
         state[bot_id] = {"severity": sev, "ts": now, "unrealized_usd": unreal}
@@ -185,6 +189,24 @@ def _format_bag_alert(bots: list[dict], severity: str, total_unreal: float) -> s
         lines.append(f"Σ position: {total_pos:.3f} BTC across {n} bots")
         lines.append("Известный cliff-обвал был −$6 300. Смотри руками.")
     return "\n".join(lines)
+
+
+def _build_cliff_keyboard(bot_id: str):
+    """Inline buttons [⛔ Pause bot] / [✓ Ack] для cliff alert.
+
+    Pause кнопка вызывает GinArea pause_bot API (PUT /bots/{id}/stop).
+    Ack просто скрывает кнопки — оператор разберётся вручную.
+    """
+    try:
+        from telebot import types
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            types.InlineKeyboardButton("⛔ Pause bot", callback_data=f"cliff:pause:{bot_id}"),
+            types.InlineKeyboardButton("✓ Ack", callback_data=f"cliff:ack:{bot_id}"),
+        )
+        return kb
+    except Exception:
+        return None
 
 
 def _format_alert(bot: dict, severity: str, unreal: float) -> str:

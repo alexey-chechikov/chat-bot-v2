@@ -146,6 +146,22 @@ def mark_user_action(signal_id: str, action: str, *, now: Optional[datetime] = N
     return False
 
 
+def mark_hedge_action(signal_id: str, action: str, *,
+                       now: Optional[datetime] = None,
+                       path: Path = JOURNAL_PATH) -> bool:
+    """Mark hedge advisory choice. action: 'hedged' | 'closed' | 'hold'."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    rows = read_all(path=path)
+    for r in rows:
+        if r.get("signal_id") == signal_id:
+            r["hedge_action"] = action
+            r["hedge_action_ts"] = now.isoformat(timespec="seconds")
+            write_all(rows, path=path)
+            return True
+    return False
+
+
 def pending_signals(*, path: Path = JOURNAL_PATH) -> list[dict]:
     """Signals which user PLACED but outcome not yet evaluated."""
     rows = read_all(path=path)

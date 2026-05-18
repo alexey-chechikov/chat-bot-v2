@@ -130,6 +130,24 @@ async def exit_advisor_loop(
             pass
 
 
+def _build_exit_keyboard(alert_id: str):
+    """Exit advisor inline buttons: [A: Hedge] [B: Close 25%] [C: Hold].
+
+    Кнопки записывают operator decision в state/exit_advisor_decisions.jsonl
+    для последующего outcome filling (4h/24h post-decision PnL change)."""
+    try:
+        from telebot import types
+        kb = types.InlineKeyboardMarkup(row_width=3)
+        kb.add(
+            types.InlineKeyboardButton("A: Hedge", callback_data=f"exit:hedge:{alert_id}"),
+            types.InlineKeyboardButton("B: Close 25%", callback_data=f"exit:close25:{alert_id}"),
+            types.InlineKeyboardButton("C: Hold", callback_data=f"exit:hold:{alert_id}"),
+        )
+        return kb
+    except Exception:
+        return None
+
+
 def _tick(
     *,
     ranker: StrategyRanker,
@@ -215,8 +233,13 @@ def _tick(
     card, is_critical = format_compact_advisory(state)
     if card and send_fn is not None:
         try:
-            if callable(send_fn):
-                send_fn(card)
+            alert_id = f"exit_{sc_key}_{now.strftime('%Y%m%d_%H%M%S')}"
+            kb = _build_exit_keyboard(alert_id)
+            try:
+                send_fn(card, reply_markup=kb)
+            except TypeError:
+                if callable(send_fn):
+                    send_fn(card)
             dedup_cache[sc_key] = now
             logger.info(
                 "exit_advisor.alert_sent scenario=%s severity=%d critical=%s",

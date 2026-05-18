@@ -2757,6 +2757,41 @@ class TelegramBotApp:
                 )
             self.bot.send_message(chat_id, "\n".join(lines)[:3800])
 
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("rh_hedge:"))
+        def handle_rh_hedge_callback(call) -> None:
+            """RH Hedge Advisory inline buttons: [A: Hedged] [B: Closed] [C: Hold]."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, signal_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            valid = {"hedged", "closed", "hold"}
+            if action not in valid:
+                self.bot.answer_callback_query(call.id, f"⚠ unknown action '{action}'")
+                return
+            try:
+                from services.range_hunter.journal import mark_hedge_action
+                ok = mark_hedge_action(signal_id, action)
+                if ok:
+                    msg = {"hedged": "✅ Записано: hedged",
+                            "closed": "✅ Записано: closed leg",
+                            "hold": "✅ Записано: hold"}[action]
+                else:
+                    msg = f"⚠ signal_id {signal_id} не найден"
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("rh_hedge.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("rh:"))
         def handle_range_hunter_callback(call) -> None:
             """Inline-кнопки [✅ Placed both] / [⏭ Skip] для Range Hunter."""
@@ -2785,6 +2820,117 @@ class TelegramBotApp:
                     pass
             except Exception:
                 logger.exception("range_hunter.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("exit:"))
+        def handle_exit_advisor_callback(call) -> None:
+            """Exit advisor inline buttons: [A: Hedge] [B: Close 25%] [C: Hold]."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, alert_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            action_map = {"hedge": "hedge_opposite",
+                           "close25": "close_25pct",
+                           "hold": "monitor"}
+            if action not in action_map:
+                self.bot.answer_callback_query(call.id, f"⚠ unknown action '{action}'")
+                return
+            try:
+                from services.exit_advisor.decisions_log import log_decision
+                scenario_class = alert_id.split("_")[1] if "_" in alert_id else "unknown"
+                log_decision(
+                    scenario_class=scenario_class,
+                    action_taken=action_map[action],
+                    snapshot={"alert_id": alert_id, "source": "tg_button"},
+                )
+                msg = {"hedge": "✅ Logged: hedge",
+                        "close25": "✅ Logged: close 25%",
+                        "hold": "✅ Logged: hold"}[action]
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("exit_advisor.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("cliff:"))
+        def handle_cliff_callback(call) -> None:
+            """Cliff monitor inline buttons: [⛔ Pause bot] [✓ Ack]."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, bot_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            if action == "ack":
+                self.bot.answer_callback_query(call.id, "✓ Acknowledged")
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+                return
+            if action != "pause":
+                self.bot.answer_callback_query(call.id, f"⚠ unknown action '{action}'")
+                return
+            # Pause action: call GinArea pause_bot API
+            try:
+                from services.short_bots_guard.control import _build_api
+                api, err = _build_api()
+                if api is None:
+                    self.bot.answer_callback_query(call.id, f"⚠ API: {err}")
+                    return
+                api.pause_bot(int(bot_id))
+                self.bot.answer_callback_query(call.id, f"⛔ Bot {bot_id} paused")
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("cliff.callback_pause_failed bot_id=%s", bot_id)
+                self.bot.answer_callback_query(call.id, "Ошибка при паузе")
+
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("pc:"))
+        def handle_pre_cascade_callback(call) -> None:
+            """Inline-кнопки [✅ Placed] / [⏭ Skip] для pre-cascade offensive plan."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, signal_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            try:
+                from services.pre_cascade_alert.liq_clustering import mark_user_action
+                ok = mark_user_action(signal_id,
+                                       "placed" if action == "placed" else "skipped")
+                if ok:
+                    msg = "✅ Зафиксировано: сделка размещена" if action == "placed" \
+                        else "⏭ Пропущено (для статистики)"
+                else:
+                    msg = f"⚠ signal_id {signal_id} не найден"
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("pre_cascade.callback_failed")
                 self.bot.answer_callback_query(call.id, "Ошибка")
 
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("sb:"))
