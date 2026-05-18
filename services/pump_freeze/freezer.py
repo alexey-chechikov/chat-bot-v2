@@ -1,29 +1,4 @@
-"""Freezer — apply pause via BotsAPI + journal + TG notification.
-
-State file: state/pump_freeze_state.json
-  {
-    "frozen": {
-      "4525648417": {
-        "freeze_ts": "ISO",
-        "freeze_pump_pct": 1.85,
-        "freeze_peak_price": 67100.0,
-        "freeze_position_btc": -0.45,
-        "tg_alert_id": "pf_20260518_HHMMSS_TB"
-      }
-    }
-  }
-
-Journal: state/pump_freeze_events.jsonl per event:
-  {
-    "alert_id": "pf_..._TB",
-    "ts_freeze":, "ts_resume":,
-    "bot_id":, "alias":, "tier":,
-    "freeze_price":, "freeze_pump_pct":, "freeze_position_btc":,
-    "resume_price":, "resume_reason":,
-    "peak_price_during_freeze":,
-    "estimated_saved_usd":   # 0.5 × position × (peak - freeze_price)
-  }
-"""
+"""Freezer — bidirectional pause/resume + journal + TG notification."""
 from __future__ import annotations
 
 import json
@@ -32,8 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-from services.pump_freeze.config import JOURNAL_PATH, STATE_PATH
-from services.pump_freeze.detector import PumpEvent
+from services.pump_freeze.config import (
+    JOURNAL_PATH,
+    RESUME_RETRACEMENT_PCT,
+    RESUME_TIMEOUT_HOURS,
+    STATE_PATH,
+)
+from services.pump_freeze.detector import MoveEvent
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +46,27 @@ def _append_journal(record: dict) -> None:
 
 
 def is_frozen(bot_id: str) -> bool:
-    state = _read_state()
-    return bot_id in state.get("frozen", {})
+    return bot_id in _read_state().get("frozen", {})
 
 
 def frozen_info(bot_id: str) -> Optional[dict]:
-    state = _read_state()
-    return state.get("frozen", {}).get(bot_id)
+    return _read_state().get("frozen", {}).get(bot_id)
 
 
-def freeze(*, bot_id: str, alias: str, tier: str,
-           event: PumpEvent, position_btc: float,
+def position_usd_abs(raw_pos: float, side: str, mid_btc: float) -> float:
+    """SHORT inverse XBTUSD: |BTC| × mid; LONG linear XBTUSDT: |USDT|."""
+    if side == "short":
+        return abs(raw_pos) * mid_btc
+    return abs(raw_pos)
+
+
+def freeze(*, bot_id: str, alias: str, tier: str, side: str,
+           event: MoveEvent, raw_position: float, position_usd: float,
            pause_api_fn: Callable[[int], dict],
            send_fn: Optional[Callable] = None,
            now: Optional[datetime] = None) -> bool:
-    """Apply pause to bot via API, record state + journal + TG notify."""
     if now is None:
         now = datetime.now(timezone.utc)
-
-    # Try GinArea pause
     try:
         pause_api_fn(int(bot_id))
     except Exception as e:
@@ -92,83 +74,81 @@ def freeze(*, bot_id: str, alias: str, tier: str,
         return False
 
     alert_id = f"pf_{now.strftime('%Y%m%d_%H%M%S')}_{tier}"
-
-    # Record state
     state = _read_state()
     state.setdefault("frozen", {})
     state["frozen"][bot_id] = {
         "freeze_ts": now.isoformat(timespec="seconds"),
-        "freeze_pump_pct": event.move_pct,
-        "freeze_peak_price": event.price_now,
-        "freeze_position_btc": position_btc,
+        "freeze_move_pct": event.move_pct,
+        "freeze_direction": event.direction,
+        "freeze_side": side,
+        "freeze_extreme_price": event.price_now,
+        "freeze_position_raw": raw_position,
+        "freeze_position_usd": position_usd,
         "alert_id": alert_id,
     }
     _write_state(state)
 
-    # TG notification
     if send_fn is not None:
         from datetime import timedelta
-        from services.pump_freeze.config import RESUME_TIMEOUT_HOURS, RESUME_RETRACEMENT_PCT
         expected_resume = now + timedelta(hours=RESUME_TIMEOUT_HOURS)
+        emoji = "🛑 PUMP" if event.direction == "up" else "🛑 DUMP"
+        action_word = "PUMP" if event.direction == "up" else "DUMP"
         msg = (
-            f"🛑 PUMP FREEZE [{tier}]  BTC +{event.move_pct:.2f}% за 30мин\n"
+            f"{emoji} FREEZE [{tier}]  BTC {event.move_pct:+.2f}% за 30мин\n"
             f"  Price: ${event.price_window_start:,.0f} → ${event.price_now:,.0f}\n"
-            f"  Position: {position_btc:.4f} BTC SHORT  (≈${abs(position_btc * event.price_now):,.0f})\n"
-            f"  Pause до: {expected_resume.strftime('%H:%M UTC')} (+{RESUME_TIMEOUT_HOURS}h timeout)\n"
-            f"        OR откат -{RESUME_RETRACEMENT_PCT}% от peak (что раньше)\n"
-            f"  Goal: остановить добор пока pump не закончится"
+            f"  Position: {raw_position:+.4f}  (≈${position_usd:,.0f} {side.upper()})\n"
+            f"  Pause до: {expected_resume.strftime('%H:%M UTC')} (+{RESUME_TIMEOUT_HOURS}h)\n"
+            f"        OR откат -{RESUME_RETRACEMENT_PCT}% от extreme\n"
+            f"  Goal: остановить добор {side.upper()} пока {action_word.lower()} не закончится"
         )
         try:
             send_fn(msg)
         except Exception:
             logger.exception("pump_freeze.tg_freeze_send_failed")
 
-    logger.info("pump_freeze.frozen bot=%s pump=%.2f%% price=%.0f pos=%.4f",
-                bot_id, event.move_pct, event.price_now, position_btc)
+    logger.info("pump_freeze.frozen bot=%s side=%s move=%.2f%% price=%.0f pos_usd=%.0f",
+                bot_id, side, event.move_pct, event.price_now, position_usd)
     return True
 
 
-def resume(*, bot_id: str, alias: str, tier: str,
-           current_price: float, resume_reason: str, peak_during_freeze: float,
+def resume(*, bot_id: str, alias: str, tier: str, side: str,
+           current_price: float, resume_reason: str, extreme_during_freeze: float,
            resume_api_fn: Callable[[int], dict],
            send_fn: Optional[Callable] = None,
            now: Optional[datetime] = None) -> bool:
-    """Unpause bot + record + notify."""
     if now is None:
         now = datetime.now(timezone.utc)
-
     state = _read_state()
     fz = state.get("frozen", {}).get(bot_id)
     if not fz:
         return False
-
     try:
         resume_api_fn(int(bot_id))
     except Exception:
         logger.exception("pump_freeze.api_resume_failed bot=%s", bot_id)
         return False
 
-    # Estimated saved DD = 0.5 × |position| × (peak - freeze_price)
-    pos = abs(float(fz.get("freeze_position_btc", 0)))
-    freeze_price = float(fz.get("freeze_peak_price", 0))
-    est_saved = 0.5 * pos * max(peak_during_freeze - freeze_price, 0)
+    pos_usd = abs(float(fz.get("freeze_position_usd", 0)))
+    freeze_price = float(fz.get("freeze_extreme_price", 0))
+    # Estimated saved DD = 0.5 × pos × |extreme - freeze_price|
+    est_saved = 0.5 * pos_usd * abs(extreme_during_freeze - freeze_price) / max(freeze_price, 1)
 
     record = {
         "alert_id": fz.get("alert_id"),
         "ts_freeze": fz.get("freeze_ts"),
         "ts_resume": now.isoformat(timespec="seconds"),
-        "bot_id": bot_id, "alias": alias, "tier": tier,
+        "bot_id": bot_id, "alias": alias, "tier": tier, "side": side,
+        "direction": fz.get("freeze_direction"),
         "freeze_price": freeze_price,
-        "freeze_pump_pct": fz.get("freeze_pump_pct"),
-        "freeze_position_btc": fz.get("freeze_position_btc"),
+        "freeze_move_pct": fz.get("freeze_move_pct"),
+        "freeze_position_raw": fz.get("freeze_position_raw"),
+        "freeze_position_usd": fz.get("freeze_position_usd"),
         "resume_price": round(current_price, 2),
         "resume_reason": resume_reason,
-        "peak_price_during_freeze": round(peak_during_freeze, 2),
+        "extreme_price_during_freeze": round(extreme_during_freeze, 2),
         "estimated_saved_usd": round(est_saved, 2),
     }
     _append_journal(record)
-
-    # Remove from frozen state
     del state["frozen"][bot_id]
     _write_state(state)
 
@@ -176,7 +156,7 @@ def resume(*, bot_id: str, alias: str, tier: str,
         msg = (
             f"▶ RESUME [{tier}]  reason: {resume_reason}\n"
             f"  Freeze price: ${freeze_price:,.0f} → Current: ${current_price:,.0f}\n"
-            f"  Peak during freeze: ${peak_during_freeze:,.0f}\n"
+            f"  Extreme during freeze: ${extreme_during_freeze:,.0f}\n"
             f"  Estimated saved DD: ${est_saved:,.0f}"
         )
         try:
@@ -184,23 +164,29 @@ def resume(*, bot_id: str, alias: str, tier: str,
         except Exception:
             logger.exception("pump_freeze.tg_resume_send_failed")
 
-    logger.info("pump_freeze.resumed bot=%s reason=%s saved=$%.0f",
-                bot_id, resume_reason, est_saved)
+    logger.info("pump_freeze.resumed bot=%s side=%s reason=%s saved=$%.0f",
+                bot_id, side, resume_reason, est_saved)
     return True
 
 
-def update_peak(bot_id: str, current_price: float) -> None:
-    """Track max price during freeze для estimated_saved_usd."""
+def update_extreme(bot_id: str, current_price: float, side: str) -> None:
+    """Track max (SHORT freeze) или min (LONG freeze) price during freeze."""
     state = _read_state()
     fz = state.get("frozen", {}).get(bot_id)
     if not fz:
         return
-    cur_peak = float(fz.get("peak_during_freeze") or fz.get("freeze_peak_price", 0))
-    if current_price > cur_peak:
-        fz["peak_during_freeze"] = current_price
-        _write_state(state)
+    cur_extreme = float(fz.get("extreme_during_freeze")
+                          or fz.get("freeze_extreme_price", 0))
+    if side == "short":
+        if current_price > cur_extreme:
+            fz["extreme_during_freeze"] = current_price
+            _write_state(state)
+    else:  # long: track minimum
+        if current_price < cur_extreme:
+            fz["extreme_during_freeze"] = current_price
+            _write_state(state)
 
 
-def get_peak_during_freeze(bot_id: str) -> float:
+def get_extreme_during_freeze(bot_id: str) -> float:
     fz = frozen_info(bot_id) or {}
-    return float(fz.get("peak_during_freeze") or fz.get("freeze_peak_price", 0))
+    return float(fz.get("extreme_during_freeze") or fz.get("freeze_extreme_price", 0))

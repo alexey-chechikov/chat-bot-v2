@@ -1,30 +1,35 @@
-"""Pump-freeze config — sweep-derived (см. scripts/sweep_pump_thresholds.py).
+"""Pump-freeze config — bidirectional version.
 
-Sweep 2y BTC выбрал ≥1.5% / 30мин one-way:
-  - 132 events/год = 2.5/неделя — управляемо
-  - 46% trend events = реальная защита от continuing accumulation
-  - 35% whipsaw = "бесплатные" паузы (грид окупится)
-  - $26k/год saved DD proxy
+SHORT bots (inverse XBTUSD): freeze на UP-pump (≥1.5%/30m one-way вверх)
+LONG bots (linear XBTUSDT):  freeze на DOWN-dump (≤-1.5%/30m one-way вниз)
+
+T2/T3 — sacred (отдельный фильтр позже, см. project_t2_t3_separate_filter.md).
 """
 from pathlib import Path
 
-# ─── Detector thresholds ─────────────────────────────────────────────────────
-PUMP_THRESHOLD_PCT = 1.5         # ≥1.5% за окно
+# ─── Detector thresholds (одни и те же для обеих сторон) ────────────────────
+PUMP_THRESHOLD_PCT = 1.5         # abs move ≥1.5% за окно
 PUMP_WINDOW_MIN = 30             # 30-min окно
-MIN_PULLBACK_PCT = 0.5           # one-way (no -0.5% retracement during)
+MIN_PULLBACK_PCT = 0.5           # one-way (no opposite-side retracement)
 
-# ─── Position filter ─────────────────────────────────────────────────────────
-# Фрезим только если бот уже накопил позицию ≥ X BTC — иначе нечего защищать.
-MIN_POSITION_BTC_TO_TRIGGER = 0.3
+# ─── Position filter (USD-equivalent для обеих сторон) ─────────────────────
+# SHORT: |pos_btc| × mid_btc; LONG: |pos_usdt|. Threshold ≈ 0.3 BTC × $80k.
+MIN_POSITION_USD_TO_TRIGGER = 24_000
 
 # ─── Resume conditions ──────────────────────────────────────────────────────
-RESUME_RETRACEMENT_PCT = 1.0     # цена откатилась -1% от peak → resume
-RESUME_TIMEOUT_HOURS = 2         # OR 2h elapsed (раньше — что первое)
+RESUME_RETRACEMENT_PCT = 1.0     # |price retracement| ≥ 1% от extreme → resume
+RESUME_TIMEOUT_HOURS = 2
 
-# ─── Scope ──────────────────────────────────────────────────────────────────
-# Per оператор policy 2026-05-18: pump_freeze применяется ТОЛЬКО к TB.
-# После 1-2 недель валидации можно расширить.
-APPLIES_TO_BOT_IDS = ("4525648417",)  # TB testbed only
+# ─── Scope (per оператор 2026-05-18b: T1+TB SHORT + LONG-D/V5 LONG) ────────
+# bot_id → side ("short" | "long")
+APPLIES_TO_BOTS = {
+    "4525648417": "short",   # TB testbed
+    "4729923198": "short",   # T1 SHORT (production)
+    "5154651487": "long",    # LONG-D хедж
+    "4979458320": "long",    # LONG-V5 хедж
+    # T2 (6287583200) — EXCLUDED, sacred
+    # T3 (5736281160) — EXCLUDED, sacred
+}
 
 # ─── Loop ───────────────────────────────────────────────────────────────────
 TICK_INTERVAL_SEC = 60

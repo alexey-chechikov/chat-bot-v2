@@ -1,7 +1,7 @@
-"""Pure pump detection — no I/O, testable.
+"""Bidirectional one-way move detector.
 
-Detect one-way pump: BTC ≥ PUMP_THRESHOLD_PCT за PUMP_WINDOW_MIN with no
-pullback ≥ MIN_PULLBACK_PCT during the climb.
+direction='up'   → pump events (для SHORT botов: цена ушла вверх, шорт страдает)
+direction='down' → dump events (для LONG botов: цена ушла вниз, лонг страдает)
 """
 from __future__ import annotations
 
@@ -17,66 +17,88 @@ from services.pump_freeze.config import (
 
 
 @dataclass
-class PumpEvent:
+class MoveEvent:
     detected_at: datetime
-    move_pct: float           # actual price move % over window
+    direction: str            # "up" | "down"
+    move_pct: float           # signed % move over window (negative for down)
     price_window_start: float
     price_now: float
-    max_pullback_pct: float   # observed pullback during climb
+    max_opposite_retracement_pct: float
 
 
-def detect(bars: list[tuple[datetime, float, float, float]],
-           *, threshold_pct: float = PUMP_THRESHOLD_PCT,
-           window_min: int = PUMP_WINDOW_MIN,
-           max_pullback_pct: float = MIN_PULLBACK_PCT,
-           ) -> Optional[PumpEvent]:
-    """Detect pump on tail of bars.
+def detect_move(bars: list[tuple[datetime, float, float, float]],
+                *, direction: str,
+                threshold_pct: float = PUMP_THRESHOLD_PCT,
+                window_min: int = PUMP_WINDOW_MIN,
+                max_retrace_pct: float = MIN_PULLBACK_PCT,
+                ) -> Optional[MoveEvent]:
+    """Generic one-way move detector.
 
-    bars: list of (ts, high, low, close) sorted ascending. Need at least
-          window_min bars в хвосте.
-    Returns PumpEvent if last bar's close vs (-window_min) close shows
-            ≥threshold_pct one-way move (no -max_pullback_pct retracement).
+    bars: [(ts, high, low, close)] sorted ascending. Need ≥window_min+1.
+    direction: 'up' (pump) или 'down' (dump).
     """
     if len(bars) < window_min + 1:
         return None
-    tail = bars[-(window_min + 1):]  # last N+1 bars
-    start_ts, _, _, start_close = tail[0]
+    if direction not in ("up", "down"):
+        return None
+
+    tail = bars[-(window_min + 1):]
+    _, _, _, start_close = tail[0]
     last_ts, _, _, last_close = tail[-1]
     if start_close <= 0:
         return None
+
     move_pct = (last_close - start_close) / start_close * 100.0
-    if move_pct < threshold_pct:
+
+    if direction == "up":
+        if move_pct < threshold_pct:
+            return None
+        # max opposite retracement = max DOWN deviation from start during climb
+        min_low = min(b[2] for b in tail)
+        retrace = (start_close - min_low) / start_close * 100.0
+    else:  # down
+        if move_pct > -threshold_pct:
+            return None
+        # max opposite retracement = max UP deviation from start during dump
+        max_high = max(b[1] for b in tail)
+        retrace = (max_high - start_close) / start_close * 100.0
+
+    if retrace >= max_retrace_pct:
         return None
 
-    # During the window, check pullback from start
-    min_low = min(b[2] for b in tail)
-    pullback = (start_close - min_low) / start_close * 100.0
-    if pullback >= max_pullback_pct:
-        return None  # not one-way
-
-    return PumpEvent(
-        detected_at=last_ts,
+    return MoveEvent(
+        detected_at=last_ts, direction=direction,
         move_pct=round(move_pct, 3),
         price_window_start=round(start_close, 2),
         price_now=round(last_close, 2),
-        max_pullback_pct=round(pullback, 3),
+        max_opposite_retracement_pct=round(retrace, 3),
     )
 
 
-def should_resume(*, freeze_peak_price: float, current_price: float,
+def should_resume(*, freeze_extreme_price: float, current_price: float,
                    freeze_ts: datetime, now: datetime,
-                   retrace_pct: float, timeout_hours: float) -> tuple[bool, str]:
-    """Decide if frozen state can be lifted.
+                   side: str, retrace_pct: float,
+                   timeout_hours: float) -> tuple[bool, str]:
+    """Resume when retracement OR timeout.
 
-    Returns (True, reason) if resume conditions met, else (False, "").
+    side='short' (frozen on pump): wait for price to retrace DOWN.
+    side='long'  (frozen on dump): wait for price to retrace UP.
     """
-    # Timeout?
     elapsed_h = (now - freeze_ts).total_seconds() / 3600.0
     if elapsed_h >= timeout_hours:
         return True, f"timeout {elapsed_h:.1f}h ≥ {timeout_hours}h"
-    # Retracement?
-    if freeze_peak_price > 0:
-        retrace = (freeze_peak_price - current_price) / freeze_peak_price * 100.0
-        if retrace >= retrace_pct:
-            return True, f"retracement -{retrace:.2f}% ≥ {retrace_pct}%"
+    if freeze_extreme_price <= 0:
+        return False, ""
+    if side == "short":
+        retrace = (freeze_extreme_price - current_price) / freeze_extreme_price * 100.0
+    else:
+        retrace = (current_price - freeze_extreme_price) / freeze_extreme_price * 100.0
+    if retrace >= retrace_pct:
+        return True, f"retracement {retrace:+.2f}% ≥ {retrace_pct}%"
     return False, ""
+
+
+# Backwards-compat wrappers for tests/legacy code
+def detect(bars, **kw):
+    """Deprecated; default to up-direction (SHORT). Use detect_move()."""
+    return detect_move(bars, direction="up", **kw)
