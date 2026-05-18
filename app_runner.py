@@ -1053,10 +1053,14 @@ async def main(
     decision_log_task = asyncio.create_task(_run_decision_log(stop_event), name="decision_log")
     dashboard_task = asyncio.create_task(_run_dashboard(stop_event), name="dashboard")
     dashboard_http_task = asyncio.create_task(_run_dashboard_http(stop_event), name="dashboard_http")
-    setup_detector_task = asyncio.create_task(_run_setup_detector(stop_event, telegram_app=app), name="setup_detector")
+    # TG silenced 2026-05-18 (Phase 1 audit): setup_detector сейчас paper-only,
+    # карточки в TG = шум. Журнал в state/setups.jsonl остаётся.
+    setup_detector_task = asyncio.create_task(_run_setup_detector(stop_event, telegram_app=None), name="setup_detector")
     paper_trader_task = asyncio.create_task(_run_paper_trader(stop_event, telegram_app=app), name="paper_trader")
     stale_monitor_task = asyncio.create_task(_run_stale_monitor(stop_event, telegram_app=app), name="stale_monitor")
-    decision_layer_emitter_task = asyncio.create_task(_run_decision_layer_emitter(stop_event, telegram_app=app), name="decision_layer_emitter")
+    # TG silenced 2026-05-18 (Phase 1 audit): "regime_instability stability=0"
+    # без action = шум для трейдера. Decisions всё ещё пишутся в decisions.jsonl.
+    decision_layer_emitter_task = asyncio.create_task(_run_decision_layer_emitter(stop_event, telegram_app=None), name="decision_layer_emitter")
     daily_reports_task = asyncio.create_task(_run_daily_weekly_reports(stop_event, telegram_app=app), name="daily_reports")
     setup_tracker_task = asyncio.create_task(_run_setup_tracker(stop_event), name="setup_tracker")
     exit_advisor_task = asyncio.create_task(_run_exit_advisor(stop_event, telegram_app=app), name="exit_advisor")
@@ -1089,7 +1093,9 @@ async def main(
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
     regime_shadow_task = asyncio.create_task(_run_regime_shadow(stop_event), name="regime_shadow")
-    regime_narrator_task = asyncio.create_task(_run_regime_narrator(stop_event, telegram_app=app), name="regime_narrator")
+    # TG silenced 2026-05-18 (Phase 1 audit): hourly LLM narrative без trade signal.
+    # Экономия ~$1.20/день Anthropic API. Narrative всё ещё пишется в журнал.
+    regime_narrator_task = asyncio.create_task(_run_regime_narrator(stop_event, telegram_app=None), name="regime_narrator")
     pre_cascade_task = asyncio.create_task(_run_pre_cascade_alert(stop_event, telegram_app=app), name="pre_cascade_alert")
     grid_coordinator_task = asyncio.create_task(_run_grid_coordinator(stop_event, telegram_app=app), name="grid_coordinator")
     grid_coordinator_intraday_task = asyncio.create_task(_run_grid_coordinator_intraday(stop_event, telegram_app=app), name="grid_coordinator_intraday")

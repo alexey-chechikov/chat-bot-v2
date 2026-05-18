@@ -500,21 +500,11 @@ def hedge_advice(record: dict, df: pd.DataFrame, *, now: Optional[datetime] = No
 
     # Cross-strategy confirmation check (Layer 9 из ROADMAP).
     # Если каскад в ту же сторону что и наш orphan — хедж НЕ нужен, держим.
+    # Phase 1 audit 2026-05-18: passive confirmation без action = шум.
+    # При наличии cascade-подтверждения просто SKIP hedge advice (молча).
     confirms = _check_cross_strategy_confirmation(side_open, now=now)
     if confirms:
-        keys = ", ".join(f"{c['key']} ({c['age_min']:.0f}мин назад)" for c in confirms)
-        return "\n".join([
-            f"🟢 CROSS-STRATEGY confirmation  {record['signal_id']}",
-            f"Range Hunter: {side_open}-нога открыта {age_min:.0f} мин @ ${fill_px:,.0f}",
-            f"Текущая цена ${last_close:,.0f}  (unrealized {unrealized_pct:+.2f}%)",
-            "",
-            f"⚡ Каскад-сигналы в ТУ ЖЕ сторону:",
-            f"  {keys}",
-            "",
-            f"→ Это БЕСПЛАТНОЕ подтверждение направления.",
-            f"→ Хедж НЕ нужен. Держим, ждём вторую ногу или таймаут.",
-            f"→ Risk остаётся: SL при движении 0.20% против.",
-        ])
+        return None
 
     lines = [
         f"⚠️ HEDGE ADVISORY  {record['signal_id']}",
