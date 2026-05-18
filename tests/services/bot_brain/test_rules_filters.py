@@ -67,11 +67,14 @@ def test_pause_eligible_excludes_T3():
     assert not eligible
 
 
-def test_pause_eligible_allows_T1():
+def test_pause_eligible_excludes_T1():
+    """A/B experiment 2026-05-18: T1 excluded — operator compares effectiveness
+    of auto-pause guard (TB has it, T1 doesn't, same other settings)."""
     bot = _bot("T1", "short")
     mkt = _btc_market(price_change_15m=+3.0)
-    eligible, _ = _pause_eligible(bot, mkt, expected_price_dir="up")
-    assert eligible
+    eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
+    assert not eligible
+    assert "tier T1 excluded" in reason
 
 
 def test_pause_eligible_allows_TB():
@@ -82,7 +85,8 @@ def test_pause_eligible_allows_TB():
 
 
 def test_pause_eligible_excludes_already_paused():
-    bot = _bot("T1", "short", paused=True)
+    """Use TB (paused-allowed tier) to test 'already paused' guard."""
+    bot = _bot("TB", "short", paused=True, testbed=True)
     mkt = _btc_market(price_change_15m=+3.0)
     eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
     assert not eligible
@@ -93,7 +97,7 @@ def test_pause_eligible_excludes_already_paused():
 
 def test_pause_eligible_rejects_micro_move_short():
     """SHORT pause requires BTC up ≥ 1.5% in 15m. Below = skip."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(price_change_15m=+0.3)
     eligible, reason = _pause_eligible(bot, mkt, expected_price_dir="up")
     assert not eligible
@@ -102,14 +106,14 @@ def test_pause_eligible_rejects_micro_move_short():
 
 def test_pause_eligible_rejects_wrong_direction_short():
     """SHORT pause expects price UP. If price moved DOWN, skip."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(price_change_15m=-2.0)
     eligible, _ = _pause_eligible(bot, mkt, expected_price_dir="up")
     assert not eligible
 
 
 def test_pause_eligible_accepts_strong_up_move():
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(price_change_15m=+1.8)
     eligible, _ = _pause_eligible(bot, mkt, expected_price_dir="up")
     assert eligible
@@ -118,7 +122,7 @@ def test_pause_eligible_accepts_strong_up_move():
 def test_pause_eligible_skips_gate_when_require_strong_move_false():
     """Reactive cascade rules pass require_strong_move=False — cascade itself
     confirms move happened, no re-check needed."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(price_change_15m=+0.3)  # tiny move
     eligible, _ = _pause_eligible(bot, mkt, expected_price_dir="up",
                                     require_strong_move=False)
@@ -129,19 +133,19 @@ def test_pause_eligible_skips_gate_when_require_strong_move_false():
 
 def test_r1_5_rejects_small_cluster():
     """Cluster qty 0.8 BTC < 1.5 threshold → no proposal."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(liq_cluster_short_qty=0.8, price_change_15m=+2.0)
     proposals = r1_5_pre_cascade_short_pause(_snap(mkt, [bot]))
     assert proposals == []
 
 
 def test_r1_5_accepts_strong_cluster_with_price_move():
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(liq_cluster_short_qty=2.0, price_change_15m=+2.0)
     proposals = r1_5_pre_cascade_short_pause(_snap(mkt, [bot]))
     assert len(proposals) == 1
     assert proposals[0].action == "pause"
-    assert proposals[0].tier == "T1"
+    assert proposals[0].tier == "TB"
 
 
 def test_r1_5_blocks_T2_even_with_strong_signals():
@@ -154,7 +158,7 @@ def test_r1_5_blocks_T2_even_with_strong_signals():
 
 def test_r1_5_no_proposal_on_micro_move():
     """Strong cluster + tiny move → skip (operator: 0.3% movement shouldn't fire)."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(liq_cluster_short_qty=2.0, price_change_15m=+0.3)
     proposals = r1_5_pre_cascade_short_pause(_snap(mkt, [bot]))
     assert proposals == []
@@ -162,7 +166,7 @@ def test_r1_5_no_proposal_on_micro_move():
 
 def test_r1_6_requires_all_three_gates():
     """R1.6: cluster + taker<42 + strong price move. Each gate independently fails."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     # All gates pass
     mkt_pass = _btc_market(liq_cluster_short_qty=2.0, taker=40.0, price_change_15m=+2.0)
     assert len(r1_6_pre_cascade_short_HIGH(_snap(mkt_pass, [bot]))) == 1
@@ -186,9 +190,9 @@ def test_r1_cascade_short_skips_T2():
     assert proposals == []
 
 
-def test_r1_cascade_short_fires_for_T1_even_micro_move():
+def test_r1_cascade_short_fires_for_TB_even_micro_move():
     """Reactive rule: cascade ALREADY fired = confirmed event, no price re-check."""
-    bot = _bot("T1", "short")
+    bot = _bot("TB", "short", testbed=True)
     mkt = _btc_market(cascades_short=True, price_change_15m=+0.2)
     proposals = r1_cascade_short_pause(_snap(mkt, [bot]))
     assert len(proposals) == 1
@@ -208,7 +212,7 @@ def test_pause_allowed_tiers_excludes_T2_T3():
     """Spec lock: T2/T3 must remain in the no-auto-pause set."""
     assert "T2" not in PAUSE_ALLOWED_TIERS
     assert "T3" not in PAUSE_ALLOWED_TIERS
-    assert "T1" in PAUSE_ALLOWED_TIERS
+    assert "T1" not in PAUSE_ALLOWED_TIERS  # A/B experiment 2026-05-18
     assert "TB" in PAUSE_ALLOWED_TIERS
 
 
