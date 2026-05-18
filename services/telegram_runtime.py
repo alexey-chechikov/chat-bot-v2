@@ -1721,6 +1721,62 @@ class TelegramBotApp:
                 out_lines.append(f"  {ts}  {tkr:8} {ind:25} {dir_:10} @ {price}")
             self.bot.send_message(chat_id, "\n".join(out_lines))
 
+        @self.bot.message_handler(commands=['twap_status', 'twap'])
+        def handle_twap_status(message) -> None:
+            """/twap_status — текущее состояние TWAP defender + последние alerts."""
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.twap_defender.journal import summarize, read_all
+                s = summarize()
+                rows = read_all()
+                lines = [
+                    "🛡 TWAP DEFENDER status",
+                    f"  total alerts: {s.get('total', 0)}",
+                    f"  executed: {s.get('executed', 0)}  skipped: {s.get('skipped', 0)}  muted: {s.get('muted', 0)}  pending: {s.get('pending', 0)}",
+                    f"  estimated volume added: ${s.get('estimated_volume_added_usd', 0):,.0f}",
+                ]
+                if rows:
+                    lines.append("\nLast 5 alerts:")
+                    for r in rows[-5:]:
+                        ts = (r.get("ts_alert") or "")[:16]
+                        tier = r.get("tier", "?")
+                        pos = r.get("position_usd_abs", 0)
+                        step = r.get("step", "?")
+                        ua = r.get("user_action") or "pending"
+                        lines.append(f"  {ts} [{tier}] step {step}  pos=${pos:,.0f}  {ua}")
+                else:
+                    lines.append("\nНи одного alert ещё не было (TB не bleed-ил).")
+                self.bot.send_message(chat_id, "\n".join(lines))
+            except Exception:
+                logger.exception("twap_status.handler_failed")
+                self.bot.send_message(chat_id, "❌ Ошибка чтения TWAP журнала")
+
+        @self.bot.message_handler(commands=['ab_status', 'ab'])
+        def handle_ab_status(message) -> None:
+            """/ab_status — A/B сравнение TB (с auto-pause) vs T1 (без). Last 7d."""
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [".venv/bin/python3", "scripts/ab_compare_t1_tb.py", "--days", "7"],
+                    cwd="/Users/alexeychechikov/code/bot7",
+                    capture_output=True, text=True, timeout=60,
+                )
+                out = result.stdout[-3800:] if result.stdout else result.stderr[-3800:]
+                if not out.strip():
+                    out = "❌ A/B compare script вернул пустой результат"
+                self.bot.send_message(chat_id, f"📊 A/B status:\n```\n{out}\n```",
+                                       parse_mode="Markdown")
+            except Exception:
+                logger.exception("ab_status.handler_failed")
+                self.bot.send_message(chat_id, "❌ Ошибка запуска /ab_status")
+
         @self.bot.message_handler(commands=['bot', 'bots'])
         def handle_bot(message) -> None:
             """/bot <tier> <cmd> — TG-управление managed botом GinArea.

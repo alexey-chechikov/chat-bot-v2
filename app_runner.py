@@ -620,6 +620,61 @@ async def _run_session_breakout_outcome(stop_event: asyncio.Event, *, telegram_a
     await session_breakout_outcome_loop(stop_event=stop_event, send_fn=send)
 
 
+async def _run_paper_signal_weekly_report(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Weekly paper-signal report → TG Sunday 18:00 UTC. Polls every 10 min,
+    sends 1×/week."""
+    from services.reports.paper_signal_weekly import maybe_send_paper_signal_weekly
+    send_fn = None
+    if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
+        chat_ids = list(telegram_app.allowed_chat_ids)
+        bot = telegram_app.bot
+
+        def _send(text: str) -> None:
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, text)
+                except Exception:
+                    logger.exception("paper_signal_weekly.send_failed cid=%s", cid)
+
+        send_fn = _send
+    while not stop_event.is_set():
+        try:
+            maybe_send_paper_signal_weekly(send_fn=send_fn)
+        except Exception:
+            logger.exception("paper_signal_weekly.tick_failed")
+        try:
+            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=600)
+        except asyncio.TimeoutError:
+            continue
+
+
+async def _run_daily_digest(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Daily morning digest → TG 09:00 UTC. Polls every 10 min, sends 1×/day."""
+    from services.reports.daily_digest import maybe_send_daily_digest
+    send_fn = None
+    if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
+        chat_ids = list(telegram_app.allowed_chat_ids)
+        bot = telegram_app.bot
+
+        def _send(text: str) -> None:
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, text)
+                except Exception:
+                    logger.exception("daily_digest.send_failed cid=%s", cid)
+
+        send_fn = _send
+    while not stop_event.is_set():
+        try:
+            maybe_send_daily_digest(send_fn=send_fn)
+        except Exception:
+            logger.exception("daily_digest.tick_failed")
+        try:
+            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=600)
+        except asyncio.TimeoutError:
+            continue
+
+
 async def _run_paper_signal_evaluator(stop_event: asyncio.Event) -> None:
     """Paper-signal outcome evaluator: каждые 5 мин закрывает pending
     paper-trades по TP/SL/timeout. Источники: cascade_alert, spike_alert,
@@ -1077,6 +1132,8 @@ async def main(
     weekly_report_task = asyncio.create_task(_run_weekly_self_report(stop_event, telegram_app=app), name="weekly_self_report")
     twap_defender_task = asyncio.create_task(_run_twap_defender(stop_event, telegram_app=app), name="twap_defender")
     paper_signal_eval_task = asyncio.create_task(_run_paper_signal_evaluator(stop_event), name="paper_signal_evaluator")
+    paper_signal_weekly_task = asyncio.create_task(_run_paper_signal_weekly_report(stop_event, telegram_app=app), name="paper_signal_weekly")
+    daily_digest_task = asyncio.create_task(_run_daily_digest(stop_event, telegram_app=app), name="daily_digest")
     session_breakout_signal_task = asyncio.create_task(_run_session_breakout_signal(stop_event, telegram_app=app), name="session_breakout_signal")
     session_breakout_outcome_task = asyncio.create_task(_run_session_breakout_outcome(stop_event, telegram_app=app), name="session_breakout_outcome")
     range_hunter_signal_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_signal_btc")
@@ -1129,6 +1186,8 @@ async def main(
         market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
         twap_defender_task,
         paper_signal_eval_task,
+        paper_signal_weekly_task,
+        daily_digest_task,
         session_breakout_signal_task, session_breakout_outcome_task,
         range_hunter_signal_task, range_hunter_outcome_task,
         range_hunter_signal_eth_task, range_hunter_outcome_eth_task,
