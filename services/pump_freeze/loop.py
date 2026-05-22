@@ -20,6 +20,7 @@ from services.pump_freeze.config import (
     PUMP_COOLDOWN_MIN,
     REFREEZE_RETURN_PCT,
     RESUME_RETRACEMENT_PCT,
+    RESUME_STALL_MIN,
     RESUME_TIMEOUT_HOURS,
     TICK_INTERVAL_SEC,
 )
@@ -28,6 +29,7 @@ from services.pump_freeze.freezer import (
     freeze,
     frozen_info,
     get_extreme_during_freeze,
+    get_last_extreme_ts,
     is_frozen,
     last_resume_info,
     last_resume_ts,
@@ -138,7 +140,7 @@ def tick(*, send_fn: Optional[Callable] = None,
             continue
 
         if is_frozen(bot_id):
-            update_extreme(bot_id, current_price, side)
+            update_extreme(bot_id, current_price, side, now=now)
             fz = frozen_info(bot_id)
             try:
                 freeze_ts = datetime.fromisoformat(fz["freeze_ts"])
@@ -150,6 +152,8 @@ def tick(*, send_fn: Optional[Callable] = None,
                 freeze_ts=freeze_ts, now=now, side=side,
                 retrace_pct=RESUME_RETRACEMENT_PCT,
                 timeout_hours=RESUME_TIMEOUT_HOURS,
+                last_extreme_ts=get_last_extreme_ts(bot_id),
+                stall_min=RESUME_STALL_MIN,
             )
             if done:
                 resume(bot_id=bot_id, alias=alias, tier=tier, side=side,

@@ -103,6 +103,8 @@ def freeze(*, bot_id: str, alias: str, tier: str, side: str,
         "freeze_direction": event.direction,
         "freeze_side": side,
         "freeze_extreme_price": event.price_now,
+        # freeze itself is the first extreme — stall clock starts here.
+        "last_extreme_ts": now.isoformat(timespec="seconds"),
         "freeze_position_raw": raw_position,
         "freeze_position_usd": position_usd,
         "alert_id": alert_id,
@@ -199,24 +201,42 @@ def resume(*, bot_id: str, alias: str, tier: str, side: str,
     return True
 
 
-def update_extreme(bot_id: str, current_price: float, side: str) -> None:
-    """Track max (SHORT freeze) или min (LONG freeze) price during freeze."""
+def update_extreme(bot_id: str, current_price: float, side: str,
+                   now: Optional[datetime] = None) -> None:
+    """Track max (SHORT freeze) или min (LONG freeze) price during freeze.
+
+    On every NEW extreme also stamps last_extreme_ts — used by the stall
+    resume condition (no new extreme for N min → move died into a range).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
     state = _read_state()
     fz = state.get("frozen", {}).get(bot_id)
     if not fz:
         return
     cur_extreme = float(fz.get("extreme_during_freeze")
                           or fz.get("freeze_extreme_price", 0))
-    if side == "short":
-        if current_price > cur_extreme:
-            fz["extreme_during_freeze"] = current_price
-            _write_state(state)
-    else:  # long: track minimum
-        if current_price < cur_extreme:
-            fz["extreme_during_freeze"] = current_price
-            _write_state(state)
+    is_new = (current_price > cur_extreme) if side == "short" \
+        else (current_price < cur_extreme)
+    if is_new:
+        fz["extreme_during_freeze"] = current_price
+        fz["last_extreme_ts"] = now.isoformat(timespec="seconds")
+        _write_state(state)
 
 
 def get_extreme_during_freeze(bot_id: str) -> float:
     fz = frozen_info(bot_id) or {}
     return float(fz.get("extreme_during_freeze") or fz.get("freeze_extreme_price", 0))
+
+
+def get_last_extreme_ts(bot_id: str) -> Optional[datetime]:
+    """Timestamp of the last NEW extreme during freeze. Falls back to
+    freeze_ts (the freeze itself is the first extreme). Used by stall-resume."""
+    fz = frozen_info(bot_id) or {}
+    ts_str = fz.get("last_extreme_ts") or fz.get("freeze_ts")
+    if not ts_str:
+        return None
+    try:
+        return datetime.fromisoformat(ts_str)
+    except ValueError:
+        return None

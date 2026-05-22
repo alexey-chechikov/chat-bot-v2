@@ -35,6 +35,13 @@ MIN_POSITION_USD_TO_TRIGGER = 24_000
 RESUME_RETRACEMENT_PCT = 1.0     # |price retracement| ≥ 1% от extreme → resume
 RESUME_TIMEOUT_HOURS = 12        # safety net only (был 4 — опережал откат)
 
+# Stall-resume (2026-05-22): движение может встать в боковик под hi —
+# не откатывает на 1%, но и не обновляет hi. Раньше бот стоял до таймаута
+# (день простоя!). Теперь: N минут без нового extreme → движение выдохлось →
+# resume, бот работает в диапазоне и подтягивает среднюю точку входа.
+# N=45: ранний false-resume на тренде самоисправляется re-freeze gate.
+RESUME_STALL_MIN = 45            # минут без нового extreme → resume по stall
+
 # ─── Scope (per оператор 2026-05-18b: T1+TB SHORT + LONG-D/V5 LONG) ────────
 # bot_id → side ("short" | "long")
 APPLIES_TO_BOTS = {
