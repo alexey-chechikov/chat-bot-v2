@@ -18,7 +18,9 @@ from services.pump_freeze.config import (
     APPLIES_TO_BOTS,
     MIN_POSITION_USD_TO_TRIGGER,
     PUMP_COOLDOWN_MIN,
+    REFREEZE_RETURN_PCT,
     RESUME_RETRACEMENT_PCT,
+    RESUME_STALL_MIN,
     RESUME_TIMEOUT_HOURS,
     TICK_INTERVAL_SEC,
 )
@@ -27,7 +29,9 @@ from services.pump_freeze.freezer import (
     freeze,
     frozen_info,
     get_extreme_during_freeze,
+    get_last_extreme_ts,
     is_frozen,
+    last_resume_info,
     last_resume_ts,
     position_usd_abs,
     resume,
@@ -136,7 +140,7 @@ def tick(*, send_fn: Optional[Callable] = None,
             continue
 
         if is_frozen(bot_id):
-            update_extreme(bot_id, current_price, side)
+            update_extreme(bot_id, current_price, side, now=now)
             fz = frozen_info(bot_id)
             try:
                 freeze_ts = datetime.fromisoformat(fz["freeze_ts"])
@@ -148,6 +152,8 @@ def tick(*, send_fn: Optional[Callable] = None,
                 freeze_ts=freeze_ts, now=now, side=side,
                 retrace_pct=RESUME_RETRACEMENT_PCT,
                 timeout_hours=RESUME_TIMEOUT_HOURS,
+                last_extreme_ts=get_last_extreme_ts(bot_id),
+                stall_min=RESUME_STALL_MIN,
             )
             if done:
                 resume(bot_id=bot_id, alias=alias, tier=tier, side=side,
@@ -162,12 +168,30 @@ def tick(*, send_fn: Optional[Callable] = None,
         if event is None:
             continue
 
-        # Cooldown: don't re-freeze same bot within N min after resume.
-        last_resume = last_resume_ts(bot_id)
-        if last_resume is not None:
-            elapsed_min = (now - last_resume).total_seconds() / 60.0
-            if elapsed_min < PUMP_COOLDOWN_MIN:
-                continue
+        # Re-freeze gate (2026-05-22 pullback research): time-cooldown заменён
+        # price-based gate. После resume не фризим заново на том же откате —
+        # ждём пока цена вернётся ≥REFREEZE_RETURN_PCT% к extreme движения
+        # (возврат к hi для SHORT / к lo для LONG). Это «дыхание»: пауза на
+        # росте к hi, работа на откате. Time-cooldown душил повторный freeze
+        # на затяжном тренде, оставляя бота незащищённым.
+        if PUMP_COOLDOWN_MIN > 0:
+            last_resume = last_resume_ts(bot_id)
+            if last_resume is not None:
+                elapsed_min = (now - last_resume).total_seconds() / 60.0
+                if elapsed_min < PUMP_COOLDOWN_MIN:
+                    continue
+
+        ri = last_resume_info(bot_id)
+        if ri is not None:
+            resume_price = float(ri.get("resume_price", 0) or 0)
+            if resume_price > 0:
+                if side == "short":
+                    back_pct = (current_price - resume_price) / resume_price * 100.0
+                else:
+                    back_pct = (resume_price - current_price) / resume_price * 100.0
+                # цена ещё не вернулась к extreme-стороне — не re-freeze
+                if back_pct < REFREEZE_RETURN_PCT:
+                    continue
 
         pos_usd = position_usd_abs(raw_pos, side, current_price)
         if pos_usd < MIN_POSITION_USD_TO_TRIGGER:

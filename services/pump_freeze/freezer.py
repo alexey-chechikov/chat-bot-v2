@@ -54,7 +54,7 @@ def frozen_info(bot_id: str) -> Optional[dict]:
 
 
 def last_resume_ts(bot_id: str) -> Optional[datetime]:
-    """Last resume timestamp per bot — для cooldown enforcement."""
+    """Last resume timestamp per bot — для cooldown enforcement (legacy)."""
     ts_str = _read_state().get("last_resume_ts", {}).get(bot_id)
     if not ts_str:
         return None
@@ -62,6 +62,13 @@ def last_resume_ts(bot_id: str) -> Optional[datetime]:
         return datetime.fromisoformat(ts_str)
     except ValueError:
         return None
+
+
+def last_resume_info(bot_id: str) -> Optional[dict]:
+    """Last resume record per bot — {resume_price, ts} — для price-based
+    re-freeze gate (2026-05-22). None если бот ещё не resume-ился после
+    последнего freeze (запись чистится при новом freeze)."""
+    return _read_state().get("last_resume", {}).get(bot_id)
 
 
 def position_usd_abs(raw_pos: float, side: str, mid_btc: float) -> float:
@@ -86,6 +93,9 @@ def freeze(*, bot_id: str, alias: str, tier: str, side: str,
 
     alert_id = f"pf_{now.strftime('%Y%m%d_%H%M%S')}_{tier}"
     state = _read_state()
+    # Clear the price-based re-freeze gate — once frozen again, the prior
+    # resume marker is consumed (loop re-freezes only when price returned).
+    state.get("last_resume", {}).pop(bot_id, None)
     state.setdefault("frozen", {})
     state["frozen"][bot_id] = {
         "freeze_ts": now.isoformat(timespec="seconds"),
@@ -93,6 +103,8 @@ def freeze(*, bot_id: str, alias: str, tier: str, side: str,
         "freeze_direction": event.direction,
         "freeze_side": side,
         "freeze_extreme_price": event.price_now,
+        # freeze itself is the first extreme — stall clock starts here.
+        "last_extreme_ts": now.isoformat(timespec="seconds"),
         "freeze_position_raw": raw_position,
         "freeze_position_usd": position_usd,
         "alert_id": alert_id,
@@ -161,8 +173,15 @@ def resume(*, bot_id: str, alias: str, tier: str, side: str,
     }
     _append_journal(record)
     del state["frozen"][bot_id]
-    # Track last_resume_ts per bot для cooldown enforcement в loop.tick()
+    # Legacy time-cooldown marker (kept while PUMP_COOLDOWN_MIN can be >0).
     state.setdefault("last_resume_ts", {})[bot_id] = now.isoformat(timespec="seconds")
+    # Price-based re-freeze gate (2026-05-22): remember resume price so the
+    # loop won't re-freeze until price returns toward the move extreme.
+    # Cleared on the next freeze() — see freeze().
+    state.setdefault("last_resume", {})[bot_id] = {
+        "resume_price": round(current_price, 2),
+        "ts": now.isoformat(timespec="seconds"),
+    }
     _write_state(state)
 
     if send_fn is not None:
@@ -182,24 +201,42 @@ def resume(*, bot_id: str, alias: str, tier: str, side: str,
     return True
 
 
-def update_extreme(bot_id: str, current_price: float, side: str) -> None:
-    """Track max (SHORT freeze) или min (LONG freeze) price during freeze."""
+def update_extreme(bot_id: str, current_price: float, side: str,
+                   now: Optional[datetime] = None) -> None:
+    """Track max (SHORT freeze) или min (LONG freeze) price during freeze.
+
+    On every NEW extreme also stamps last_extreme_ts — used by the stall
+    resume condition (no new extreme for N min → move died into a range).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
     state = _read_state()
     fz = state.get("frozen", {}).get(bot_id)
     if not fz:
         return
     cur_extreme = float(fz.get("extreme_during_freeze")
                           or fz.get("freeze_extreme_price", 0))
-    if side == "short":
-        if current_price > cur_extreme:
-            fz["extreme_during_freeze"] = current_price
-            _write_state(state)
-    else:  # long: track minimum
-        if current_price < cur_extreme:
-            fz["extreme_during_freeze"] = current_price
-            _write_state(state)
+    is_new = (current_price > cur_extreme) if side == "short" \
+        else (current_price < cur_extreme)
+    if is_new:
+        fz["extreme_during_freeze"] = current_price
+        fz["last_extreme_ts"] = now.isoformat(timespec="seconds")
+        _write_state(state)
 
 
 def get_extreme_during_freeze(bot_id: str) -> float:
     fz = frozen_info(bot_id) or {}
     return float(fz.get("extreme_during_freeze") or fz.get("freeze_extreme_price", 0))
+
+
+def get_last_extreme_ts(bot_id: str) -> Optional[datetime]:
+    """Timestamp of the last NEW extreme during freeze. Falls back to
+    freeze_ts (the freeze itself is the first extreme). Used by stall-resume."""
+    fz = frozen_info(bot_id) or {}
+    ts_str = fz.get("last_extreme_ts") or fz.get("freeze_ts")
+    if not ts_str:
+        return None
+    try:
+        return datetime.fromisoformat(ts_str)
+    except ValueError:
+        return None

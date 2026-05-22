@@ -73,23 +73,42 @@ def detect_move(bars: list[tuple[datetime, float, float, float]],
 def should_resume(*, freeze_extreme_price: float, current_price: float,
                    freeze_ts: datetime, now: datetime,
                    side: str, retrace_pct: float,
-                   timeout_hours: float) -> tuple[bool, str]:
-    """Resume when retracement OR timeout.
+                   timeout_hours: float,
+                   last_extreme_ts: Optional[datetime] = None,
+                   stall_min: Optional[float] = None) -> tuple[bool, str]:
+    """Resume when ANY of: retracement / stall / timeout.
 
     side='short' (frozen on pump): wait for price to retrace DOWN.
     side='long'  (frozen on dump): wait for price to retrace UP.
+
+    Resume conditions, checked in order of preference:
+      1. retracement — price pulled back >= retrace_pct from the extreme
+         (the move reversed).
+      2. stall       — no new extreme for >= stall_min minutes (the move
+         died into a range under the hi; bot should work the range instead
+         of standing idle). Needs last_extreme_ts + stall_min.
+      3. timeout     — far safety net only.
     """
+    # 1. retracement
+    if freeze_extreme_price > 0:
+        if side == "short":
+            retrace = (freeze_extreme_price - current_price) / freeze_extreme_price * 100.0
+        else:
+            retrace = (current_price - freeze_extreme_price) / freeze_extreme_price * 100.0
+        if retrace >= retrace_pct:
+            return True, f"retracement {retrace:+.2f}% ≥ {retrace_pct}%"
+
+    # 2. stall — no new extreme for stall_min minutes
+    if stall_min is not None and last_extreme_ts is not None:
+        idle_min = (now - last_extreme_ts).total_seconds() / 60.0
+        if idle_min >= stall_min:
+            return True, f"stall {idle_min:.0f}min ≥ {stall_min}min (no new extreme)"
+
+    # 3. timeout — far safety net
     elapsed_h = (now - freeze_ts).total_seconds() / 3600.0
     if elapsed_h >= timeout_hours:
         return True, f"timeout {elapsed_h:.1f}h ≥ {timeout_hours}h"
-    if freeze_extreme_price <= 0:
-        return False, ""
-    if side == "short":
-        retrace = (freeze_extreme_price - current_price) / freeze_extreme_price * 100.0
-    else:
-        retrace = (current_price - freeze_extreme_price) / freeze_extreme_price * 100.0
-    if retrace >= retrace_pct:
-        return True, f"retracement {retrace:+.2f}% ≥ {retrace_pct}%"
+
     return False, ""
 
 
