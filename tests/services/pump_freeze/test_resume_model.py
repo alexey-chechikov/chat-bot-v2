@@ -27,10 +27,13 @@ META = {
 
 
 def test_score_none_without_model():
-    """No artifact on disk → unscorable → None (reactive fallback)."""
-    resume_model._reset_cache()
-    assert resume_model.score_event({"a": 1.0, "b": 2.0}) is None
-    assert resume_model.model_available() is False
+    """model unavailable (None) → unscorable → None → reactive fallback.
+
+    Disk-independent: injects model=None rather than relying on the absence
+    of the (now committed) models/pump_resume_gbm.joblib artifact.
+    """
+    assert resume_model.score_event({"a": 1.0, "b": 2.0},
+                                    model=None, meta=META) is None
 
 
 def test_score_with_injected_model():
