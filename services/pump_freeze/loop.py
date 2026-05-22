@@ -16,6 +16,7 @@ from typing import Callable, Optional
 
 from services.pump_freeze.config import (
     APPLIES_TO_BOTS,
+    ML_GATE_ENABLED,
     MIN_POSITION_USD_TO_TRIGGER,
     PUMP_COOLDOWN_MIN,
     REFREEZE_RETURN_PCT,
@@ -119,6 +120,57 @@ def _api_resume(bot_id: int) -> dict:
     return api.resume_bot(bot_id)
 
 
+def build_live_features(bot_id: str, side: str, freeze_ts: datetime,
+                        now: datetime, bars: list) -> dict:
+    """Assemble the live feature vector for the ML resume-gate.
+
+    PARTIAL (Phase-4 skeleton): emits only the price-derived features that
+    are robustly computable from the freeze state + recent bars. Features
+    needing live volume / OI / taker / funding are TODO — added once Win
+    commits meta['feature_order'] (the model's exact feature set). Any
+    feature the model requires but absent here → resume_model.score_event()
+    returns None → loop falls back to reactive resume. Safe by construction.
+    """
+    feats: dict = {}
+    fz = frozen_info(bot_id) or {}
+    trigger_price = float(fz.get("freeze_extreme_price") or 0)
+    if trigger_price <= 0 or not bars:
+        return feats
+    cur = bars[-1][3]
+    sign = 1.0 if side == "short" else -1.0
+    # signed move since freeze, toward the bot's adverse direction
+    feats["move_since_freeze"] = sign * (cur - trigger_price) / trigger_price * 100.0
+    feats["freeze_age_min"] = (now - freeze_ts).total_seconds() / 60.0
+    # TODO(Phase4): move_t5/t15/t30, vol_spike, oi_delta_*, taker_*,
+    # wick_ratio, funding — emit per Win's meta['feature_order'].
+    return feats
+
+
+def _ml_gate_check(bot_id: str, side: str, freeze_ts: datetime,
+                   now: datetime, bars: list) -> Optional[str]:
+    """Return a resume-reason string if the ML-gate confidently calls the
+    frozen event a whipsaw; else None (→ reactive logic decides).
+
+    Dormant until the model artifact lands: model_available() is False, so
+    this returns None and the reactive path runs unchanged.
+    """
+    if not ML_GATE_ENABLED:
+        return None
+    from services.pump_freeze import resume_model
+    if not resume_model.model_available():
+        return None
+    age_min = (now - freeze_ts).total_seconds() / 60.0
+    if age_min < resume_model.horizon_min():
+        return None
+    feats = build_live_features(bot_id, side, freeze_ts, now, bars)
+    score = resume_model.score_event(feats)
+    if score is None:
+        return None
+    if resume_model.gate_decision(score) == "whipsaw":
+        return f"ml_gate: whipsaw P={score:.2f} @age{age_min:.0f}m"
+    return None
+
+
 def tick(*, send_fn: Optional[Callable] = None,
          now: Optional[datetime] = None) -> dict:
     if now is None:
@@ -155,6 +207,13 @@ def tick(*, send_fn: Optional[Callable] = None,
                 last_extreme_ts=get_last_extreme_ts(bot_id),
                 stall_min=RESUME_STALL_MIN,
             )
+            # ML resume-gate (Phase 4): if reactive says hold, a confident
+            # whipsaw verdict from the model resumes early. Dormant until the
+            # model artifact lands — _ml_gate_check returns None until then.
+            if not done:
+                ml_reason = _ml_gate_check(bot_id, side, freeze_ts, now, bars)
+                if ml_reason:
+                    done, reason = True, ml_reason
             if done:
                 resume(bot_id=bot_id, alias=alias, tier=tier, side=side,
                        current_price=current_price, resume_reason=reason,

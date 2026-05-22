@@ -58,3 +58,11 @@ TICK_INTERVAL_SEC = 60
 # ─── Journal ────────────────────────────────────────────────────────────────
 JOURNAL_PATH = Path("state/pump_freeze_events.jsonl")
 STATE_PATH = Path("state/pump_freeze_state.json")
+
+# ─── ML resume-gate (Phase 4) ───────────────────────────────────────────────
+# GBM scores a frozen event trend-vs-whipsaw; a confident whipsaw → early
+# resume (before reactive retrace/stall fires). Self-disabling: if the model
+# artifact is absent (see services/pump_freeze/resume_model.py), the gate is
+# a no-op and the reactive logic alone runs. Model paths + horizon +
+# thresholds live with the artifact (resume_model.py / meta.json).
+ML_GATE_ENABLED = True
