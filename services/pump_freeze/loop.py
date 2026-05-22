@@ -120,29 +120,137 @@ def _api_resume(bot_id: int) -> dict:
     return api.resume_bot(bot_id)
 
 
-def build_live_features(bot_id: str, side: str, freeze_ts: datetime,
-                        now: datetime, bars: list) -> dict:
-    """Assemble the live feature vector for the ML resume-gate.
+def _median(xs: list) -> float:
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    m = n // 2
+    return s[m] if n % 2 else (s[m - 1] + s[m]) / 2.0
 
-    PARTIAL (Phase-4 skeleton): emits only the price-derived features that
-    are robustly computable from the freeze state + recent bars. Features
-    needing live volume / OI / taker / funding are TODO — added once Win
-    commits meta['feature_order'] (the model's exact feature set). Any
-    feature the model requires but absent here → resume_model.score_event()
-    returns None → loop falls back to reactive resume. Safe by construction.
+
+def _load_feature_bars(needed: int = 1600) -> list:
+    """Rich 1m bars (ts, open, high, low, close, volume) for the ML feature
+    pipeline — longer history + open/volume, unlike _load_recent_bars()."""
+    if not MARKET_1M_CSV.exists():
+        return []
+    bars: list = []
+    try:
+        with MARKET_1M_CSV.open("r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                try:
+                    ts = datetime.fromisoformat(row["ts_utc"].replace("Z", "+00:00"))
+                    bars.append((ts, float(row["open"]), float(row["high"]),
+                                 float(row["low"]), float(row["close"]),
+                                 float(row["volume"])))
+                except (KeyError, ValueError):
+                    continue
+    except OSError:
+        return []
+    return bars[-needed:] if len(bars) > needed else bars
+
+
+def _funding_at(freeze_ts: datetime) -> Optional[float]:
+    """funding_rate_8h (BTCUSDT) from deriv_live_history.jsonl — the record
+    nearest freeze_ts. Funding is 8h-constant so ~5min log resolution is
+    ample. None if unavailable."""
+    path = ROOT / "state" / "deriv_live_history.jsonl"
+    if not path.exists():
+        return None
+    best: Optional[tuple] = None
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                ts = datetime.fromisoformat(
+                    rec["last_updated"].replace("Z", "+00:00"))
+                fr = (rec.get("BTCUSDT") or {}).get("funding_rate_8h")
+                if fr is None:
+                    continue
+                d = abs((ts - freeze_ts).total_seconds())
+                if best is None or d < best[0]:
+                    best = (d, float(fr))
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+    except OSError:
+        return None
+    return best[1] if best else None
+
+
+def _compute_bar_features(bars: list, freeze_ts: datetime,
+                          window: int = 30) -> dict:
+    """The 8 bar-derived reliable features — computed to match
+    build_event_catalog.py profile_event() column-for-column.
+
+    `bars`: (ts, open, high, low, close, volume), chronological. Returns {}
+    when the freeze anchor or required history is missing; omits any single
+    feature it cannot compute (→ score_event None → gate dormant — safe).
     """
     feats: dict = {}
-    fz = frozen_info(bot_id) or {}
-    trigger_price = float(fz.get("freeze_extreme_price") or 0)
-    if trigger_price <= 0 or not bars:
+    if len(bars) < window + 3:
         return feats
-    cur = bars[-1][3]
-    sign = 1.0 if side == "short" else -1.0
-    # signed move since freeze, toward the bot's adverse direction
-    feats["move_since_freeze"] = sign * (cur - trigger_price) / trigger_price * 100.0
-    feats["freeze_age_min"] = (now - freeze_ts).total_seconds() / 60.0
-    # TODO(Phase4): move_t5/t15/t30, vol_spike, oi_delta_*, taker_*,
-    # wick_ratio, funding — emit per Win's meta['feature_order'].
+    # anchor = last bar at/before freeze_ts
+    a = None
+    for i in range(len(bars) - 1, -1, -1):
+        if bars[i][0] <= freeze_ts:
+            a = i
+            break
+    if a is None or a < window:
+        return feats
+    op = [b[1] for b in bars]
+    hi = [b[2] for b in bars]
+    lo = [b[3] for b in bars]
+    cl = [b[4] for b in bars]
+    vol = [b[5] for b in bars]
+    n = len(bars)
+    ws = a - window
+    trig = cl[a]
+    if trig <= 0 or cl[ws] <= 0:
+        return feats
+
+    feats["move_pct"] = (trig - cl[ws]) / cl[ws] * 100.0
+
+    wick = [hi[i] - lo[i] for i in range(ws, a + 1)]
+    body = [abs(cl[i] - op[i]) for i in range(ws, a + 1)]
+    feats["wick_ratio"] = (sum(wick) / len(wick)) / (sum(body) / len(body) + 1e-9)
+
+    w = cl[ws:a + 1]
+    d2 = [w[i + 2] - 2 * w[i + 1] + w[i] for i in range(len(w) - 2)]
+    feats["accel"] = sum(abs(x) for x in d2) / len(d2) if d2 else 0.0
+
+    win_vol = sum(vol[ws:a + 1])
+    look = vol[max(0, a - 1440):a]
+    base = _median(look) * window if look else 0.0
+    if base > 0:
+        feats["vol_spike"] = win_vol / base
+
+    for h in (5, 15, 30, 60):
+        j = min(a + h, n - 1)
+        feats[f"move_t{h}"] = (cl[j] - trig) / trig * 100.0
+
+    return feats
+
+
+def build_live_features(bot_id: str, freeze_ts: datetime) -> dict:
+    """Live feature vector for the ML resume-gate — 9 of the 10 reliable
+    features from PUMP_FILTER_FEATURE_CONTRACT.md, matching
+    build_event_catalog.py column-for-column.
+
+    OMITTED: n_triggers — its catalog definition (full-event trigger count)
+    has no clean live equivalent; pending Win's importance check. While it
+    is absent, score_event() returns None for any model whose feature_order
+    includes n_triggers → the gate stays dormant (safe). If Win drops
+    n_triggers, the 9-feature model scores normally.
+    """
+    feats = _compute_bar_features(_load_feature_bars(), freeze_ts)
+    if not feats:
+        return {}
+    fr = _funding_at(freeze_ts)
+    if fr is not None:
+        feats["funding_at_anchor"] = fr
     return feats
 
 
@@ -162,7 +270,7 @@ def _ml_gate_check(bot_id: str, side: str, freeze_ts: datetime,
     age_min = (now - freeze_ts).total_seconds() / 60.0
     if age_min < resume_model.horizon_min():
         return None
-    feats = build_live_features(bot_id, side, freeze_ts, now, bars)
+    feats = build_live_features(bot_id, freeze_ts)
     score = resume_model.score_event(feats)
     if score is None:
         return None
