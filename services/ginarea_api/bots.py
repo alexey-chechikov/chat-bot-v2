@@ -101,3 +101,50 @@ class BotsAPI:
             json=params.to_dict(),
         )
         return DefaultGridParams.from_dict(data)  # type: ignore[arg-type]
+
+    # ─── Pause/Resume stubs ─────────────────────────────────────────────────
+    # 2026-05-17: ginarea_api currently has NO working pause/resume.
+    # Confirmed by scripts/_diag_tb_pause_strategies.py — set_params(p=false)
+    # transitions bot to status=FAILED(10), not PAUSED(3). It's edit-config,
+    # not pause control.
+    #
+    # Proper endpoint TBD — needs DevTools capture from GinArea UI showing
+    # what HTTP request fires when operator clicks pause/resume in browser.
+    # When known, implement here following the established pattern:
+    #   data = self.client.request("POST", f"/bots/{bot_id}/pause")
+    #   return ...
+    #
+    # Callers must check NotImplementedError to fail gracefully rather than
+    # falling back to broken set_params logic.
+
+    def pause_bot(self, bot_id: int) -> dict:
+        """Pause a running bot via GinArea's proper stop API.
+
+        Captured 2026-05-17 from operator DevTools:
+          PUT https://ginarea.org/api/bots/{id}/stop
+          Body: {} (empty JSON)
+          → 200 OK; bot transitions ACTIVE → STOPPING → STOPPED/PAUSED.
+
+        This is what GinArea UI calls when operator clicks ⏸ on Active bot.
+        """
+        return self.client.request(
+            "PUT",
+            f"/bots/{bot_id}/stop",
+            json={},
+        )
+
+    def resume_bot(self, bot_id: int) -> dict:
+        """Resume a paused/stopped/failed bot via GinArea's proper start API.
+
+        Captured 2026-05-17 from operator DevTools:
+          PUT https://ginarea.org/api/bots/{id}/start
+          Body: {} (empty JSON)
+          → 200 OK; bot transitions PAUSED/FAILED → STARTING → ACTIVE.
+
+        Same endpoint UI calls when operator clicks ▶ play/restart.
+        """
+        return self.client.request(
+            "PUT",
+            f"/bots/{bot_id}/start",
+            json={},
+        )

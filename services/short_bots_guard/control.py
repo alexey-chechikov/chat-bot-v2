@@ -1,0 +1,270 @@
+"""Pause / Resume bot via GinArea API (set_params with p=false/true).
+
+Использует services/ginarea_api/bots.py BotsAPI. Авторизация через
+GINAREA_EMAIL / GINAREA_PASSWORD_SHA1 / GINAREA_TOTP_SECRET env vars.
+
+Idempotent: pause_bot не делает второй PUT если бот уже paused.
+audit-log: каждое действие пишется в state/short_bots_audit.jsonl.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parents[2]
+AUDIT_PATH = ROOT / "state" / "short_bots_audit.jsonl"
+
+
+def _audit(record: dict) -> None:
+    try:
+        AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with AUDIT_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        logger.exception("short_bots_guard.audit_failed")
+
+
+def _load_ginarea_env() -> dict:
+    """Load GinArea credentials from os.environ or ginarea_tracker/.env fallback."""
+    import os
+    env = {}
+    for k in ("GINAREA_EMAIL", "GINAREA_PASSWORD", "GINAREA_PASSWORD_SHA1", "GINAREA_TOTP_SECRET"):
+        v = os.environ.get(k)
+        if v:
+            env[k] = v
+    if all(env.get(k) for k in ("GINAREA_EMAIL", "GINAREA_TOTP_SECRET")) and \
+       (env.get("GINAREA_PASSWORD") or env.get("GINAREA_PASSWORD_SHA1")):
+        return env
+    # Fallback: parse ginarea_tracker/.env
+    tracker_env = ROOT / "ginarea_tracker" / ".env"
+    if tracker_env.exists():
+        try:
+            for line in tracker_env.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k in ("GINAREA_EMAIL", "GINAREA_PASSWORD",
+                         "GINAREA_PASSWORD_SHA1", "GINAREA_TOTP_SECRET") and v:
+                    env.setdefault(k, v)
+        except OSError:
+            pass
+    return env
+
+
+def _build_api():
+    """Construct BotsAPI authenticated client. Returns (api, error)."""
+    import hashlib
+    import os
+    try:
+        from services.ginarea_api.auth import GinAreaAuth
+        from services.ginarea_api.bots import BotsAPI
+        from services.ginarea_api.client import GinAreaClient
+    except Exception as e:
+        return None, f"import_failed: {e}"
+
+    env = _load_ginarea_env()
+    email = env.get("GINAREA_EMAIL")
+    totp = env.get("GINAREA_TOTP_SECRET")
+    if not email or not totp:
+        return None, f"missing_env: email={bool(email)}, totp={bool(totp)}"
+
+    # Derive SHA1 from plain password if SHA1 not provided
+    pwd_sha1 = env.get("GINAREA_PASSWORD_SHA1")
+    if not pwd_sha1 and env.get("GINAREA_PASSWORD"):
+        pwd_sha1 = hashlib.sha1(env["GINAREA_PASSWORD"].encode("utf-8")).hexdigest()
+    if not pwd_sha1:
+        return None, "missing_env: no GINAREA_PASSWORD or GINAREA_PASSWORD_SHA1"
+
+    # Inject into os.environ so GinAreaAuth.from_env() picks them up
+    os.environ["GINAREA_EMAIL"] = email
+    os.environ["GINAREA_PASSWORD_SHA1"] = pwd_sha1
+    os.environ["GINAREA_TOTP_SECRET"] = totp
+
+    try:
+        auth = GinAreaAuth.from_env()
+        client = GinAreaClient(auth=auth)
+        return BotsAPI(client), None
+    except Exception as e:
+        logger.exception("short_bots_guard.api_init_failed")
+        return None, f"init_failed: {e}"
+
+
+def get_bot_state(bot_id: str) -> dict:
+    """Get current bot params + RUNTIME status (BotStatus enum).
+    2026-05-17: added runtime `status` field per docs/api/GINAREA_API_NOTES.md
+    BotStatus enum (2=ACTIVE, 3=PAUSED, 10=FAILED, etc). params.p is
+    config-level (bot.active flag), status is the actual runtime state."""
+    api, err = _build_api()
+    if api is None:
+        return {"bot_id": bot_id, "ok": False, "error": err}
+    try:
+        params = api.get_params(int(bot_id))
+        # Runtime status — separate from config-level p flag
+        runtime_status = None
+        runtime_status_name = None
+        try:
+            bot = api.get_bot(int(bot_id))
+            runtime_status = int(bot.status)
+            runtime_status_name = bot.status.name
+        except Exception:
+            logger.exception("get_bot_state.runtime_status_read_failed bot=%s", bot_id)
+        return {
+            "bot_id": bot_id,
+            "ok": True,
+            "p": bool(params.p),
+            "status": runtime_status,
+            "status_name": runtime_status_name,
+            "gs": params.gs,
+            "side": int(params.side) if params.side is not None else None,
+            "otcPassed": (params.extra_raw.get("in") or {}).get("otcPassed"),
+        }
+    except Exception as e:
+        logger.exception("short_bots_guard.get_state_failed bot=%s", bot_id)
+        return {"bot_id": bot_id, "ok": False, "error": str(e)}
+
+
+def is_paused(bot_id: str) -> Optional[bool]:
+    """True/False/None (если API недоступен)."""
+    state = get_bot_state(bot_id)
+    if not state.get("ok"):
+        return None
+    return not state.get("p", True)  # paused == not active
+
+
+# Per-bot cached runtime status (status_code, mono_ts_seconds). TTL CACHE_TTL_SEC —
+# within that window, skip the GET API call when target matches cache. Reduces
+# GinArea read traffic substantially: once a bot is PAUSED (cache=3), next 60s
+# of pause-proposals are noop without any API call.
+#
+# Cache stores BotStatus code (2=ACTIVE, 3=PAUSED, etc) — runtime truth, NOT
+# the params.p config flag that misled us in 2026-05-17 incident.
+_status_cache: dict[str, tuple[int, float]] = {}
+CACHE_TTL_SEC = 60.0
+
+# BotStatus codes (from docs/api/GINAREA_API_NOTES.md). Hardcoded to avoid
+# importing from models on every call.
+STATUS_ACTIVE = 2
+STATUS_PAUSED = 3
+STATUS_FAILED = 10
+STATUS_STOPPED = 12
+# Statuses we consider "effectively paused" (target of pause_bot)
+PAUSED_LIKE = {STATUS_PAUSED, STATUS_STOPPED}
+# Statuses we consider "effectively running" (target of resume_bot)
+ACTIVE_LIKE = {STATUS_ACTIVE}
+
+
+def _api_call(bot_id: str, action: str, *, dry_run: bool = False,
+              reason: str = "", trigger: str = "") -> dict:
+    """Call GinArea's proper start/stop endpoint via BotsAPI.
+
+    action: 'pause' (PUT /bots/{id}/stop) or 'resume' (PUT /bots/{id}/start).
+
+    2026-05-17 rewrite: replaces the broken set_params(p=true/false) path that
+    transitioned bots to status=FAILED. Now uses the captured /start and /stop
+    endpoints (PUT with empty body).
+    """
+    import time
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    target_paused = (action == "pause")
+    target_set = PAUSED_LIKE if target_paused else ACTIVE_LIKE
+
+    # Cache fast-path: skip the GET if we recently observed target state
+    cached = _status_cache.get(bot_id)
+    if cached is not None:
+        cached_status, cached_ts = cached
+        if (time.monotonic() - cached_ts) <= CACHE_TTL_SEC and cached_status in target_set:
+            rec = {
+                "ts": now, "bot_id": bot_id, "action": "noop_cached",
+                "current_status": cached_status, "target_action": action,
+                "reason": reason, "trigger": trigger,
+            }
+            _audit(rec)
+            return rec
+
+    api, err = _build_api()
+    if api is None:
+        rec = {"ts": now, "bot_id": bot_id, "action": "skip_api_unavailable",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": err}
+        _audit(rec)
+        return rec
+
+    # Read current runtime status — source of truth
+    try:
+        bot = api.get_bot(int(bot_id))
+        current_status = int(bot.status)
+    except Exception as e:
+        logger.exception("short_bots_guard.read_status_failed bot=%s", bot_id)
+        rec = {"ts": now, "bot_id": bot_id, "action": "skip_read_failed",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": str(e)}
+        _audit(rec)
+        return rec
+
+    _status_cache[bot_id] = (current_status, time.monotonic())
+
+    # Noop if already in target state
+    if current_status in target_set:
+        rec = {"ts": now, "bot_id": bot_id, "action": "noop_already",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
+        _audit(rec)
+        return rec
+
+    if dry_run:
+        rec = {"ts": now, "bot_id": bot_id, "action": "dry_run",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
+        _audit(rec)
+        return rec
+
+    # LIVE write via proper endpoint
+    try:
+        if target_paused:
+            api.pause_bot(int(bot_id))  # PUT /bots/{id}/stop
+        else:
+            api.resume_bot(int(bot_id))  # PUT /bots/{id}/start
+        # Optimistically cache target — actual confirmation requires re-read
+        # but the executor's next tick will refresh. Note: STARTING(1) or
+        # STOPPING(11) are transient — cache becomes stale within 1-3s, that's OK.
+        _status_cache[bot_id] = (
+            STATUS_PAUSED if target_paused else STATUS_ACTIVE,
+            time.monotonic(),
+        )
+        rec = {"ts": now, "bot_id": bot_id,
+               "action": "paused" if target_paused else "resumed",
+               "current_status": current_status, "target_action": action,
+               "reason": reason, "trigger": trigger}
+        _audit(rec)
+        logger.info("short_bots_guard.%s bot=%s reason=%s trigger=%s",
+                    rec["action"], bot_id, reason, trigger)
+        return rec
+    except Exception as e:
+        logger.exception("short_bots_guard.%s_failed bot=%s", action, bot_id)
+        rec = {"ts": now, "bot_id": bot_id, "action": "error",
+               "target_action": action, "reason": reason, "trigger": trigger,
+               "error": str(e)}
+        _audit(rec)
+        return rec
+
+
+def pause_bot(bot_id: str, *, dry_run: bool = False, reason: str = "",
+              trigger: str = "") -> dict:
+    """Pause bot via PUT /bots/{id}/stop. Idempotent. Returns audit record."""
+    return _api_call(bot_id, "pause", dry_run=dry_run, reason=reason, trigger=trigger)
+
+
+def resume_bot(bot_id: str, *, dry_run: bool = False, reason: str = "",
+               trigger: str = "") -> dict:
+    """Resume bot via PUT /bots/{id}/start. Idempotent."""
+    return _api_call(bot_id, "resume", dry_run=dry_run, reason=reason, trigger=trigger)
