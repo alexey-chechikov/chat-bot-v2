@@ -42,15 +42,14 @@ RESUME_TIMEOUT_HOURS = 12        # safety net only (был 4 — опережа�
 # N=45: ранний false-resume на тренде самоисправляется re-freeze gate.
 RESUME_STALL_MIN = 45            # минут без нового extreme → resume по stall
 
-# ─── Scope (per оператор 2026-05-18b: T1+TB SHORT + LONG-D/V5 LONG) ────────
+# ─── Scope (per оператор 2026-05-22: 2 активных BTC SHORT теста) ──────────
+# Старый набор (TB 4525648417 / T1 4729923198 / LONG-D 5154651487 /
+# LONG-V5 4979458320) — остановлен либо удалён: оператор пересоздал боты.
+# pump_freeze v2 защищает 2 активных BTC SHORT-теста от squeeze на UP-пампе.
 # bot_id → side ("short" | "long")
 APPLIES_TO_BOTS = {
-    "4525648417": "short",   # TB testbed
-    "4729923198": "short",   # T1 SHORT (production)
-    "5154651487": "long",    # LONG-D хедж
-    "4979458320": "long",    # LONG-V5 хедж
-    # T2 (6287583200) — EXCLUDED, sacred
-    # T3 (5736281160) — EXCLUDED, sacred
+    "6399265299": "short",   # GPT SHORT 1.1% (BTC, активный)
+    "5403878196": "short",   # SHORT-T1 GIN (BTC, активный)
 }
 
 # ─── Loop ───────────────────────────────────────────────────────────────────
