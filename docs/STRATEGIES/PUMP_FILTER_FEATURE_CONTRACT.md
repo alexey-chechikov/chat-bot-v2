@@ -68,14 +68,30 @@ GBM 0.84 (CV) / 0.84 (OOT) опирался на `taker_t15` и `oi_delta_win` �
 
 **Следствия:**
 - Вариант B (поминутный OI/taker логгер) — НЕ НУЖЕН. Инфра-работа снята.
-- Финальная модель обучается на 10 `reliable` фичах:
-  `accel, funding_at_anchor, move_pct, move_t5, move_t15, move_t30,
-   move_t60, n_triggers, vol_spike, wick_ratio`.
-- Все 10 — из OHLC-баров + funding → гарантированно есть в live.
-  `build_live_features()` дописывается ровно под этот список, без
-  snapshot-зависимостей.
 
-Машиночитаемый список — `state/pump_feature_grades.json` (ключ `reliable`).
+### Финал: 9 фич (n_triggers исключён)
+
+`n_triggers` не имеет чистого live-эквивалента (каталожное определение —
+счёт триггеров всего события). Замер 2026-05-22 на исключение:
+
+| Набор | CV | OOT 50/50 | OOT 60/40 |
+|---|---|---|---|
+| 10 фич (с n_triggers) | 0.876 | 0.908 | 0.881 |
+| **9 фич (без n_triggers)** | 0.879 | 0.911 | **0.915** |
+
+9 фич БЕЗ n_triggers — ЛУЧШЕ (importance n_triggers = 0.020, пустая
+фича, на OOT 60/40 только вредила). Исключение n_triggers — не
+компромисс ради live, а объективно лучшая модель.
+
+**Финальный train-набор — 9 фич:**
+`accel, funding_at_anchor, move_pct, move_t5, move_t15, move_t30,
+ move_t60, vol_spike, wick_ratio`
+
+Все 9 — из OHLC-баров + funding → гарантированно есть в live.
+`build_live_features()` (05432b2) считает ровно их. horizon_min=60.
+
+Машиночитаемый список — `state/pump_feature_grades.json` (ключ `reliable`,
+МИНУС n_triggers).
 
 ---
 

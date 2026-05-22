@@ -60,5 +60,18 @@
     "move_24h_signed",
     "outcome",
     "trigger_price"
-  ]
+  ],
+  "train_final": [
+    "accel",
+    "funding_at_anchor",
+    "move_pct",
+    "move_t15",
+    "move_t30",
+    "move_t5",
+    "move_t60",
+    "vol_spike",
+    "wick_ratio"
+  ],
+  "train_final_note": "n_triggers исключён: нет live-эквивалента + замер показал OOT 0.911-0.915 без него > 0.881-0.908 с ним. horizon_min=60.",
+  "horizon_min": 60
 }
