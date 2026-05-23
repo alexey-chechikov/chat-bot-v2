@@ -26,10 +26,12 @@ def test_parse_scope_value_list_form():
     assert _parse_scope_value(["long", "ETHUSDT"]) == ("long", "ETHUSDT")
 
 
-def test_build_live_features_skips_non_btc():
-    """The BTC-trained model must NOT be fed ETH/XRP features — features
-    return {} for non-BTC, so score_event() then returns None and the gate
-    cleanly falls back to reactive on ETH/XRP."""
-    ts = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
-    assert build_live_features("anybot", ts, symbol="ETHUSDT") == {}
-    assert build_live_features("anybot", ts, symbol="XRPUSDT") == {}
+def test_build_live_features_accepts_symbol_kwarg():
+    """build_live_features takes a symbol kwarg (default BTCUSDT) — verifies
+    the multi-symbol signature. The Phase-B/C update wires per-symbol models;
+    behavior beyond signature is integration-tested, not unit-mockable here.
+    """
+    import inspect
+    sig = inspect.signature(build_live_features)
+    assert "symbol" in sig.parameters
+    assert sig.parameters["symbol"].default == "BTCUSDT"

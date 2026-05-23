@@ -1,0 +1,24 @@
+{
+  "symbol": "XRPUSDT",
+  "feature_order": [
+    "accel",
+    "funding_at_anchor",
+    "move_pct",
+    "move_t5",
+    "move_t15",
+    "move_t30",
+    "move_t60",
+    "vol_spike",
+    "wick_ratio"
+  ],
+  "live_grade_used": "reliable",
+  "horizon_min": 60,
+  "whipsaw_threshold": 0.65,
+  "trend_threshold": 0.35,
+  "oot_auc": 0.9412,
+  "oot_auc_50_50": 0.933,
+  "n_events": 1649,
+  "model": "GradientBoostingClassifier {\"max_depth\": 3, \"n_estimators\": 150, \"learning_rate\": 0.05, \"subsample\": 0.9, \"min_samples_leaf\": 10, \"random_state\": 42}",
+  "trained_on": "state/XRPUSDT_pump_event_catalog.csv",
+  "trained_by": "Mac-Claude \u2014 Phase B/C per-symbol model"
+}

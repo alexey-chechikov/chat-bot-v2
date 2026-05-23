@@ -86,6 +86,49 @@ def _fetch_klines_binance(symbol: str, limit: int = 35) -> list:
     return out
 
 
+def _fetch_klines_binance_rich(symbol: str, needed: int = 1600) -> list:
+    """Deep paginated 1m kline fetch returning (ts,open,high,low,close,volume).
+    Binance limit is 1000/call — chains 2 calls for the ~1600-bar feature
+    window. Returns chronological. Empty list on any failure."""
+    def _parse(raw):
+        rows = []
+        for k in raw:
+            try:
+                ts = datetime.utcfromtimestamp(int(k[0]) / 1000).replace(tzinfo=timezone.utc)
+                rows.append((ts, float(k[1]), float(k[2]), float(k[3]),
+                             float(k[4]), float(k[5])))
+            except (ValueError, IndexError):
+                continue
+        return rows
+
+    n1 = min(needed, 1000)
+    url1 = f"{_SPOT_KLINES_URL}?symbol={symbol}&interval=1m&limit={n1}"
+    try:
+        with urllib.request.urlopen(url1, timeout=10) as r:
+            recent = _parse(json.load(r))
+    except Exception:  # noqa: BLE001
+        return []
+    if not recent:
+        return []
+    rem = needed - len(recent)
+    before: list = []
+    if rem > 0:
+        oldest_ms = int(recent[0][0].timestamp() * 1000)
+        end_ms = oldest_ms - 60_000
+        n2 = min(rem, 1000)
+        start_ms = end_ms - n2 * 60_000
+        url2 = (f"{_SPOT_KLINES_URL}?symbol={symbol}&interval=1m"
+                f"&startTime={start_ms}&endTime={end_ms}&limit={n2}")
+        try:
+            with urllib.request.urlopen(url2, timeout=10) as r:
+                before = _parse(json.load(r))
+        except Exception:  # noqa: BLE001
+            before = []
+    out = before + recent
+    out.sort(key=lambda x: x[0])
+    return out
+
+
 def _load_recent_bars(needed_min: int = 35, symbol: str = "BTCUSDT") -> list:
     """Recent 1m bars (ts, high, low, close) for `symbol`.
 
@@ -178,9 +221,17 @@ def _median(xs: list) -> float:
     return s[m] if n % 2 else (s[m - 1] + s[m]) / 2.0
 
 
-def _load_feature_bars(needed: int = 1600) -> list:
+def _load_feature_bars(needed: int = 1600, symbol: str = "BTCUSDT") -> list:
     """Rich 1m bars (ts, open, high, low, close, volume) for the ML feature
-    pipeline — longer history + open/volume, unlike _load_recent_bars()."""
+    pipeline — longer history + open/volume.
+
+    BTCUSDT — reads market_live/market_1m.csv (bot's collector writes it).
+    ETHUSDT / XRPUSDT — fetched directly from Binance (2 paginated calls
+    for the ~1600-bar window). Called ~once per freeze on a frozen bot
+    (after horizon_min=60 elapses), so the ~1-2s network hit is acceptable.
+    """
+    if symbol != "BTCUSDT":
+        return _fetch_klines_binance_rich(symbol, needed)
     if not MARKET_1M_CSV.exists():
         return []
     bars: list = []
@@ -288,20 +339,13 @@ def build_live_features(bot_id: str, freeze_ts: datetime,
                         symbol: str = "BTCUSDT") -> dict:
     """Live feature vector for the ML resume-gate — 9 of the 10 reliable
     features from PUMP_FILTER_FEATURE_CONTRACT.md, matching
-    build_event_catalog.py column-for-column.
+    build_event_catalog.py column-for-column. Symbol-aware: BTC reads the
+    local 1m feed, ETH/XRP fetch from Binance.
 
-    SYMBOL-AWARE: the trained model + the rich feature loader are BTC-only
-    (catalog built from the BTC master CSV). Non-BTC symbols return {} →
-    score_event() None → reactive fallback. Per-symbol ETH/XRP catalogs and
-    models are Phase B/C work.
-
-    OMITTED: n_triggers — its catalog definition has no clean live equivalent;
-    while absent any model whose feature_order includes n_triggers is also
-    reactive-only (gate dormant — safe).
+    OMITTED: n_triggers — catalog-only quantity with no clean live equivalent;
+    any model whose feature_order includes it stays dormant by design.
     """
-    if symbol != "BTCUSDT":
-        return {}
-    feats = _compute_bar_features(_load_feature_bars(), freeze_ts)
+    feats = _compute_bar_features(_load_feature_bars(symbol=symbol), freeze_ts)
     if not feats:
         return {}
     fr = _funding_at(freeze_ts, symbol)
@@ -323,17 +367,17 @@ def _ml_gate_check(bot_id: str, side: str, freeze_ts: datetime,
     if not ML_GATE_ENABLED:
         return None
     from services.pump_freeze import resume_model
-    if not resume_model.model_available():
+    if not resume_model.model_available(symbol):
         return None
     age_min = (now - freeze_ts).total_seconds() / 60.0
-    if age_min < resume_model.horizon_min():
+    if age_min < resume_model.horizon_min(symbol):
         return None
     feats = build_live_features(bot_id, freeze_ts, symbol)
-    score = resume_model.score_event(feats)
+    score = resume_model.score_event(feats, symbol)
     if score is None:
         return None
-    if resume_model.gate_decision(score) == "whipsaw":
-        return f"ml_gate: whipsaw P={score:.2f} @age{age_min:.0f}m"
+    if resume_model.gate_decision(score, symbol) == "whipsaw":
+        return f"ml_gate: whipsaw P={score:.2f} @age{age_min:.0f}m sym={symbol}"
     return None
 
 
