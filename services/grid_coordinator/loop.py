@@ -343,20 +343,32 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
                 _journal({"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                           "direction": direction, "score": score, "details": details})
                 # Paper-trade: exhaustion → reversal. up_exhaustion → SHORT, down → LONG.
+                # 2026-05-23 paper-audit (_paper_perf_audit.py): grid_coord LONG
+                # (down_exhaustion fade) WR 25.9% / −$77 on n=27 across 2 weeks
+                # — actively losing edge. Skip paper-emission of LONG side; keep
+                # SHORT side recording (n=1, insufficient evidence either way,
+                # let data accumulate). Re-enable when ≥20 newer LONG outcomes
+                # show WR ≥45% on rolling basis.
                 try:
-                    from services.paper_signal_tracker.journal import (
-                        read_btc_last_price, record_paper_signal,
-                    )
-                    last_price = read_btc_last_price()
-                    if last_price and last_price > 0:
-                        trade_side = "SHORT" if direction == "up" else "LONG"
-                        record_paper_signal(
-                            source="grid_coord", side=trade_side,
-                            entry=float(last_price),
-                            stop_pct=-0.5, tp_pct=0.75, hold_h=4,
-                            context=f"{direction}_exhaustion_score{score}",
-                            now=now,
+                    trade_side = "SHORT" if direction == "up" else "LONG"
+                    if trade_side == "LONG":
+                        logger.info(
+                            "grid_coordinator.paper_emit_skipped side=LONG "
+                            "(disabled per 2026-05-23 audit — WR 26%% bleeder)"
                         )
+                    else:
+                        from services.paper_signal_tracker.journal import (
+                            read_btc_last_price, record_paper_signal,
+                        )
+                        last_price = read_btc_last_price()
+                        if last_price and last_price > 0:
+                            record_paper_signal(
+                                source="grid_coord", side=trade_side,
+                                entry=float(last_price),
+                                stop_pct=-0.5, tp_pct=0.75, hold_h=4,
+                                context=f"{direction}_exhaustion_score{score}",
+                                now=now,
+                            )
                 except Exception:
                     logger.exception("grid_coordinator.paper_signal_failed")
                 fired = True
