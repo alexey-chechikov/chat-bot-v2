@@ -49,11 +49,11 @@ RESUME_STALL_MIN = 45            # минут без нового extreme → re
 # Reactive freeze/resume works for any symbol; the ML resume-gate runs only
 # for BTCUSDT (the model is BTC-trained — Phase B/C will add ETH/XRP).
 APPLIES_TO_BOTS = {
-    "6399265299": "short",   # GPT SHORT 1.1% (BTC, активный)
-    "5403878196": "short",   # SHORT-T1 GIN (BTC, активный)
-    # Examples for ETH/XRP-long once funded & confirmed:
-    #   "5126215144": ("long", "ETHUSDT"),  # ETH LONG (idle now)
-    #   "5257298144": ("long", "XRPUSDT"),  # XRP_ЛОНГ
+    "6399265299": "short",                   # GPT SHORT 1.1% (BTC, активный)
+    "5403878196": "short",                   # SHORT-T1 GIN (BTC, активный)
+    "5268946146": "long",                    # BTC-LONG-✨ (BTC, ML-гейт активен)
+    "5126215144": ("long", "ETHUSDT"),       # ETH LONG (reactive — ML Phase B/C)
+    "5257298144": ("long", "XRPUSDT"),       # XRP ЛОНГ (reactive — ML Phase B/C)
 }
 
 # ─── Loop ───────────────────────────────────────────────────────────────────
