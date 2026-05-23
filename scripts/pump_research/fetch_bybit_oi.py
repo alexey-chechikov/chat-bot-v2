@@ -1,18 +1,18 @@
 """Phase 0 — download Bybit open-interest history (free) for pump research.
 
-Bybit v5 /market/open-interest gives much deeper history than Binance
-(Binance OI hist is ~30d only). intervalTime=5min, 200 pts/call.
+Bybit v5 /market/open-interest, intervalTime=5min, 200 pts/call. Symbol-aware:
+works for any USDT-perp Bybit lists (BTCUSDT, ETHUSDT, XRPUSDT).
 
-Strategy: split the frozen-CSV time range into independent 1000-min windows
-(200 pts x 5min) and fetch them in parallel. If Bybit's 5min retention does
-not reach 2 years back, the early windows simply return empty — the script
-reports the actual covered range so we can decide on a 15m/1h fallback.
+Strategy: split the frozen-CSV time range into 1000-min windows (200 pts ×
+5min) and fetch them in parallel. If 5min retention does not reach 2y, the
+early windows return empty — the script reports actual coverage so we can
+fall back to 15m/1h.
 
-Output: data/pump_research/BTCUSDT_oi_5m.csv  (ts,open_interest)
+Output: data/pump_research/{SYMBOL}_oi_{interval}.csv  (ts, open_interest)
 
 Usage:
     .venv/bin/python3 scripts/pump_research/fetch_bybit_oi.py
-    .venv/bin/python3 scripts/pump_research/fetch_bybit_oi.py --interval 15min
+    .venv/bin/python3 scripts/pump_research/fetch_bybit_oi.py --symbol ETHUSDT
 """
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "data" / "pump_research"
-FROZEN_1M = ROOT / "backtests" / "frozen" / "BTCUSDT_1m_2y.csv"
 
 OI_URL = "https://api.bybit.com/v5/market/open-interest"
 PAGE = 200  # Bybit max points per call
@@ -43,8 +42,10 @@ def _iso(ms: int) -> str:
     return datetime.utcfromtimestamp(ms / 1000).replace(tzinfo=timezone.utc).isoformat()
 
 
-def _frozen_range() -> tuple[int, int]:
-    with open(FROZEN_1M, "rb") as f:
+def _frozen_range(symbol: str) -> tuple[int, int]:
+    """First/last ts (ms) in the frozen 1m CSV for `symbol`."""
+    path = ROOT / "backtests" / "frozen" / f"{symbol}_1m_2y.csv"
+    with open(path, "rb") as f:
         f.readline()
         first = f.readline()
         f.seek(0, 2)
@@ -75,8 +76,8 @@ def _get(url: str, retries: int = 6):
 
 
 def _fetch_window(args: tuple) -> list[tuple[int, float]]:
-    start_ms, end_ms, interval = args
-    url = (f"{OI_URL}?category=linear&symbol=BTCUSDT&intervalTime={interval}"
+    start_ms, end_ms, interval, symbol = args
+    url = (f"{OI_URL}?category=linear&symbol={symbol}&intervalTime={interval}"
            f"&startTime={start_ms}&endTime={end_ms}&limit={PAGE}")
     data = _get(url)
     if not data or data.get("retCode") != 0:
@@ -92,6 +93,7 @@ def _fetch_window(args: tuple) -> list[tuple[int, float]]:
 
 def main() -> int:
     p = argparse.ArgumentParser()
+    p.add_argument("--symbol", default="BTCUSDT")
     p.add_argument("--interval", default="5min", choices=list(INTERVAL_MS))
     p.add_argument("--workers", type=int, default=8)
     args = p.parse_args()
@@ -103,13 +105,13 @@ def main() -> int:
 
     step = INTERVAL_MS[args.interval]
     win = PAGE * step
-    start_ms, end_ms = _frozen_range()
-    log.info("target range: %s .. %s  interval=%s", _iso(start_ms), _iso(end_ms),
-             args.interval)
+    start_ms, end_ms = _frozen_range(args.symbol)
+    log.info("%s target range: %s .. %s  interval=%s", args.symbol,
+             _iso(start_ms), _iso(end_ms), args.interval)
 
-    windows = [(w, min(w + win, end_ms), args.interval)
+    windows = [(w, min(w + win, end_ms), args.interval, args.symbol)
                for w in range(start_ms, end_ms, win)]
-    log.info("oi: %d windows", len(windows))
+    log.info("%s oi: %d windows", args.symbol, len(windows))
 
     results: list[tuple[int, float]] = []
     t0 = time.time()
@@ -126,8 +128,8 @@ def main() -> int:
             done += 1
             if done % 100 == 0 or done == len(windows):
                 rate = done / max(time.time() - t0, 0.01)
-                log.info("  oi %d/%d  %.0f w/s  ETA %.0fs  empty=%d",
-                         done, len(windows), rate,
+                log.info("  %s oi %d/%d  %.0f w/s  ETA %.0fs  empty=%d",
+                         args.symbol, done, len(windows), rate,
                          (len(windows) - done) / rate, empty)
 
     seen: set[int] = set()
@@ -137,7 +139,7 @@ def main() -> int:
             seen.add(ts)
             deduped.append((ts, oi))
 
-    out = OUT_DIR / f"BTCUSDT_oi_{args.interval}.csv"
+    out = OUT_DIR / f"{args.symbol}_oi_{args.interval}.csv"
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["ts", "open_interest"])
@@ -145,16 +147,16 @@ def main() -> int:
 
     if deduped:
         cov_lo, cov_hi = deduped[0][0], deduped[-1][0]
-        log.info("oi: wrote %d rows -> %s", len(deduped), out)
-        log.info("oi: ACTUAL COVERAGE %s .. %s", _iso(cov_lo), _iso(cov_hi))
+        log.info("%s oi: wrote %d rows -> %s", args.symbol, len(deduped), out)
+        log.info("%s oi: ACTUAL COVERAGE %s .. %s", args.symbol,
+                 _iso(cov_lo), _iso(cov_hi))
         depth_days = (end_ms - cov_lo) / 86_400_000
-        log.info("oi: depth back from end = %.0f days", depth_days)
+        log.info("%s oi: depth back from end = %.0f days", args.symbol, depth_days)
         if cov_lo > start_ms + 7 * 86_400_000:
-            log.warning("oi: 5m retention SHORT — missing %.0f days at the start; "
-                        "consider --interval 15min or 1h",
-                        (cov_lo - start_ms) / 86_400_000)
+            log.warning("%s oi: 5m retention SHORT — missing %.0f days at start",
+                        args.symbol, (cov_lo - start_ms) / 86_400_000)
     else:
-        log.error("oi: NO DATA returned")
+        log.error("%s oi: NO DATA returned", args.symbol)
         return 1
     return 0
 

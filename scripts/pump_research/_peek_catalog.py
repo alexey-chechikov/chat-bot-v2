@@ -3,7 +3,7 @@ deliverable is usable before handoff to Phase 2. NOT the full Phase 2
 discrimination analysis (precision/recall by horizon — that is Win's)."""
 import pandas as pd
 
-CAT = "/Users/alexeychechikov/code/bot7/state/pump_event_catalog.csv"
+CAT = "/Users/alexeychechikov/code/bot7/state/BTCUSDT_pump_event_catalog.csv"
 pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", 30)
 

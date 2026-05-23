@@ -20,7 +20,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import roc_auc_score
 
 ROOT = Path("/Users/alexeychechikov/code/bot7")
-CATALOG = ROOT / "state" / "pump_event_catalog.csv"
+CATALOG = ROOT / "state" / "BTCUSDT_pump_event_catalog.csv"
 MODEL_OUT = ROOT / "models" / "pump_resume_gbm.joblib"
 META_OUT = ROOT / "models" / "pump_resume_gbm.meta.json"
 

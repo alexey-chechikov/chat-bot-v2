@@ -1,26 +1,19 @@
-"""Phase 1 — pump/dump event catalog from the master feature CSV.
+"""Phase 1 — pump/dump event catalog from a per-symbol master feature CSV.
 
 Detects bidirectional one-way moves with the SAME logic as the production
 detector (services/pump_freeze/detector.py): abs move >= threshold over a
-window, NO pullback filter (whipsaws included — they are the t=0 default
-freeze per PUMP_DUMP_FILTER_V2.md).
+window, NO pullback filter (whipsaws included).
 
-For every event builds an enriched profile used by Phase 2 to measure how
-early trend vs whipsaw can be told apart:
-  - amplitude: move over detect window + peak move of the whole event
-  - duration: minutes to peak, minutes to return (if it returned)
-  - volume:   window volume / trailing-24h median volume   (spike factor)
-  - OI:       delta over the move + at horizons t+5/15/30/60
-  - taker:    buy-share in window + at horizons
-  - funding:  rate at peak
-  - shape:    wick ratio, price acceleration (2nd diff)
-  - outcome:  trend / whipsaw / partial  (forward 4h AND 24h)
+Symbol-aware: reads data/pump_research/{SYMBOL}_pump_features_1m.csv and
+writes state/{SYMBOL}_pump_event_catalog.csv.
 
-Output: state/pump_event_catalog.csv  — one row per event.
+For every event, an enriched profile (per PUMP_DUMP_FILTER_V2.md):
+  - amplitude / duration / volume spike / OI delta / taker / funding /
+    wick / acceleration / outcome (trend / whipsaw / partial)
 
 Run:
     python scripts/pump_research/build_event_catalog.py
-    python scripts/pump_research/build_event_catalog.py --threshold 1.5
+    python scripts/pump_research/build_event_catalog.py --symbol ETHUSDT
 """
 from __future__ import annotations
 
@@ -31,8 +24,6 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
-MASTER = ROOT / "data" / "pump_research" / "BTCUSDT_pump_features_1m.csv"
-OUT = ROOT / "state" / "pump_event_catalog.csv"
 
 # Production detector defaults — services/pump_freeze/config.py
 THRESHOLD_PCT = 1.5      # abs move over window
@@ -46,8 +37,8 @@ TREND_CONTINUE_PCT = 1.0     # further move beyond trigger to call it trend
 WHIPSAW_RETURN_PCT = 1.0     # return toward window-start to call it whipsaw
 
 
-def load_master() -> pd.DataFrame:
-    df = pd.read_csv(MASTER, dtype={"ts": "int64"})
+def load_master(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, dtype={"ts": "int64"})
     df = df.sort_values("ts").drop_duplicates("ts").reset_index(drop=True)
     # 5 leading bars lack OI (Bybit OI starts at 00:05) — backfill the gap.
     df["open_interest"] = df["open_interest"].bfill()
@@ -199,13 +190,17 @@ def profile_event(df: pd.DataFrame, ev: dict, window: int) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--symbol", default="BTCUSDT")
     ap.add_argument("--threshold", type=float, default=THRESHOLD_PCT)
     ap.add_argument("--window", type=int, default=WINDOW_MIN)
     ap.add_argument("--cooldown", type=int, default=COOLDOWN_MIN)
     args = ap.parse_args()
 
-    print(f"Loading {MASTER.name} ...")
-    df = load_master()
+    master_path = ROOT / "data" / "pump_research" / f"{args.symbol}_pump_features_1m.csv"
+    out_path = ROOT / "state" / f"{args.symbol}_pump_event_catalog.csv"
+
+    print(f"Loading {master_path.name} ...")
+    df = load_master(master_path)
     years = (df["ts"].iloc[-1] - df["ts"].iloc[0]) / (365.25 * 86400 * 1000)
     print(f"  {len(df):,} bars  {df['dt'].iloc[0]} .. {df['dt'].iloc[-1]}  "
           f"(~{years:.2f}y)")
@@ -222,10 +217,11 @@ def main() -> int:
             rows.append(profile_event(df, ev, args.window))
 
     cat = pd.DataFrame(rows).sort_values("anchor_ts").reset_index(drop=True)
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    cat.to_csv(OUT, index=False)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cat.to_csv(out_path, index=False)
 
-    print(f"\n=== CATALOG: {len(cat)} events  (~{len(cat)/years:.0f}/year) ===")
+    print(f"\n=== {args.symbol} CATALOG: {len(cat)} events  "
+          f"(~{len(cat)/years:.0f}/year) ===")
     for d in ("up", "down"):
         sub = cat[cat["direction"] == d]
         if sub.empty:
@@ -234,7 +230,7 @@ def main() -> int:
         print(f"  {d:4} {len(sub):>4}: " + "  ".join(
             f"{k}={oc.get(k,0)}({100*oc.get(k,0)/len(sub):.0f}%)"
             for k in ("trend", "whipsaw", "partial")))
-    print(f"\nWritten: {OUT}")
+    print(f"\nWritten: {out_path}")
     return 0
 
 
