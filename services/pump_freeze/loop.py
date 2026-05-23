@@ -1,8 +1,12 @@
-"""Pump-freeze async loop — bidirectional.
+"""Pump-freeze async loop — bidirectional + multi-symbol.
 
 For each bot in APPLIES_TO_BOTS:
-  side='short' → check up-pump, freeze on confirmed pump
-  side='long'  → check down-dump, freeze on confirmed dump
+  (side, symbol): freeze on an adverse ±1.5%/30m move in THAT symbol's bars.
+  side='short' → freeze on up-pump; side='long' → freeze on down-dump.
+  Legacy string value (no symbol) defaults to BTCUSDT.
+
+ML resume-gate stays BTC-only — the trained GBM is BTC-trained, ETH/XRP
+get reactive-only protection until per-symbol catalogs/models exist (Phase B/C).
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import asyncio
 import csv
 import json
 import logging
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
@@ -47,23 +52,67 @@ SNAPSHOTS_CSV = ROOT / "ginarea_live" / "snapshots.csv"
 MANAGED_JSON = ROOT / "state" / "short_bots_managed.json"
 
 
-def _load_recent_bars(needed_min: int = 35) -> list:
-    if not MARKET_1M_CSV.exists():
-        return []
-    bars: list = []
+_SPOT_KLINES_URL = "https://api.binance.com/api/v3/klines"
+
+
+def _parse_scope_value(v) -> tuple[str, str]:
+    """APPLIES_TO_BOTS value -> (side, symbol).
+
+    Backward-compat: a bare string is the legacy BTC form -> (side, "BTCUSDT");
+    a tuple/list is the multi-symbol form -> (side, symbol).
+    """
+    if isinstance(v, str):
+        return v, "BTCUSDT"
+    return v[0], v[1]
+
+
+def _fetch_klines_binance(symbol: str, limit: int = 35) -> list:
+    """Fetch the most-recent `limit` 1m klines from Binance spot.
+    Returns [(ts, high, low, close), ...] — matching _load_recent_bars's shape.
+    Empty list on failure (loop treats it as "insufficient bars", no-op)."""
+    url = f"{_SPOT_KLINES_URL}?symbol={symbol}&interval=1m&limit={limit}"
     try:
-        with MARKET_1M_CSV.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    ts = datetime.fromisoformat(row["ts_utc"].replace("Z", "+00:00"))
-                    hi = float(row["high"]); lo = float(row["low"]); cl = float(row["close"])
-                    bars.append((ts, hi, lo, cl))
-                except (KeyError, ValueError):
-                    continue
-    except OSError:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            raw = json.load(r)
+    except Exception:  # noqa: BLE001
         return []
-    return bars[-needed_min:] if len(bars) > needed_min else bars
+    out: list = []
+    for k in raw:
+        try:
+            ts = datetime.utcfromtimestamp(int(k[0]) / 1000).replace(tzinfo=timezone.utc)
+            out.append((ts, float(k[2]), float(k[3]), float(k[4])))
+        except (ValueError, IndexError):
+            continue
+    return out
+
+
+def _load_recent_bars(needed_min: int = 35, symbol: str = "BTCUSDT") -> list:
+    """Recent 1m bars (ts, high, low, close) for `symbol`.
+
+    BTCUSDT — reads market_live/market_1m.csv (the bot's collector writes it;
+    pump_freeze has always used this feed).
+    ETHUSDT / XRPUSDT — fetched directly from Binance spot klines, since no
+    local per-symbol bar store exists yet. Cheap (limit=35 -> ~5KB) and called
+    at most once per symbol per 60s tick.
+    """
+    if symbol == "BTCUSDT":
+        if not MARKET_1M_CSV.exists():
+            return []
+        bars: list = []
+        try:
+            with MARKET_1M_CSV.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        ts = datetime.fromisoformat(row["ts_utc"].replace("Z", "+00:00"))
+                        hi = float(row["high"]); lo = float(row["low"]); cl = float(row["close"])
+                        bars.append((ts, hi, lo, cl))
+                    except (KeyError, ValueError):
+                        continue
+        except OSError:
+            return []
+        return bars[-needed_min:] if len(bars) > needed_min else bars
+    return _fetch_klines_binance(symbol, needed_min)
 
 
 def _read_bot_meta(bot_id: str) -> tuple[Optional[float], str, str]:
@@ -150,10 +199,11 @@ def _load_feature_bars(needed: int = 1600) -> list:
     return bars[-needed:] if len(bars) > needed else bars
 
 
-def _funding_at(freeze_ts: datetime) -> Optional[float]:
-    """funding_rate_8h (BTCUSDT) from deriv_live_history.jsonl — the record
+def _funding_at(freeze_ts: datetime, symbol: str = "BTCUSDT") -> Optional[float]:
+    """funding_rate_8h for `symbol` from deriv_live_history.jsonl — the record
     nearest freeze_ts. Funding is 8h-constant so ~5min log resolution is
-    ample. None if unavailable."""
+    ample. None if unavailable. deriv_live_history records all three symbols
+    (BTC/ETH/XRP), so this works transparently for the multi-symbol case."""
     path = ROOT / "state" / "deriv_live_history.jsonl"
     if not path.exists():
         return None
@@ -167,7 +217,7 @@ def _funding_at(freeze_ts: datetime) -> Optional[float]:
                 rec = json.loads(line)
                 ts = datetime.fromisoformat(
                     rec["last_updated"].replace("Z", "+00:00"))
-                fr = (rec.get("BTCUSDT") or {}).get("funding_rate_8h")
+                fr = (rec.get(symbol) or {}).get("funding_rate_8h")
                 if fr is None:
                     continue
                 d = abs((ts - freeze_ts).total_seconds())
@@ -234,33 +284,41 @@ def _compute_bar_features(bars: list, freeze_ts: datetime,
     return feats
 
 
-def build_live_features(bot_id: str, freeze_ts: datetime) -> dict:
+def build_live_features(bot_id: str, freeze_ts: datetime,
+                        symbol: str = "BTCUSDT") -> dict:
     """Live feature vector for the ML resume-gate — 9 of the 10 reliable
     features from PUMP_FILTER_FEATURE_CONTRACT.md, matching
     build_event_catalog.py column-for-column.
 
-    OMITTED: n_triggers — its catalog definition (full-event trigger count)
-    has no clean live equivalent; pending Win's importance check. While it
-    is absent, score_event() returns None for any model whose feature_order
-    includes n_triggers → the gate stays dormant (safe). If Win drops
-    n_triggers, the 9-feature model scores normally.
+    SYMBOL-AWARE: the trained model + the rich feature loader are BTC-only
+    (catalog built from the BTC master CSV). Non-BTC symbols return {} →
+    score_event() None → reactive fallback. Per-symbol ETH/XRP catalogs and
+    models are Phase B/C work.
+
+    OMITTED: n_triggers — its catalog definition has no clean live equivalent;
+    while absent any model whose feature_order includes n_triggers is also
+    reactive-only (gate dormant — safe).
     """
+    if symbol != "BTCUSDT":
+        return {}
     feats = _compute_bar_features(_load_feature_bars(), freeze_ts)
     if not feats:
         return {}
-    fr = _funding_at(freeze_ts)
+    fr = _funding_at(freeze_ts, symbol)
     if fr is not None:
         feats["funding_at_anchor"] = fr
     return feats
 
 
 def _ml_gate_check(bot_id: str, side: str, freeze_ts: datetime,
-                   now: datetime, bars: list) -> Optional[str]:
+                   now: datetime, bars: list,
+                   symbol: str = "BTCUSDT") -> Optional[str]:
     """Return a resume-reason string if the ML-gate confidently calls the
     frozen event a whipsaw; else None (→ reactive logic decides).
 
-    Dormant until the model artifact lands: model_available() is False, so
-    this returns None and the reactive path runs unchanged.
+    Symbol-aware: for non-BTC symbols build_live_features() returns {} →
+    score None → the gate stays dormant on ETH/XRP until per-symbol models
+    (Phase B/C) are trained. The BTC bot path is unchanged.
     """
     if not ML_GATE_ENABLED:
         return None
@@ -270,7 +328,7 @@ def _ml_gate_check(bot_id: str, side: str, freeze_ts: datetime,
     age_min = (now - freeze_ts).total_seconds() / 60.0
     if age_min < resume_model.horizon_min():
         return None
-    feats = build_live_features(bot_id, freeze_ts)
+    feats = build_live_features(bot_id, freeze_ts, symbol)
     score = resume_model.score_event(feats)
     if score is None:
         return None
@@ -283,18 +341,38 @@ def tick(*, send_fn: Optional[Callable] = None,
          now: Optional[datetime] = None) -> dict:
     if now is None:
         now = datetime.now(timezone.utc)
-    bars = _load_recent_bars()
-    if len(bars) < 31:
-        return {"frozen": 0, "resumed": 0}
-    current_price = bars[-1][3]
 
-    # Detect both directions (single read of bars)
-    up_event = detect_move(bars, direction="up")
-    down_event = detect_move(bars, direction="down")
+    # Per-tick per-symbol caches: each symbol's bars + detected events are
+    # computed at most once even if several bots share it.
+    bars_cache: dict = {}
+    events_cache: dict = {}
+
+    def _bars_for(sym: str) -> list:
+        if sym not in bars_cache:
+            bars_cache[sym] = _load_recent_bars(symbol=sym)
+        return bars_cache[sym]
+
+    def _events_for(sym: str) -> dict:
+        if sym not in events_cache:
+            bs = _bars_for(sym)
+            if len(bs) < 31:
+                events_cache[sym] = {"up": None, "down": None}
+            else:
+                events_cache[sym] = {
+                    "up": detect_move(bs, direction="up"),
+                    "down": detect_move(bs, direction="down"),
+                }
+        return events_cache[sym]
 
     frozen_count = 0
     resumed_count = 0
-    for bot_id, side in APPLIES_TO_BOTS.items():
+    for bot_id, raw_val in APPLIES_TO_BOTS.items():
+        side, symbol = _parse_scope_value(raw_val)
+        bars = _bars_for(symbol)
+        if len(bars) < 31:
+            continue
+        current_price = bars[-1][3]
+
         raw_pos, alias, tier = _read_bot_meta(bot_id)
         if raw_pos is None:
             continue
@@ -316,10 +394,11 @@ def tick(*, send_fn: Optional[Callable] = None,
                 stall_min=RESUME_STALL_MIN,
             )
             # ML resume-gate (Phase 4): if reactive says hold, a confident
-            # whipsaw verdict from the model resumes early. Dormant until the
-            # model artifact lands — _ml_gate_check returns None until then.
+            # whipsaw verdict resumes early. BTC-only; non-BTC dormant until
+            # per-symbol models (Phase B/C).
             if not done:
-                ml_reason = _ml_gate_check(bot_id, side, freeze_ts, now, bars)
+                ml_reason = _ml_gate_check(bot_id, side, freeze_ts, now,
+                                            bars, symbol)
                 if ml_reason:
                     done, reason = True, ml_reason
             if done:
@@ -330,8 +409,9 @@ def tick(*, send_fn: Optional[Callable] = None,
                 resumed_count += 1
             continue
 
-        # Direction relevant to this bot
-        event = up_event if side == "short" else down_event
+        # Direction relevant to this bot — picked from per-symbol events
+        evs = _events_for(symbol)
+        event = evs["up"] if side == "short" else evs["down"]
         if event is None:
             continue
 

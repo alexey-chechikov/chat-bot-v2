@@ -57,7 +57,9 @@ def _ramp_window(start: float, end: float, end_ts: datetime, n: int = 31) -> lis
 
 
 def _tick(monkeypatch, bars, now):
-    monkeypatch.setattr(loop, "_load_recent_bars", lambda needed_min=35: bars)
+    # Phase A multi-symbol: loop now calls _load_recent_bars(symbol=...)
+    monkeypatch.setattr(loop, "_load_recent_bars",
+                        lambda needed_min=35, symbol="BTCUSDT": bars)
     return loop.tick(now=now)
 
 

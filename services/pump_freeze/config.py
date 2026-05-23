@@ -42,14 +42,18 @@ RESUME_TIMEOUT_HOURS = 12        # safety net only (был 4 — опережа�
 # N=45: ранний false-resume на тренде самоисправляется re-freeze gate.
 RESUME_STALL_MIN = 45            # минут без нового extreme → resume по stall
 
-# ─── Scope (per оператор 2026-05-22: 2 активных BTC SHORT теста) ──────────
-# Старый набор (TB 4525648417 / T1 4729923198 / LONG-D 5154651487 /
-# LONG-V5 4979458320) — остановлен либо удалён: оператор пересоздал боты.
-# pump_freeze v2 защищает 2 активных BTC SHORT-теста от squeeze на UP-пампе.
-# bot_id → side ("short" | "long")
+# ─── Scope ─────────────────────────────────────────────────────────────────
+# Two value forms (backward-compatible):
+#   bot_id -> "short" | "long"          legacy, symbol defaults to BTCUSDT
+#   bot_id -> ("side", "SYMBOLUSDT")    multi-symbol form (2026-05-22 Phase A)
+# Reactive freeze/resume works for any symbol; the ML resume-gate runs only
+# for BTCUSDT (the model is BTC-trained — Phase B/C will add ETH/XRP).
 APPLIES_TO_BOTS = {
     "6399265299": "short",   # GPT SHORT 1.1% (BTC, активный)
     "5403878196": "short",   # SHORT-T1 GIN (BTC, активный)
+    # Examples for ETH/XRP-long once funded & confirmed:
+    #   "5126215144": ("long", "ETHUSDT"),  # ETH LONG (idle now)
+    #   "5257298144": ("long", "XRPUSDT"),  # XRP_ЛОНГ
 }
 
 # ─── Loop ───────────────────────────────────────────────────────────────────
