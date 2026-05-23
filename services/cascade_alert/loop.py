@@ -109,16 +109,90 @@ INVERTED_PLAYS = {
                         "size_usd": 2500,
                         "note": "Half-size до n>=40. Inverted edge свежий — мониторим WR."},
     },
-    ("long", 2.0): {
-        "title": "🔄 LONG-cascade (mid) DRIFTED → INVERTED SHORT setup",
-        "stats": "ИНВЕРСИЯ от 2024 regime. Сейчас drift подтверждён.\n"
-                 "  Тренд более слабый чем у 5+ BTC, но направление то же — вниз.",
-        "play": "СЕТАП: SHORT с tight стопом, half-size.",
-        "entry_plan": {"dir": "SHORT", "tp1_pct": -0.30, "tp2_pct": -0.55, "stop_pct": +0.35,
-                        "size_usd": 1500,
-                        "note": "Контекстный сетап. Half-size, рассматривай как hedge."},
+    # 2BTC INVERTED ("long", 2.0) REMOVED 2026-05-19 — re-sweep n=387:
+    # long_2btc inverted 4h DOWN 51.2%, 24h DOWN 56.1%, mean inverted +0.091%
+    # → -EV after BitMEX 0.15% taker RT (-0.06%/trade). Шум, не торгуем.
+    # 2BTC alerts всё ещё могут залогироваться как drift-warning через fallback
+    # path в _format_alert, но без entry_plan.
+    # Mega-long INVERTED 2026-05-19: re-sweep n=68 показал 4h_up 31.8% (= 68.2%
+    # DOWN-WR, mean −0.232%), 24h_up 25% (= 75% DOWN-WR, mean −0.950%). Жирнейший
+    # inverted edge на mega-long-cascade — хорошо торговать SHORT с 24h hold.
+    ("long", 10.0): {
+        "title": "🌋🔄 МЕГА-LONG-cascade DRIFTED → INVERTED SHORT (24h hold)",
+        "stats": "Re-swept 2026-05-19 (cascade_backtest_combined, n=68):\n"
+                 "  4h: 32% up = 68% DOWN, mean −0.232%\n"
+                 "  24h: 25% up = 75% DOWN, mean −0.950%\n"
+                 "  Сильнейшая инверсия из всех cascade-вариантов.",
+        "play": "СЕТАП: SHORT на стабилизации (2-3 свечи без новых ликвидаций).\n"
+                "Hold 24h — там edge максимален. Можно частично закрывать на 4h.",
+        "entry_plan": {"dir": "SHORT", "tp1_pct": -0.50, "tp2_pct": -1.00, "stop_pct": +0.60,
+                        "size_usd": 4000,
+                        "note": "Strong inverted edge n=68. 24h hold. R:R 1:1.67."},
     },
+    # SHORT-side INVERTED 2026-05-19: live edge_drift_guard показал short_24h
+    # accuracy 37.2% n=43 — т.е. DOWN-WR 62.8%. Old "continuation up" play
+    # выдохся; вместо него — SHORT fade с 24h hold.
+    ("short", 5.0): {
+        "title": "🔄 SHORT-cascade DRIFTED → INVERTED SHORT fade (>=5 BTC за 5 мин)",
+        "stats": "ИНВЕРСИЯ vs 2024:\n"
+                 "  2024 hist: 70% pct_up 4h — continuation edge\n"
+                 "  2026 live (cascade_edge_drift, n=43): 37.2% pct_up 24h = 62.8% pct_DOWN\n"
+                 "  Цена SHORT-cascade'a — squeeze вверх; 24h позже чаще откат вниз.",
+        "play": "СЕТАП: SHORT на стабилизации после squeeze (2-3 свечи без новых ликвидаций).\n"
+                "Hold 24h. Half-size до накопления собственных fills.",
+        "entry_plan": {"dir": "SHORT", "tp1_pct": -0.40, "tp2_pct": -0.80, "stop_pct": +0.45,
+                        "size_usd": 2500,
+                        "note": "Half-size. 24h hold (4h/12h slabej edge). Inverted edge — мониторим WR."},
+    },
+    # ("short", 2.0) INVERTED removed 2026-05-19 — same reason as long_2btc:
+    # mid-tier edge не оправдывает fees, treat as noise.
 }
+
+
+# Weak-conviction noise filter (2026-05-19):
+# 2BTC тир alerts суппрессируются если qty < threshold × 1.3 ИЛИ single exchange
+# (один источник). Конкретный кейс который операторе показал: 2.32 BTC OKX-only =
+# чистый noise, такие алерты больше не приходят.
+WEAK_CONVICTION_MIN_QTY_RATIO = 1.3
+WEAK_CONVICTION_EXCHANGE_MIN_QTY = 0.3
+SUPPRESSED_LOG_PATH = ROOT / "state" / "cascade_alert_suppressed.jsonl"
+
+
+def _is_weak_conviction(threshold: float, qty: float, by_exchange: dict) -> tuple[bool, str]:
+    """Returns (suppress, reason). Only the 2BTC tier is filtered — 5BTC + mega always fire."""
+    if threshold >= THRESHOLD_BTC:  # 5.0 BTC or higher — always fire
+        return False, ""
+    reasons: list[str] = []
+    if qty < threshold * WEAK_CONVICTION_MIN_QTY_RATIO:
+        reasons.append(f"qty {qty:.2f}/{threshold:.1f} below ×{WEAK_CONVICTION_MIN_QTY_RATIO}")
+    contributing_exchanges = 0
+    for _exch, sides in (by_exchange or {}).items():
+        side_max = max(sides.get("long", 0.0), sides.get("short", 0.0))
+        if side_max >= WEAK_CONVICTION_EXCHANGE_MIN_QTY:
+            contributing_exchanges += 1
+    if contributing_exchanges < 2:
+        reasons.append(f"single_exchange ({contributing_exchanges} contributing)")
+    if reasons:
+        return True, "; ".join(reasons)
+    return False, ""
+
+
+def _log_suppressed(side: str, threshold: float, qty: float, reason: str,
+                     by_exchange: dict, now: datetime) -> None:
+    try:
+        SUPPRESSED_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": now.isoformat(timespec="seconds"),
+            "side": side,
+            "threshold_btc": threshold,
+            "qty_btc": round(qty, 4),
+            "reason": reason,
+            "by_exchange": {e: round(s.get(side, 0.0), 3) for e, s in (by_exchange or {}).items()},
+        }
+        with SUPPRESSED_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        logger.exception("cascade_alert.suppressed_log_failed")
 
 
 def _format_entry_plan(plan: dict | None, last_price: float | None) -> list[str]:
@@ -449,6 +523,21 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                         pass
                 text = _format_alert(side, THRESHOLD_BTC_MEGA, mega_qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.MEGA side=%s qty=%.2f", side, mega_qty)
+                # Universal paper-WR gate (2026-05-23): trade-side = fade of
+                # liq side. Block emission if recent paper WR for that trade
+                # direction has decayed below the policy threshold — preventive
+                # backstop independent of edge_drift_guard's accuracy metric.
+                _trade_side = "SHORT" if side == "long" else "LONG"
+                try:
+                    from services.common.paper_wr_gate import should_emit
+                    _ok, _why = should_emit("cascade_alert", _trade_side)
+                except Exception:
+                    _ok, _why = True, "wr_gate_unavailable"
+                if not _ok:
+                    logger.info("cascade_alert.MEGA.suppressed_wr_gate "
+                                "side=%s trade=%s %s", side, _trade_side, _why)
+                    dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    continue
                 if send_fn is not None:
                     try:
                         send_fn(text)
@@ -477,9 +566,33 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                     except ValueError:
                         pass
 
+                # Weak-conviction filter for 2BTC tier: single-exchange + qty
+                # barely above threshold = noise. Operator complained about
+                # repeated marginal alerts (e.g. 2.32 BTC OKX-only 2026-05-19).
+                suppress, suppress_reason = _is_weak_conviction(threshold, qty, by_exchange)
+                if suppress:
+                    _log_suppressed(side, threshold, qty, suppress_reason, by_exchange, now)
+                    logger.info("cascade_alert.suppressed side=%s threshold=%.1f qty=%.2f reason=%s",
+                                side, threshold, qty, suppress_reason)
+                    dedup[key] = now.isoformat(timespec="seconds")
+                    continue
+
                 # Триггер alert
                 text = _format_alert(side, threshold, qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.triggered side=%s threshold=%.1f qty=%.2f", side, threshold, qty)
+                # paper-WR gate (preventive — see MEGA branch above).
+                _trade_side = "SHORT" if side == "long" else "LONG"
+                try:
+                    from services.common.paper_wr_gate import should_emit
+                    _ok, _why = should_emit("cascade_alert", _trade_side)
+                except Exception:
+                    _ok, _why = True, "wr_gate_unavailable"
+                if not _ok:
+                    logger.info("cascade_alert.suppressed_wr_gate "
+                                "side=%s trade=%s threshold=%.1f %s",
+                                side, _trade_side, threshold, _why)
+                    dedup[key] = now.isoformat(timespec="seconds")
+                    continue
                 if send_fn is not None:
                     try:
                         send_fn(text)
