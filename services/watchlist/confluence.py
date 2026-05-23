@@ -32,8 +32,16 @@ CASCADE_DEDUP = ROOT / "state" / "cascade_alert_dedup.json"
 CONFLUENCE_JOURNAL = ROOT / "state" / "confluence_fires.jsonl"
 
 CONFLUENCE_WINDOW_MIN = 5
-CASCADE_BULL = ("short_2.0", "short_5.0")
-CASCADE_BEAR = ("long_2.0", "long_5.0")
+# Multi-threshold cascade keys (2/5/10BTC + mega) представляют ОДНО событие —
+# крупная лавина одновременно пробивает несколько порогов. Конфлюэнс не должен
+# считать их как независимые источники. Cobиратрb эти keys в один source
+# при detect_confluence.
+CASCADE_BULL = ("short_2.0", "short_5.0", "short_10.0_mega")
+CASCADE_BEAR = ("long_2.0", "long_5.0", "long_10.0_mega")
+# Также: если в окне есть несколько cascade-keys одного side — это все та же
+# лавина (5BTC пробивает 2BTC автоматически, 10BTC mega — это вообще тот же
+# момент). Collapse в один source.
+CASCADE_COLLAPSE = True
 
 
 def _recent_play_fires(*, direction: str, now: datetime,
@@ -70,7 +78,12 @@ def _recent_play_fires(*, direction: str, now: datetime,
 def _recent_cascade_signals(*, direction: str, now: datetime,
                               window_min: int = CONFLUENCE_WINDOW_MIN,
                               dedup_path: Path = CASCADE_DEDUP) -> list[dict]:
-    """Read cascade_alert_dedup, return cascades within window matching direction."""
+    """Read cascade_alert_dedup, return cascades within window matching direction.
+
+    Multi-threshold cascades (2/5/10BTC) of the same side в окне коллапсятся в
+    ОДИН source — это одно событие, пробившее несколько порогов. Берём самый
+    жирный threshold как primary label.
+    """
     if not dedup_path.exists():
         return []
     try:
@@ -79,7 +92,7 @@ def _recent_cascade_signals(*, direction: str, now: datetime,
         return []
     cutoff = now - timedelta(minutes=window_min)
     keys = CASCADE_BULL if direction == "LONG" else CASCADE_BEAR
-    out = []
+    raw: list[tuple[str, datetime]] = []
     for key in keys:
         ts_str = dedup.get(key)
         if not ts_str:
@@ -89,8 +102,22 @@ def _recent_cascade_signals(*, direction: str, now: datetime,
         except (ValueError, TypeError):
             continue
         if ts >= cutoff:
-            out.append({"label": f"cascade_{key}", "ts": ts.isoformat()})
-    return out
+            raw.append((key, ts))
+    if not raw:
+        return []
+    if CASCADE_COLLAPSE:
+        # Берём cascade с самым старшим threshold (mega > 5 > 2) как primary
+        def _rank(k: str) -> int:
+            if "10.0_mega" in k:
+                return 3
+            if "5.0" in k:
+                return 2
+            return 1
+        raw.sort(key=lambda kv: (_rank(kv[0]), kv[1]), reverse=True)
+        primary_key, primary_ts = raw[0]
+        return [{"label": f"cascade_{primary_key}", "ts": primary_ts.isoformat(),
+                  "collapsed_count": len(raw)}]
+    return [{"label": f"cascade_{k}", "ts": ts.isoformat()} for k, ts in raw]
 
 
 def detect_confluence(*, direction: str, now: Optional[datetime] = None,
@@ -178,6 +205,53 @@ def format_confluence_card(confluence: dict, last_price: Optional[float] = None)
     return "\n".join(lines)
 
 
+def _recent_constituent_fire(direction: str, *,
+                              window_min: int = 3,
+                              now: Optional[datetime] = None) -> bool:
+    """True if a same-direction constituent signal (cascade or play) already
+    fired in the last `window_min` minutes. Used to suppress redundant
+    confluence cards — if the operator already saw the cascade or the
+    taker_imbalance card 1-2 min ago, a "CONFLUENCE → DIR" wrapper alert is
+    just dup noise (2026-05-23: colleague flagged 16:57 inverted SHORT +
+    confluence SHORT pair on the same event)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=window_min)
+    # cascade-side fires
+    dedup = _read_cascade_dedup()
+    cascade_side = "long" if direction == "SHORT" else "short"  # cascade dir = liq side, fade
+    for k, ts_str in dedup.items():
+        if not k.startswith(f"{cascade_side}_"):
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if ts >= cutoff:
+            return True
+    # play_journal fires (taker_imbalance et al)
+    try:
+        if PLAY_JOURNAL.exists():
+            tail = PLAY_JOURNAL.read_text(encoding="utf-8").splitlines()[-30:]
+            for line in tail:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get("expected_dir") != direction:
+                        continue
+                    ts = datetime.fromisoformat(
+                        str(rec.get("ts_fire", "")).replace("Z", "+00:00"))
+                    if ts >= cutoff:
+                        return True
+                except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                    continue
+    except OSError:
+        pass
+    return False
+
+
 def check_and_emit_confluence(*, send_fn=None,
                                  now: Optional[datetime] = None) -> Optional[dict]:
     """Single tick: check both directions, emit if confluence detected and not dedupped."""
@@ -188,6 +262,12 @@ def check_and_emit_confluence(*, send_fn=None,
             continue
         confluence = detect_confluence(direction=direction, now=now)
         if confluence is None:
+            continue
+        # Suppress when a constituent signal already informed the operator
+        # within the last few minutes — confluence is redundant aggregation.
+        if _recent_constituent_fire(direction, now=now):
+            logger.info("confluence.suppressed_redundant direction=%s "
+                        "(constituent fired within 3min)", direction)
             continue
         # Build card
         last_price = None

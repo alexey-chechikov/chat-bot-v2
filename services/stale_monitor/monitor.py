@@ -45,12 +45,16 @@ CRITICAL_SOURCES = {
         "label": "Liquidation stream (Bybit+Binance WS)",
     },
     "setups_jsonl": {
-        # 2026-05-07 incident: setup_detector сломался 06.05 13:39 → 07.05 13:21
-        # (24+ hours), build_context_failed каждую минуту, но никто не алертился.
-        # 1h threshold: setup_detector tick = 60s, на любом активном рынке
-        # минимум 1 setup детектится за час. Если час тишины — что-то сломано.
+        # 2026-05-07 incident: setup_detector сломался на 24+ ч, никто не
+        # алертился. Изначальный порог 60min ловил это, но 2026-05-23 показал
+        # ложные срабатывания: loop ЖИВ и тикает, просто все типы блокируются
+        # combo_filter/runtime_disabled (в trend_down рынке legitimate situation).
+        # Порог 360min: всё ещё ловит реальный 24h-incident, но не алертит на
+        # 4-6ч тишины в активном тренде. TODO: добавить
+        # state/setup_detector_heartbeat.json + tracking loop-ticks отдельно
+        # от output, тогда вернуть порог к 60min на heartbeat.
         "path": "state/setups.jsonl",
-        "max_age_min": 60,
+        "max_age_min": 360,
         "label": "Setup detector output",
     },
     "state_latest_json": {
