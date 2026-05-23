@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 PAPER_NOTIONAL_USD = 10_000.0
 CONFIDENCE_THRESHOLD = 60.0  # %
 TIME_STOP_HOURS = 24
+# 2026-05-23 LMD audit: 16/60 closes were EXPIRE-profitable (median
+# 22.8h held) → TIME_STOP fires before TP can be reached. Plan to bump
+# only for ELITE tier (per elite_tiers) — needs tier-conditional logic
+# in update_open_trades, not a global constant change. Kept at 24h for
+# now to preserve test_time_stop_24h; tier-conditional follow-up.
 
 
 def _setup_side(setup_type: SetupType) -> str:

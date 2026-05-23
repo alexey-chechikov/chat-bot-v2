@@ -438,6 +438,30 @@ def _run_detectors_once(
         )
         record_setup(s, "combo_blocked", drop_reason=reason)
 
+    # Elite-tier WEAK filter (2026-05-23): drop setups whose
+    # (setup_type × regime × session × pair) cell has known-bad WR per
+    # the paper-perf audit. Currently applies to long_multi_divergence
+    # (asia session and XRPUSDT pair both ≤40% WR). Setups with no
+    # elite_tier rule pass through untouched.
+    from services.setup_detector.elite_tiers import classify_setup
+    elite_kept: list[Setup] = []
+    for s in allowed:
+        v = classify_setup(s.setup_type.value, s.regime_label,
+                           s.session_label, s.pair)
+        if v.tier == "WEAK":
+            logger.info(
+                "setup_detector.elite_weak_blocked type=%s regime=%s "
+                "session=%s pair=%s rule=%s wr=%s%%",
+                s.setup_type.value, s.regime_label, s.session_label,
+                s.pair, v.rule_id, v.wr_pct,
+            )
+            record_setup(s, "elite_weak_blocked",
+                         drop_reason=f"WEAK tier rule={v.rule_id} "
+                                     f"wr={v.wr_pct}% n={v.sample_n}")
+            continue
+        elite_kept.append(s)
+    allowed = elite_kept
+
     # ── Semantic dedup: skip setups whose signature was emitted within TTL.
     now_utc = datetime.now(timezone.utc)
     dedup = _load_semantic_dedup()
