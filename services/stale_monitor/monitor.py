@@ -44,18 +44,16 @@ CRITICAL_SOURCES = {
         "max_age_min": 60,  # liquidations sparse — даже спокойный рынок 1+ event/hr
         "label": "Liquidation stream (Bybit+Binance WS)",
     },
-    "setups_jsonl": {
-        # 2026-05-07 incident: setup_detector сломался на 24+ ч, никто не
-        # алертился. Изначальный порог 60min ловил это, но 2026-05-23 показал
-        # ложные срабатывания: loop ЖИВ и тикает, просто все типы блокируются
-        # combo_filter/runtime_disabled (в trend_down рынке legitimate situation).
-        # Порог 360min: всё ещё ловит реальный 24h-incident, но не алертит на
-        # 4-6ч тишины в активном тренде. TODO: добавить
-        # state/setup_detector_heartbeat.json + tracking loop-ticks отдельно
-        # от output, тогда вернуть порог к 60min на heartbeat.
-        "path": "state/setups.jsonl",
-        "max_age_min": 360,
-        "label": "Setup detector output",
+    "setup_detector_heartbeat": {
+        # 2026-05-23: switched from setups.jsonl mtime to a dedicated
+        # heartbeat file written EVERY tick (independent of whether any
+        # setup actually got emitted). Catches the real 2026-05-07
+        # incident class (wedged loop) at 10-min granularity without the
+        # false-positive avalanche from quiet-market periods where the
+        # loop is healthy but filters block every candidate.
+        "path": "state/setup_detector_heartbeat.json",
+        "max_age_min": 10,
+        "label": "Setup detector heartbeat (loop liveness)",
     },
     "state_latest_json": {
         # 2026-05-07: state_snapshot moved from scheduled task to supervisor.

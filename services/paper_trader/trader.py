@@ -95,7 +95,14 @@ def open_paper_trade(setup: Setup) -> Optional[dict]:
     entry = float(setup.entry_price)
     if entry <= 0:
         return None
-    size_btc = round(PAPER_NOTIONAL_USD / entry, 6)
+    # Elite-tier sizing: ELITE/STRONG buckets get 1.3-2x notional, WEAK
+    # buckets get 0.25x. Defaults to 1.0 when no rule matches.
+    from services.setup_detector.elite_tiers import classify_setup
+    _tier = classify_setup(setup.setup_type.value, setup.regime_label,
+                           setup.session_label,
+                           getattr(setup, "pair", "BTCUSDT"))
+    size_usd = round(PAPER_NOTIONAL_USD * _tier.size_mult, 2)
+    size_btc = round(size_usd / entry, 6)
     now = datetime.now(timezone.utc)
     trade_id = f"pt-{now.strftime('%Y-%m-%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
@@ -108,8 +115,10 @@ def open_paper_trade(setup: Setup) -> Optional[dict]:
         "setup_id": setup.setup_id,
         "pair": getattr(setup, "pair", "BTCUSDT"),  # multi-symbol support 2026-05-08
         "entry": entry,
-        "size_usd": PAPER_NOTIONAL_USD,
+        "size_usd": size_usd,
         "size_btc": size_btc,
+        "elite_tier": _tier.tier,
+        "elite_rule_id": _tier.rule_id,
         "sl": float(setup.stop_price),
         "tp1": float(setup.tp1_price) if setup.tp1_price else None,
         "tp2": float(setup.tp2_price) if setup.tp2_price else None,

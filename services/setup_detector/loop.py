@@ -372,6 +372,20 @@ async def setup_detector_loop(
         if tick_count % 12 == 0:
             logger.info("setup_detector_loop.heartbeat tick=%d pairs=%s",
                          tick_count, list(pairs))
+        # File-based heartbeat for stale_monitor — written every tick so the
+        # monitor distinguishes "loop alive but emitting no setups" (quiet
+        # market or runtime_disabled) from "loop wedged" (the 2026-05-07
+        # incident class). setups.jsonl staleness alone is ambiguous.
+        try:
+            _hb = Path("state") / "setup_detector_heartbeat.json"
+            _hb.parent.mkdir(parents=True, exist_ok=True)
+            _hb.write_text(json.dumps({
+                "last_tick_utc": now_utc.isoformat(timespec="seconds"),
+                "tick_count": tick_count,
+                "pairs": list(pairs),
+            }), encoding="utf-8")
+        except OSError:
+            logger.exception("setup_detector_loop.heartbeat_write_failed")
 
         try:
             await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=interval_sec)
