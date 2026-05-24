@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -505,6 +506,25 @@ async def _run_cascade_alert(stop_event: asyncio.Event, *, telegram_app=None) ->
     await cascade_alert_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_auto_executor(stop_event: asyncio.Event) -> None:
+    """Live BitMEX autotrader (Phase B, 2026-05-24).
+
+    Subscribes to setup_detector via state/setups.jsonl, applies all gates
+    (max_parallel=1, paper_wr_gate, drift, daily_loss, balance_floor, 7d
+    kill-switch), and places real $7.70-notional limit BUYs on XBTUSDT for
+    long_pdl_bounce + long_multi_divergence setups. Uses MICRO_BOT_TOKEN /
+    MICRO_CHAT_ID to notify into a dedicated TG chat.
+
+    Loop tolerant of missing env (BITMEX_AUTOTRADER_API_KEY) — returns
+    silently so app_runner keeps booting if creds are pulled.
+    """
+    if not os.environ.get("BITMEX_AUTOTRADER_API_KEY"):
+        logger.info("auto_executor.disabled — BITMEX_AUTOTRADER_API_KEY not set")
+        return
+    from services.auto_executor.loop import auto_executor_loop
+    await auto_executor_loop(stop_event=stop_event)
+
+
 async def _run_cascade_accuracy_eval(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """KPI feedback-loop: каждый час evaluate_pending заполняет realized_pct
     для прогнозов где прошло >=4/12/24h. Раз в сутки evaluate_drift —
@@ -743,6 +763,22 @@ async def _run_range_hunter_outcome(stop_event: asyncio.Event, *, telegram_app=N
     await range_hunter_outcome_loop(stop_event=stop_event,
                                      hedge_send_fn=_build_rh_send_fn(telegram_app),
                                      params=params)
+
+
+async def _run_cascade_followup_signal(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Cascade-followup Phase-D semi-manual TG emitter — actionable cascade-trade
+    signals with inline buttons [✅ Placed] [⏭ Skip]. Initially SHORT 5BTC only
+    (live backtest WR 70.8% за 4h, n=24)."""
+    from services.cascade_followup.loop import cascade_followup_signal_loop
+    await cascade_followup_signal_loop(stop_event=stop_event,
+                                        send_fn=_build_rh_send_fn(telegram_app))
+
+
+async def _run_cascade_followup_outcome(stop_event: asyncio.Event) -> None:
+    """Outcome tracker: каждые 15 мин fill realized_4h_pct/12h_pct из market_1m.csv
+    для placed cascade-followup signals."""
+    from services.cascade_followup.loop import cascade_followup_outcome_loop
+    await cascade_followup_outcome_loop(stop_event=stop_event)
 
 
 async def _run_cliff_monitor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
@@ -1151,6 +1187,7 @@ async def main(
     deriv_live_task = asyncio.create_task(_run_deriv_live(stop_event), name="deriv_live")
     bitmex_account_task = asyncio.create_task(_run_bitmex_account(stop_event), name="bitmex_account")
     cascade_alert_task = asyncio.create_task(_run_cascade_alert(stop_event, telegram_app=app), name="cascade_alert")
+    auto_executor_task = asyncio.create_task(_run_auto_executor(stop_event), name="auto_executor")
     cascade_accuracy_task = asyncio.create_task(_run_cascade_accuracy_eval(stop_event, telegram_app=app), name="cascade_accuracy_eval")
     cliff_monitor_task = asyncio.create_task(_run_cliff_monitor(stop_event, telegram_app=app), name="cliff_monitor")
     weekly_report_task = asyncio.create_task(_run_weekly_self_report(stop_event, telegram_app=app), name="weekly_self_report")
@@ -1175,6 +1212,8 @@ async def main(
     range_hunter_outcome_eth_5m_task = asyncio.create_task(_run_range_hunter_outcome(stop_event, telegram_app=app, symbol="ETHUSDT", variant="5m"), name="range_hunter_outcome_eth_5m")
     range_hunter_signal_xrp_5m_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="XRPUSDT", variant="5m"), name="range_hunter_signal_xrp_5m")
     range_hunter_outcome_xrp_5m_task = asyncio.create_task(_run_range_hunter_outcome(stop_event, telegram_app=app, symbol="XRPUSDT", variant="5m"), name="range_hunter_outcome_xrp_5m")
+    cascade_followup_signal_task = asyncio.create_task(_run_cascade_followup_signal(stop_event, telegram_app=app), name="cascade_followup_signal")
+    cascade_followup_outcome_task = asyncio.create_task(_run_cascade_followup_outcome(stop_event), name="cascade_followup_outcome")
     liq_pre_cascade_task = asyncio.create_task(_run_liq_pre_cascade(stop_event, telegram_app=app), name="liq_pre_cascade")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
@@ -1208,7 +1247,7 @@ async def main(
         weekly_audit_task,
         decision_log_task, dashboard_task, dashboard_http_task, setup_detector_task,
         setup_tracker_task, exit_advisor_task, market_intelligence_task,
-        market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
+        market_forward_task, deriv_live_task, bitmex_account_task, cascade_alert_task, auto_executor_task, cascade_accuracy_task, cliff_monitor_task, weekly_report_task,
         twap_defender_task,
         paper_signal_eval_task,
         pump_freeze_task,
@@ -1221,6 +1260,7 @@ async def main(
         range_hunter_signal_5m_task, range_hunter_outcome_5m_task,
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
+        cascade_followup_signal_task, cascade_followup_outcome_task,
         liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
