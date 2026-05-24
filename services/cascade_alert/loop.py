@@ -523,6 +523,20 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                         pass
                 text = _format_alert(side, THRESHOLD_BTC_MEGA, mega_qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.MEGA side=%s qty=%.2f", side, mega_qty)
+                # edge_drift_guard: if drifted AND no INVERTED_PLAYS exists for
+                # this (side, threshold) — suppress entirely (no positive-EV
+                # variant to flip to). If INVERTED_PLAYS exists, _format_alert
+                # already substituted the inverted play, let it through.
+                try:
+                    from services.cascade_alert.edge_drift_guard import is_drifted
+                    _drifted = is_drifted(side, THRESHOLD_BTC_MEGA)
+                except Exception:
+                    _drifted = False
+                if _drifted and (side, THRESHOLD_BTC_MEGA) not in INVERTED_PLAYS:
+                    logger.info("cascade_alert.MEGA.suppressed_drift_no_inverted "
+                                "side=%s qty=%.2f", side, mega_qty)
+                    dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    continue
                 # Universal paper-WR gate (2026-05-23): trade-side = fade of
                 # liq side. Block emission if recent paper WR for that trade
                 # direction has decayed below the policy threshold — preventive
@@ -580,6 +594,20 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                 # Триггер alert
                 text = _format_alert(side, threshold, qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.triggered side=%s threshold=%.1f qty=%.2f", side, threshold, qty)
+                # edge_drift_guard: suppress drifted alerts that have no
+                # INVERTED_PLAYS entry to flip to (e.g. 2BTC tiers — −EV after
+                # fees per 2026-05-19 re-sweep). When INVERTED exists,
+                # _format_alert already swapped to it — let it through.
+                try:
+                    from services.cascade_alert.edge_drift_guard import is_drifted
+                    _drifted = is_drifted(side, threshold)
+                except Exception:
+                    _drifted = False
+                if _drifted and (side, threshold) not in INVERTED_PLAYS:
+                    logger.info("cascade_alert.suppressed_drift_no_inverted "
+                                "side=%s threshold=%.1f qty=%.2f", side, threshold, qty)
+                    dedup[key] = now.isoformat(timespec="seconds")
+                    continue
                 # paper-WR gate (preventive — see MEGA branch above).
                 _trade_side = "SHORT" if side == "long" else "LONG"
                 try:

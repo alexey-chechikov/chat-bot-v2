@@ -511,6 +511,28 @@ class SignalAlertWorker(threading.Thread):
                         sig,
                     )
                 return False
+
+        # LEVEL_BREAK source filter (default ON 2026-05-19): suppress intraday
+        # swing-high/low breaks, forward только round numbers + bot borders
+        # (multi-day major levels). Operator feedback: 13-часовая swing low с
+        # дистанцией $30 = меньше fee, noise не actionable.
+        # Override: env LEVEL_BREAK_FORWARD_SWINGS=1 — старое поведение, всё.
+        forward_swings = os.environ.get("LEVEL_BREAK_FORWARD_SWINGS", "0") == "1"
+        if not forward_swings and row.get("signal_type") == "LEVEL_BREAK":
+            try:
+                _details = json.loads(row.get("details_json", "{}") or "{}")
+            except Exception:
+                _details = {}
+            source = str(_details.get("source", "")).lower()
+            # Suppress only when source is EXACTLY "swing" (no round/border in mix).
+            # Round/border/multi-source levels всегда форвардятся.
+            if source and all(s == "swing" for s in source.split(",") if s):
+                if self._log_deduped:
+                    logger.info(
+                        "signal_alert.level_break_swing_suppressed level=%s direction=%s source=%s",
+                        _details.get("level"), _details.get("direction"), source,
+                    )
+                return False
         # P3 regulation-relevance filter: when enabled, suppress events that
         # do not change admissible action set or affect cleanup state.
         if _REGULATION_FILTER_ENABLED:
@@ -1243,6 +1265,54 @@ class TelegramBotApp:
             except Exception as exc:
                 logger.exception('playbook.failed')
                 self.bot.send_message(chat_id, f'⚠️ /playbook failed: {exc}')
+
+        @self.bot.message_handler(commands=['wr', 'edge'])
+        def handle_wr(message) -> None:
+            """Snapshot of paper_wr_gate + cascade_edge_drift — operator can
+            decide whether to trust live signals before placing manual orders.
+            2026-05-24."""
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.common.paper_wr_gate import gate_status
+                from services.cascade_alert.edge_drift_guard import get_status_summary
+                gs = gate_status() or {}
+                buckets = (gs.get('buckets') or {})
+                lines = ['📊 WR + DRIFT snapshot', '']
+                lines.append(f"paper_wr_gate (rolling N={gs.get('rolling_n', 30)}, "
+                             f"block<{gs.get('unhealthy_wr_pct', 40)}%):")
+                if not buckets:
+                    lines.append('  (нет данных)')
+                else:
+                    rows = sorted(buckets.values(), key=lambda b: (b.get('block_emit', False),
+                                                                    -b.get('wr_pct', 0)))
+                    for b in rows:
+                        status_emoji = {'unhealthy': '🔴', 'healthy': '✅',
+                                          'small_sample': '⏳'}.get(b.get('status'), '?')
+                        block_tag = ' [BLOCKED]' if b.get('block_emit') else ''
+                        lines.append(f"  {status_emoji} {b['source']}::{b['signal_class']}  "
+                                     f"WR={b['wr_pct']}%  n={b['n']}{block_tag}")
+                lines.append('')
+                drift = get_status_summary() or {}
+                lines.append(f"cascade_edge_drift "
+                             f"({drift.get('drifted_count', 0)} DRIFTED / "
+                             f"{drift.get('healthy_count', 0)} healthy):")
+                all_entries = drift.get('all_entries') or {}
+                if not all_entries:
+                    lines.append('  (нет данных)')
+                else:
+                    for key in sorted(all_entries.keys()):
+                        d = all_entries[key]
+                        tag = '🔴 DRIFTED' if d.get('drifted') else '✅ ok'
+                        lines.append(f"  {tag}  {key}  acc={d.get('accuracy')}%  n={d.get('n')}")
+                lines.append('')
+                lines.append('🎯 cascade_alert: emit блокируется если bucket DRIFTED И нет INVERTED_PLAYS.')
+                self.bot.send_message(chat_id, '\n'.join(lines))
+            except Exception as exc:
+                logger.exception('wr_status.failed')
+                self.bot.send_message(chat_id, f'⚠️ /wr failed: {exc}')
 
         @self.bot.message_handler(commands=['confluence_now', 'cn'])
         def handle_confluence_now(message) -> None:
@@ -2876,6 +2946,36 @@ class TelegramBotApp:
                     pass
             except Exception:
                 logger.exception("range_hunter.callback_failed")
+                self.bot.answer_callback_query(call.id, "Ошибка")
+
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("cf:"))
+        def handle_cascade_followup_callback(call) -> None:
+            """Inline-кнопки [✅ Placed] / [⏭ Skip] для Cascade-followup."""
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, "Доступ запрещён.")
+                return
+            try:
+                _, action, signal_id = str(call.data).split(":", 2)
+            except ValueError:
+                self.bot.answer_callback_query(call.id, "Invalid callback data")
+                return
+            try:
+                from services.cascade_followup.journal import mark_user_action
+                ok = mark_user_action(signal_id, "placed" if action == "placed" else "skipped")
+                if ok:
+                    msg = "✅ Зафиксировано: trade поставлен" if action == "placed" \
+                        else "⏭ Пропущено (для статистики)"
+                else:
+                    msg = f"⚠ signal_id {signal_id} не найден"
+                self.bot.answer_callback_query(call.id, msg)
+                try:
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id,
+                                                       reply_markup=None)
+                except Exception:
+                    pass
+            except Exception:
+                logger.exception("cascade_followup.callback_failed")
                 self.bot.answer_callback_query(call.id, "Ошибка")
 
         @self.bot.callback_query_handler(func=lambda call: str(getattr(call, "data", "")).startswith("exit:"))
