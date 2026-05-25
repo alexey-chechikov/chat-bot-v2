@@ -240,18 +240,40 @@ async def cascade_followup_signal_loop(stop_event: asyncio.Event, *,
                             v.liq_side, v.threshold_btc >= 10.0,
                         )
                     else:
-                        logger.info("cascade_followup.signal variant=%s qty=%.2f price=%.0f sid=%s",
-                                    variant, qty_btc, last_price, sig.signal_id)
-                        if send_fn is not None:
-                            try:
-                                send_fn(format_tg_card(sig), reply_markup=_build_keyboard(sig.signal_id))
-                            except TypeError:
+                        # Cross-service dedup: skip if cascade_alert already
+                        # fired same side within 10min (operator-confusion).
+                        cross_blocked = False
+                        cross_who = ""
+                        try:
+                            from services.cascade_alert.cross_service_dedup import (
+                                recently_emitted, mark_emitted,
+                            )
+                            cross_blocked, cross_who = recently_emitted(v.liq_side, now)
+                        except Exception:
+                            pass
+                        if cross_blocked:
+                            logger.info(
+                                "cascade_followup.suppressed_cross_service "
+                                "variant=%s liq_side=%s by=%s sid=%s",
+                                variant, v.liq_side, cross_who, sig.signal_id,
+                            )
+                        else:
+                            logger.info("cascade_followup.signal variant=%s qty=%.2f price=%.0f sid=%s",
+                                        variant, qty_btc, last_price, sig.signal_id)
+                            if send_fn is not None:
                                 try:
-                                    send_fn(format_tg_card(sig))
+                                    send_fn(format_tg_card(sig), reply_markup=_build_keyboard(sig.signal_id))
+                                except TypeError:
+                                    try:
+                                        send_fn(format_tg_card(sig))
+                                    except Exception:
+                                        logger.exception("cascade_followup.send_failed_fallback")
                                 except Exception:
-                                    logger.exception("cascade_followup.send_failed_fallback")
+                                    logger.exception("cascade_followup.send_failed")
+                            try:
+                                mark_emitted("cascade_followup", v.liq_side, now)
                             except Exception:
-                                logger.exception("cascade_followup.send_failed")
+                                pass
                     dedup[variant] = now.isoformat(timespec="seconds")
                     dedup_dirty = True
                 if dedup_dirty:

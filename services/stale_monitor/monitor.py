@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL_SEC = 300  # 5 min
 ALERT_REPEAT_INTERVAL_SEC = 3600  # 1 hour between repeat alerts for same source
 GRACE_PERIOD_AFTER_START_SEC = 900  # 15 min — не алертим первые 15 мин после старта монитора (post-restart warmup)
+ALERT_DEBOUNCE_SEC = 300  # 2026-05-25: don't alert on a stale source for the first
+                            # 5 min — many streams self-recover within 1-2 min and
+                            # the STALE+RECOVERED pair was noise (teammate complaint day 3).
 
 CRITICAL_SOURCES = {
     "market_1m": {
@@ -41,7 +44,9 @@ CRITICAL_SOURCES = {
     },
     "liquidations_stream": {
         "path": "market_live/liquidations.csv",
-        "max_age_min": 60,  # liquidations sparse — даже спокойный рынок 1+ event/hr
+        "max_age_min": 30,  # 2026-05-25: lowered 60→30 per teammate review;
+                              # 60min was too lenient — first 30min of silence
+                              # already counts as concerning for active hours.
         "label": "Liquidation stream (Bybit+Binance WS)",
     },
     "setup_detector_heartbeat": {
@@ -117,22 +122,37 @@ def check_once(send_fn: Optional[Callable[[str], None]] = None, monitor_started_
         is_stale = age_min is None or age_min > max_age
         prev = state.get(source_id, {})
         was_stale = bool(prev.get("stale", False))
+        was_alerted = bool(prev.get("alerted", False))  # 2026-05-25 debounce flag
+        stale_since = prev.get("since_ts", 0)
         last_alert_ts = prev.get("last_alert_ts", 0)
 
         if is_stale:
             if not was_stale:
-                # New stale event — alert
-                alerts.append((cfg["label"], age_min, max_age))
-                state[source_id] = {"stale": True, "last_alert_ts": now_ts, "since_ts": now_ts}
-            elif now_ts - last_alert_ts > ALERT_REPEAT_INTERVAL_SEC:
-                # Repeat alert (still stale after 1h)
-                alerts.append((cfg["label"], age_min, max_age))
-                state[source_id]["last_alert_ts"] = now_ts
+                # Just transitioned to stale — remember when, but DON'T alert yet.
+                # Wait ALERT_DEBOUNCE_SEC to see if it self-recovers.
+                state[source_id] = {"stale": True, "since_ts": now_ts,
+                                     "alerted": False, "last_alert_ts": 0}
+            else:
+                # Still stale. If we've never alerted AND debounce has elapsed,
+                # alert now. If already alerted, repeat at the ALERT_REPEAT_INTERVAL.
+                if not was_alerted:
+                    if (now_ts - stale_since) >= ALERT_DEBOUNCE_SEC:
+                        alerts.append((cfg["label"], age_min, max_age))
+                        state[source_id] = {"stale": True, "since_ts": stale_since,
+                                             "alerted": True, "last_alert_ts": now_ts}
+                elif (now_ts - last_alert_ts) > ALERT_REPEAT_INTERVAL_SEC:
+                    alerts.append((cfg["label"], age_min, max_age))
+                    state[source_id]["last_alert_ts"] = now_ts
         else:
             if was_stale:
-                # Recovered
-                recoveries.append((cfg["label"], age_min))
-                state[source_id] = {"stale": False, "last_alert_ts": 0}
+                # Source came back. Only send RECOVERED if we actually alerted
+                # (otherwise operator never knew it was stale, no point in
+                # noise). 2026-05-25: suppresses the STALE+RECOVERED pair when
+                # the source self-recovered inside the debounce window.
+                if was_alerted:
+                    recoveries.append((cfg["label"], age_min))
+                state[source_id] = {"stale": False, "alerted": False,
+                                     "since_ts": 0, "last_alert_ts": 0}
 
     if alerts and send_fn and not in_grace:
         for label, age, threshold in alerts:

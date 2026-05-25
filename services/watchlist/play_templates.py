@@ -144,22 +144,62 @@ def _vpvr_context(entry: float, direction: str, stop: float, tp1: float, tp2: fl
 
 
 def _verdict(play: dict, rr_primary: float, ctx_warnings: int,
-             edge_pp: Optional[float], regime_match: Optional[bool]) -> str:
-    """GO / CAUTION / SKIP based on R:R, edge over baseline, market context.
+             edge_pp: Optional[float], regime_match: Optional[bool],
+             expectancy_bps: Optional[float] = None,
+             maker_only: bool = False) -> str:
+    """GO / CAUTION / SKIP. Expectancy-driven when available, else fallback.
 
-    Verdict strictness rules:
-      - HARD-SKIP: edge_pp < 0 → rule performs WORSE than random baseline →
-        trading it has negative expected value, no half-size salvages this.
-      - HARD-SKIP: regime_match=False AND edge_pp < 5 — going against regime
-        with marginal edge = burn.
-      - Otherwise: flag-count logic (0 flags = GO, 1 = CAUTION, 2+ = SKIP).
+    Decision hierarchy:
+      1) If expectancy_bps known (mean PnL/trade after fees in the actual
+         execution mode the trader will use — maker for maker_only setups):
+          - expectancy <= 0           → SKIP (-EV)
+          - regime_match is False     → SKIP (adverse regime eats positive expectancy)
+          - else flag-count: rr<1, expectancy<2bps, vpvr_warn≥2 → 0=GO, 1=CAUTION, 2+=SKIP
+      2) Fallback (no expectancy data): old WR-vs-baseline logic — only
+         used by plays without per_signal_stats (cascade_*, funding_*, etc.)
+         where edge_wr_pct > baseline by design.
+
+    edge_pp (WR vs baseline) is DIAGNOSTIC only when expectancy is known —
+    asymmetric PnL distributions can have WR<50% with positive expectancy.
     """
-    # Hard-skip: anti-edge (worse than random)
+    # Path 1: expectancy-driven (modern setups with explicit per_signal_stats)
+    if expectancy_bps is not None:
+        mode = "maker" if maker_only else "taker"
+        if expectancy_bps <= 0:
+            return (f"🔴 SKIP — expectancy {expectancy_bps:+.1f} bps ({mode} after fees) ≤ 0. -EV.")
+        if regime_match is False:
+            return (f"🔴 SKIP — regime adverse. Expectancy +{expectancy_bps:.1f} bps {mode}, "
+                    f"но regime фильтр против. Жди разворот.")
+        # Edge-floor 2026-05-25 (teammate review day 3): even when expectancy
+        # is positive, if WR is meaningfully below baseline the asymmetric
+        # PnL distribution is fragile to small distribution shifts. Hard
+        # SKIP at < -3pp, CAUTION at -3..0pp. Same intent as Path 2's
+        # "anti-edge" rejection but applied on top of expectancy logic.
+        if edge_pp is not None and edge_pp < -3.0:
+            return (f"🔴 SKIP — anti-edge ({edge_pp:+.1f} п.п. vs baseline) "
+                    f"despite +{expectancy_bps:.1f} bps. Distribution fragile.")
+        flags: list[str] = []
+        if rr_primary < 1.0:
+            flags.append("RR")
+        if expectancy_bps < 2.0:
+            flags.append("thin-edge")
+        if ctx_warnings >= 2:
+            flags.append("vpvr")
+        if edge_pp is not None and edge_pp < 0:
+            flags.append("anti-edge")
+        if not flags:
+            return (f"🟢 GO — expectancy +{expectancy_bps:.1f} bps {mode}, "
+                    f"R:R 1:{rr_primary:.2f}, regime aligned")
+        if len(flags) == 1:
+            return (f"🟡 CAUTION ({flags[0]}) — expectancy +{expectancy_bps:.1f} bps {mode}, "
+                    f"half size, tight stop")
+        return f"🔴 SKIP (issues: {', '.join(flags)}) — wait for cleaner setup"
+
+    # Path 2: legacy WR-vs-baseline (for plays without expectancy data)
     if edge_pp is not None and edge_pp < 0:
         return (f"🔴 SKIP — anti-edge ({edge_pp:+.1f} п.п. vs baseline). "
                 f"Rule fires когда rate ХУЖЕ случайного. -EV at any size.")
-
-    flags: list[str] = []
+    flags = []
     if rr_primary < 1.0:
         flags.append("RR")
     if edge_pp is not None and edge_pp < 3.0:
@@ -168,11 +208,8 @@ def _verdict(play: dict, rr_primary: float, ctx_warnings: int,
         flags.append("vpvr")
     if regime_match is False:
         flags.append("regime")
-
-    # Hard-skip: regime conflict + marginal edge
     if regime_match is False and (edge_pp is None or edge_pp < 5):
         return f"🔴 SKIP (regime conflict + edge {edge_pp:+.1f} п.п.) — wait"
-
     if not flags:
         return "🟢 GO — R:R, edge over baseline, context all align"
     if len(flags) == 1:
@@ -277,18 +314,24 @@ PLAYS: dict[str, dict] = {
                              "  Net as maker: +0.021%/trade  /  taker: −0.099%\n"
                              "  ⚠ BTC own taker signal слабый, edge на грани шума.",
                 "edge_wr_pct": 44.8,
+                "expectancy_bps_maker": 2.1,
+                "expectancy_bps_taker": -9.9,
             },
             "ETHUSDT": {
                 "edge_text": "n=168 path-aware (ETH cross-asset → BTC):\n"
                              "  TP2 hit 26% / SL hit 26%, mean PnL scale-out +0.020%/trade\n"
                              "  Net as maker: +0.040%/trade  /  taker: −0.080%",
                 "edge_wr_pct": 46.4,
+                "expectancy_bps_maker": 4.0,
+                "expectancy_bps_taker": -8.0,
             },
             "XRPUSDT": {
                 "edge_text": "n=171 path-aware (XRP cross-asset → BTC):\n"
                              "  TP2 hit 26% / SL hit 25%, mean PnL scale-out +0.027%/trade\n"
                              "  Net as maker: +0.047%/trade  /  taker: −0.073%",
                 "edge_wr_pct": 43.9,
+                "expectancy_bps_maker": 4.7,
+                "expectancy_bps_taker": -7.3,
             },
         },
         "note": "MAKER-ONLY: post-only sell-limit @ entry. Если не fill за 5мин — skip. Иначе −EV.",
@@ -338,6 +381,9 @@ def format_play(label: str, current_value: float, *,
     per_signal = (play.get("per_signal_stats") or {}).get(signal_symbol, {})
     edge_text = per_signal.get("edge_text", play.get("edge"))
     edge_wr_pct = per_signal.get("edge_wr_pct", play.get("edge_wr_pct") or 0)
+    maker_only = bool(play.get("maker_only"))
+    expectancy_bps = (per_signal.get("expectancy_bps_maker") if maker_only
+                      else per_signal.get("expectancy_bps_taker"))
 
     tp1 = price * (1 + play["tp1_pct"] / 100)
     tp2 = price * (1 + play["tp2_pct"] / 100)
@@ -386,9 +432,31 @@ def format_play(label: str, current_value: float, *,
                 regime_line += f"  ⚠ own taker {own_taker:.1f}% < 45% — против LONG"
                 regime_match = False
 
-    verdict = _verdict(play, rr2, len(vpvr_lines), edge_pp, regime_match)
+    verdict = _verdict(play, rr2, len(vpvr_lines), edge_pp, regime_match,
+                       expectancy_bps=expectancy_bps, maker_only=maker_only)
 
-    # Build card
+    # LEAN SKIP card: when verdict is 🔴 SKIP, emit 4-5 line summary instead of
+    # full ~30-line trade plan. Trader keeps trigger info via WATCHLIST header.
+    if verdict.startswith("🔴 SKIP"):
+        # Cooldown horizon: 30 min after fire (matches direction cooldown in loop.py)
+        next_eval = datetime.now(timezone.utc) + timedelta(minutes=30)
+        lean = ["", f"{play['title']} — 🔴 SKIP"]
+        # Reason: strip the leading emoji + "SKIP — " from verdict if present
+        reason_txt = verdict.replace("🔴 SKIP — ", "").replace("🔴 SKIP ", "")
+        lean.append(f"  Причина: {reason_txt}")
+        if expectancy_bps is not None:
+            mode = "maker" if maker_only else "taker"
+            lean.append(f"  Diag: WR {edge_wr_pct:.0f}% vs base "
+                        f"{(100-(play.get('baseline_4h_up_pct') or 50)) if play['dir']=='SHORT' else (play.get('baseline_4h_up_pct') or 50):.0f}% "
+                        f"({edge_pp:+.1f}pp), expectancy {expectancy_bps:+.1f} bps {mode}")
+        else:
+            lean.append(f"  Diag: edge {edge_pp:+.1f} п.п. vs baseline")
+        if regime_line:
+            lean.append(f"  Regime:{regime_line.split(':', 1)[1] if ':' in regime_line else regime_line}")
+        lean.append(f"  Next eval: cooldown 30мин до {next_eval.strftime('%H:%M UTC')}")
+        return "\n".join(lean)
+
+    # Full card (GO / CAUTION) below
     symbol_tag = f"[{trade_symbol[:3]}]"
     cross_tag = (f"  Сигнал: {signal_symbol} ({signal_symbol[:3]} taker_buy"
                  f" {current_value:.1f}%)") if signal_symbol != trade_symbol else None
@@ -435,12 +503,18 @@ def format_play(label: str, current_value: float, *,
         lines.append(f"  2) Остаток {100-sp}% едет к TP2")
         lines.append(f"  3) Time-out: market exit at {exit_at.strftime('%H:%M UTC')}")
 
-    # Edge-over-baseline
+    # Edge-over-baseline (diagnostic block — verdict is driven by PRE-FLIGHT
+    # when expectancy is known, by edge_pp otherwise)
     lines.append("")
     lines.append("📊 ЭДЖ vs BASELINE:")
     lines.append(f"  Conditional WR (path-aware): {edge_wr_pct:.0f}%")
     lines.append(f"  Unconditional baseline: ~{play.get('baseline_4h_up_pct') if play['dir']=='LONG' else 100-play.get('baseline_4h_up_pct'):.0f}%")
-    lines.append(f"  Edge over baseline: {edge_pp:+.1f} п.п. {'✅' if edge_pp >= 5 else '⚠ слабо' if edge_pp >= 3 else '❌ внутри шума'}")
+    if expectancy_bps is not None:
+        # When expectancy known, WR-vs-baseline is diagnostic only — don't ❌
+        # contradict a GO verdict that's based on positive expectancy
+        lines.append(f"  Edge over baseline: {edge_pp:+.1f} п.п. (diagnostic — verdict via expectancy)")
+    else:
+        lines.append(f"  Edge over baseline: {edge_pp:+.1f} п.п. {'✅' if edge_pp >= 5 else '⚠ слабо' if edge_pp >= 3 else '❌ внутри шума'}")
 
     # VPVR / regime context
     if vpvr_lines or regime_line:
@@ -449,6 +523,26 @@ def format_play(label: str, current_value: float, *,
         if regime_line:
             lines.append(regime_line)
         lines.extend(vpvr_lines)
+
+    # PRE-FLIGHT CHECKS — mirrors AUTO-PAUSE card structure: each gate explicit
+    # with ✓/⚠ so trader can verify decision logic at a glance
+    lines.append("")
+    lines.append("🔍 PRE-FLIGHT:")
+    rr_ok = rr2 >= 1.0
+    lines.append(f"  {'✓' if rr_ok else '⚠'} R:R 1:{rr2:.2f} ({play['tp2_pct']:+.2f}% vs {play['stop_pct']:+.2f}%)")
+    if expectancy_bps is not None:
+        mode = "maker" if maker_only else "taker"
+        exp_ok = expectancy_bps >= 2.0
+        exp_mark = "✓" if exp_ok else ("⚠" if expectancy_bps > 0 else "✗")
+        lines.append(f"  {exp_mark} Expectancy {expectancy_bps:+.1f} bps {mode} (after fees)")
+    edge_mark = "✓" if edge_pp >= 5 else ("⚠" if edge_pp >= 0 else "✗")
+    lines.append(f"  {edge_mark} Edge over baseline {edge_pp:+.1f} п.п. (diagnostic)")
+    if regime_match is True:
+        lines.append("  ✓ Regime aligned (direction matches trend)")
+    elif regime_match is False:
+        lines.append("  ⚠ Regime conflict (см. КОНТЕКСТ)")
+    next_eval = datetime.now(timezone.utc) + timedelta(minutes=30)
+    lines.append(f"  Next eval: cooldown 30мин до {next_eval.strftime('%H:%M UTC')}")
 
     # Verdict
     lines.append("")

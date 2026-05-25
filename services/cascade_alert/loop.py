@@ -507,6 +507,11 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
             # Mega tier: tighter window for rare 10+ BTC bursts
             mega_long, mega_short, _ = _liquidation_window_sums(now, MEGA_WINDOW_MINUTES)
             dedup = _load_dedup()
+            # Cross-tier dedup: if MEGA fires for a side this tick, we
+            # silence the regular 5BTC/2BTC card for the same side. Operator
+            # complaint 2026-05-25: same liq-event was sending MEGA + 5BTC
+            # cards within the same minute, two different "plans".
+            mega_fired_sides: set[str] = set()
 
             # MEGA tier (10+ BTC in 1 min) — fired first, highest priority
             for side, mega_qty in (("long", mega_long), ("short", mega_short)):
@@ -523,18 +528,22 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                         pass
                 text = _format_alert(side, THRESHOLD_BTC_MEGA, mega_qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.MEGA side=%s qty=%.2f", side, mega_qty)
-                # edge_drift_guard: if drifted AND no INVERTED_PLAYS exists for
-                # this (side, threshold) — suppress entirely (no positive-EV
-                # variant to flip to). If INVERTED_PLAYS exists, _format_alert
-                # already substituted the inverted play, let it through.
+                # edge_drift_guard 2026-05-25 (v2): suppress ALL drifted
+                # variants, INCLUDING those with an INVERTED_PLAYS entry.
+                # Rationale (operator/teammate complaint, day 3): the n=20-43
+                # inverted backtest is too thin to push as a trade plan; when
+                # original edge is drifted, the safest action is silence — not
+                # a "here's an inverted setup, trade this instead" card. We
+                # keep INVERTED_PLAYS metadata for future re-validation but
+                # do not emit them as live signals.
                 try:
                     from services.cascade_alert.edge_drift_guard import is_drifted
                     _drifted = is_drifted(side, THRESHOLD_BTC_MEGA)
                 except Exception:
                     _drifted = False
-                if _drifted and (side, THRESHOLD_BTC_MEGA) not in INVERTED_PLAYS:
-                    logger.info("cascade_alert.MEGA.suppressed_drift_no_inverted "
-                                "side=%s qty=%.2f", side, mega_qty)
+                if _drifted:
+                    logger.info("cascade_alert.MEGA.suppressed_drift side=%s qty=%.2f",
+                                side, mega_qty)
                     dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
                     continue
                 # Universal paper-WR gate (2026-05-23): trade-side = fade of
@@ -552,16 +561,41 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                                 "side=%s trade=%s %s", side, _trade_side, _why)
                     dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
                     continue
+                # Cross-service dedup: skip if cascade_followup already fired
+                # for this side within last 10 min (operator-confusion guard).
+                try:
+                    from services.cascade_alert.cross_service_dedup import (
+                        recently_emitted, mark_emitted,
+                    )
+                    blocked, who = recently_emitted(side, now)
+                except Exception:
+                    blocked, who = False, ""
+                if blocked:
+                    logger.info("cascade_alert.MEGA.suppressed_cross_service "
+                                "side=%s by=%s", side, who)
+                    dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    continue
                 if send_fn is not None:
                     try:
                         send_fn(text)
                     except Exception:
                         logger.exception("cascade_alert.mega_send_failed")
+                try:
+                    mark_emitted("cascade_alert_mega", side, now)
+                except Exception:
+                    pass
                 _record_cascade_prognosis(side, THRESHOLD_BTC_MEGA, mega_qty, last_price, now)
                 _record_paper_cascade(side, THRESHOLD_BTC_MEGA, last_price, now)
                 dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                mega_fired_sides.add(side)
 
             for side, qty in (("long", long_btc), ("short", short_btc)):
+                # Cross-tier dedup: skip regular 5BTC/2BTC if MEGA already
+                # fired this tick for the same side.
+                if side in mega_fired_sides:
+                    logger.info("cascade_alert.suppressed_by_mega side=%s qty=%.2f",
+                                side, qty)
+                    continue
                 # Определяем threshold (high имеет приоритет)
                 if qty >= THRESHOLD_BTC:
                     threshold = THRESHOLD_BTC
@@ -594,17 +628,16 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                 # Триггер alert
                 text = _format_alert(side, threshold, qty, last_price, by_exchange=by_exchange)
                 logger.info("cascade_alert.triggered side=%s threshold=%.1f qty=%.2f", side, threshold, qty)
-                # edge_drift_guard: suppress drifted alerts that have no
-                # INVERTED_PLAYS entry to flip to (e.g. 2BTC tiers — −EV after
-                # fees per 2026-05-19 re-sweep). When INVERTED exists,
-                # _format_alert already swapped to it — let it through.
+                # edge_drift_guard 2026-05-25 (v2): suppress ALL drifted,
+                # including those that would have been shown as INVERTED.
+                # See MEGA branch above for rationale.
                 try:
                     from services.cascade_alert.edge_drift_guard import is_drifted
                     _drifted = is_drifted(side, threshold)
                 except Exception:
                     _drifted = False
-                if _drifted and (side, threshold) not in INVERTED_PLAYS:
-                    logger.info("cascade_alert.suppressed_drift_no_inverted "
+                if _drifted:
+                    logger.info("cascade_alert.suppressed_drift "
                                 "side=%s threshold=%.1f qty=%.2f", side, threshold, qty)
                     dedup[key] = now.isoformat(timespec="seconds")
                     continue
@@ -621,11 +654,28 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                                 side, _trade_side, threshold, _why)
                     dedup[key] = now.isoformat(timespec="seconds")
                     continue
+                # Cross-service dedup
+                try:
+                    from services.cascade_alert.cross_service_dedup import (
+                        recently_emitted, mark_emitted,
+                    )
+                    blocked, who = recently_emitted(side, now)
+                except Exception:
+                    blocked, who = False, ""
+                if blocked:
+                    logger.info("cascade_alert.suppressed_cross_service "
+                                "side=%s threshold=%.1f by=%s", side, threshold, who)
+                    dedup[key] = now.isoformat(timespec="seconds")
+                    continue
                 if send_fn is not None:
                     try:
                         send_fn(text)
                     except Exception:
                         logger.exception("cascade_alert.send_failed")
+                try:
+                    mark_emitted("cascade_alert", side, now)
+                except Exception:
+                    pass
                 _record_cascade_prognosis(side, threshold, qty, last_price, now)
                 _record_paper_cascade(side, threshold, last_price, now)
 
