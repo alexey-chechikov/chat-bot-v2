@@ -25,7 +25,10 @@ CONSECUTIVE_FREEZE_HOURS = 24
 KILLSWITCH_WR_THRESHOLD_PCT = 50.0
 KILLSWITCH_MIN_N = 5
 
-ENTRY_SLIPPAGE_PCT = 0.10         # accept entry up to 0.10% above setup's entry_price
+ENTRY_SLIPPAGE_PCT = 0.30         # 2026-05-25: only reject if setup.entry > market
+                                   # by more than 0.30% (post-only would cross).
+                                   # When market is ABOVE setup.entry, our limit
+                                   # simply sits as a bid — that's the desired path.
 
 
 def _now() -> datetime:
@@ -113,15 +116,25 @@ def gate_paper_wr(setup_type: str) -> tuple[bool, str]:
 
 
 def gate_entry_slippage(setup_entry: float, current_price: float) -> tuple[bool, str]:
-    """We post-only buy at setup's entry_price. If market already moved
-    above entry_price by more than ENTRY_SLIPPAGE_PCT, the limit will
-    just sit unfilled — skip with a clear reason."""
+    """Skip only the scenario where setup.entry is ABOVE current market by
+    more than ENTRY_SLIPPAGE_PCT — in that case our post-only BUY limit
+    would cross the spread and BitMEX would reject it with execInst error.
+
+    The opposite case (entry BELOW market) is *fine*: the limit sits in
+    the bid book as a resting maker order, earning rebate if filled.
+    Entry timeout (30 min) and dedup take care of stale ones.
+
+    Previous version had the inequality reversed — it rejected good
+    'resting bid' scenarios and let bad 'crossing limit' through. Fixed
+    2026-05-25 after first live observation.
+    """
     if current_price <= 0:
         return True, "current_price_unknown"
-    diff_pct = (current_price - setup_entry) / setup_entry * 100.0
+    # diff > 0 means setup.entry is above market
+    diff_pct = (setup_entry - current_price) / current_price * 100.0
     if diff_pct > ENTRY_SLIPPAGE_PCT:
-        return False, (f"slippage_too_far entry={setup_entry:.1f} "
-                       f"now={current_price:.1f} diff={diff_pct:+.2f}%")
+        return False, (f"limit_would_cross entry={setup_entry:.1f} "
+                       f"now={current_price:.1f} above_market_by={diff_pct:+.2f}%")
     return True, "ok"
 
 

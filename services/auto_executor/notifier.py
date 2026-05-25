@@ -58,15 +58,34 @@ def _init() -> bool:
         return False
 
 
-def send(text: str) -> None:
-    """Send `text` to every configured chat. Best-effort; never raises."""
+def send(text: str, *, retries: int = 3, backoff_sec: float = 2.0) -> None:
+    """Send `text` to every configured chat. Best-effort with retry/backoff.
+
+    Telegram REST sometimes returns ReadTimeout (~once per few hours on
+    a busy bot). Without retry, a single timeout drops an OPEN/CLOSE card
+    and the operator silently loses visibility. Retry 3× with linear
+    backoff (2s, 4s, 6s) — total ~12s in worst case.
+    """
+    import time as _time
     if not _init():
         return
     for cid in _chat_ids:
-        try:
-            _bot.send_message(cid, text)  # type: ignore[attr-defined]
-        except Exception:
-            logger.exception("auto_executor.notifier.send_failed cid=%s", cid)
+        for attempt in range(retries):
+            try:
+                _bot.send_message(cid, text)  # type: ignore[attr-defined]
+                break  # success — next cid
+            except Exception:
+                if attempt + 1 >= retries:
+                    logger.exception(
+                        "auto_executor.notifier.send_failed_giveup cid=%s "
+                        "attempt=%d/%d", cid, attempt + 1, retries,
+                    )
+                else:
+                    logger.warning(
+                        "auto_executor.notifier.send_failed_retry cid=%s "
+                        "attempt=%d/%d", cid, attempt + 1, retries,
+                    )
+                    _time.sleep(backoff_sec * (attempt + 1))
 
 
 # ─── Cards ─────────────────────────────────────────────────────────

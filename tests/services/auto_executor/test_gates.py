@@ -102,24 +102,43 @@ def test_gate_setup_freeze_blocks_when_killswitch_marked() -> None:
     assert gates.gate_setup_freeze(s, "long_multi_divergence")[0]
 
 
-def test_gate_entry_slippage_blocks_when_price_too_high() -> None:
-    # entry $77000; price $78000 → +1.3% > 0.10% allowed
-    ok, reason = gates.gate_entry_slippage(77000.0, 78000.0)
+def test_gate_entry_slippage_rejects_only_when_entry_above_market_by_too_much() -> None:
+    """Fixed 2026-05-25 — post-only BUY rejected by BitMEX iff entry > market.
+    Resting bid below market is fine; market above limit is fine."""
+    # entry $77000, market $76000 → entry is 1.32% ABOVE market → reject (would cross)
+    ok, reason = gates.gate_entry_slippage(77000.0, 76000.0)
     assert not ok
-    assert "slippage_too_far" in reason
-    # price slightly above entry within allowance
+    assert "limit_would_cross" in reason
+    # entry $77000, market $77050 → market 0.06% above → resting bid → ALLOW
     assert gates.gate_entry_slippage(77000.0, 77050.0)[0]
-    # price BELOW entry is fine for a buyer
-    assert gates.gate_entry_slippage(77000.0, 76500.0)[0]
+    # entry $77000, market $78000 → market 1.3% above → resting bid → ALLOW
+    assert gates.gate_entry_slippage(77000.0, 78000.0)[0]
+    # entry $77000, market $76900 → entry 0.13% above (within 0.30%) → ALLOW
+    assert gates.gate_entry_slippage(77000.0, 76900.0)[0]
+    # current_price unknown (0) → allow (will retry next tick)
+    assert gates.gate_entry_slippage(77000.0, 0.0)[0]
 
 
 # ─── composite can_open ────────────────────────────────────────────
 def test_can_open_happy_path(monkeypatch) -> None:
     s = _state_with_balance(usd=100.0)
+    # current_price slightly ABOVE entry — perfect resting-bid scenario
     with patch("services.auto_executor.gates.gate_paper_wr",
                 return_value=(True, "healthy")):
         ok, reason = gates.can_open(_setup(), s, current_price=77050.0)
     assert ok, reason
+
+
+def test_can_open_blocks_when_entry_far_above_market() -> None:
+    """If setup.entry_price is way above current market, post-only would cross
+    → BitMEX rejects, so we abort early."""
+    s = _state_with_balance(usd=100.0)
+    with patch("services.auto_executor.gates.gate_paper_wr",
+                return_value=(True, "healthy")):
+        ok, reason = gates.can_open(_setup(entry_price=77000.0), s,
+                                      current_price=76000.0)
+    assert not ok
+    assert "limit_would_cross" in reason
 
 
 def test_can_open_blocks_when_paper_wr_unhealthy() -> None:
