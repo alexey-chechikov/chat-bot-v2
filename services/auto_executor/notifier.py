@@ -95,11 +95,23 @@ def card_placed(pos) -> str:
 
 
 def card_filled(pos) -> str:
+    mode_tag = ""
+    if getattr(pos, "entry_mode", "limit") == "market_fallback":
+        mode_tag = "  [market fallback]"
     return (
-        f"🟢 FILLED  {pos.setup_type}\n"
+        f"🟢 FILLED{mode_tag}  {pos.setup_type}\n"
         f"  avg_entry: ${(pos.avg_entry_price or pos.entry_price):.1f}\n"
         f"  size:      {pos.qty_lots} lots = {pos.qty_btc:.6f} BTC\n"
         f"  managing:  SL ${pos.sl_price:.1f}  TP1 ${pos.tp1_price:.1f}  exp {_hh_mm(pos.expires_at)}"
+    )
+
+
+def card_market_fallback_start(pos) -> str:
+    return (
+        f"🔄 LIMIT TIMEOUT → MARKET  {pos.setup_type}\n"
+        f"  setup entry: ${pos.entry_price:.1f}\n"
+        f"  limit didn't fill in 5min — switching to market\n"
+        f"  SL/TP will be slid relative to actual fill (preserve R:R)"
     )
 
 

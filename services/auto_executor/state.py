@@ -57,6 +57,7 @@ class Position:
     placed_at: str = field(default_factory=_now_iso)
     filled_at: Optional[str] = None
     avg_entry_price: Optional[float] = None
+    entry_mode: str = "limit"  # limit | market_fallback (2026-05-26)
     closed_at: Optional[str] = None
     exit_reason: Optional[str] = None  # tp1 | sl | expire | manual | error
     avg_exit_price: Optional[float] = None
