@@ -86,12 +86,7 @@ class TelegramAlertClient:
     def send(self, text: str) -> bool:
         if not self.is_enabled():
             return False
-
-        ok_count = 0
-        for chat_id in self._chat_ids:
-            try:
-                self._bot.send_message(chat_id, text)
-                ok_count += 1
-            except Exception as exc:
-                logger.warning("[ALERT CLIENT] Send failed for chat %s: %s", chat_id, exc)
-        return ok_count > 0
+        from services.common.tg_send_with_retry import send_with_retry
+        result = send_with_retry(self._bot, self._chat_ids, text,
+                                  where="alert_client")
+        return any(result.values())

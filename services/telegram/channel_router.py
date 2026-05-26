@@ -49,7 +49,11 @@ def get_routine_chat_ids() -> list[int]:
 
 
 def build_send_fn(telegram_app: Any, emitter: str):
-    """Return send_fn(text, *, meta=None) that routes by emitter channel."""
+    """Return send_fn(text, *, meta=None) that routes by emitter channel.
+
+    Uses services.common.tg_send_with_retry under the hood (3 attempts,
+    linear backoff) so transient telegram.org timeouts don't drop alerts.
+    """
     if telegram_app is None or not getattr(telegram_app, "allowed_chat_ids", None):
         return None
 
@@ -60,19 +64,19 @@ def build_send_fn(telegram_app: Any, emitter: str):
 
     target_chat_ids = routine_chat_ids if channel == ROUTINE else primary_chat_ids
 
-    def _send(text: str, *, meta: dict | None = None) -> None:
+    from services.common.tg_send_with_retry import send_with_retry
+
+    def _send(text: str, *, meta: dict | None = None,
+                reply_markup: Any = None) -> None:
         try:
             sev = classify_severity(emitter, text, meta)
             text = with_prefix(sev, text)
         except Exception:
             logger.exception("channel_router.prefix_failed emitter=%s", emitter)
-        for cid in target_chat_ids:
-            try:
-                bot.send_message(cid, text)
-            except Exception:
-                logger.exception(
-                    "channel_router.send_failed emitter=%s channel=%s cid=%s",
-                    emitter, channel, cid,
-                )
+        send_with_retry(
+            bot, target_chat_ids, text,
+            where=f"channel_router.{emitter}.{channel.lower()}",
+            reply_markup=reply_markup,
+        )
 
     return _send

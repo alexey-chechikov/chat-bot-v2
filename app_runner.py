@@ -405,17 +405,12 @@ async def _run_stale_monitor(stop_event: asyncio.Event, *, telegram_app=None) ->
 
     send_fn = None
     if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
-        chat_ids = list(telegram_app.allowed_chat_ids)
-        bot = telegram_app.bot
-
-        def _send(text: str) -> None:
-            for cid in chat_ids:
-                try:
-                    bot.send_message(cid, text)
-                except Exception:
-                    logger.exception("stale_monitor.telegram_send_failed cid=%s", cid)
-
-        send_fn = _send
+        from services.common.tg_send_with_retry import make_send_fn
+        send_fn = make_send_fn(
+            telegram_app.bot,
+            telegram_app.allowed_chat_ids,
+            where="stale_monitor",
+        )
 
     await stale_monitor_loop(stop_event=stop_event, send_fn=send_fn)
 
@@ -899,9 +894,15 @@ async def _run_pre_cascade_alert(stop_event: asyncio.Event, *, telegram_app=None
     predict the matching cascade. Кандидат на re-tune порогов, не на live alert.
     `liq_clustering` detector (separate loop, see _run_liq_pre_cascade) сохранён —
     у него precision 44% / recall 65%.
+
+    2026-05-26: instead of `return`-ing immediately (which made
+    asyncio.wait fire `subtask_finished_unexpectedly` on every restart),
+    we now wait on stop_event. Task stays parked, costs nothing, exits
+    cleanly with the rest on shutdown. Eliminates the false-positive
+    warning that polluted every startup log.
     """
     logger.info("pre_cascade_alert.disabled — 0%% precision per 2026-05-17 audit")
-    return  # do not start loop
+    await stop_event.wait()
 
 
 async def _run_regime_narrator(stop_event: asyncio.Event, *, telegram_app=None) -> None:
