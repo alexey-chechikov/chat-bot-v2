@@ -53,6 +53,9 @@ ENTRY_TIMEOUT_MIN = 5            # if limit not filled after this, market fallba
 LOT_SIZE = 100                   # BitMEX XBTUSDT lotSize
 LOTS_PER_TRADE = 100             # 100 lots = 0.0001 BTC = ~$7.70 at $77k
 BITMEX_SYMBOL = "XBTUSDT"        # UI: "BTCUSDT"; API: "XBTUSDT"
+MAX_PARALLEL = 3                 # backtest 2026-05-27: 1→3 +44% PnL, DD 3.5%→5.9%
+                                  # — sweet spot. 2 is worse than 1 (cluster losses);
+                                  # 4+ has diminishing returns.
 
 # Hybrid entry policy (2026-05-26): try post-only limit first, fall back
 # to market if not filled within ENTRY_TIMEOUT_MIN. SL/TP are recalculated
@@ -177,12 +180,10 @@ def _recalc_sl_tp_for_fill(pos: Position, actual_entry: float) -> None:
         pos.tp2_price = round(actual_entry * (1 + tp2_dist_pct), 1)
 
 
-def _market_fallback_enter(state: State, client: BitMEXClient,
-                            pos: Position) -> None:
-    """Limit didn't fill in time — place a market BUY for the same qty,
-    pull the actual fill price, slide SL/TP relative to it. Sets status
-    to 'filled' with entry_mode='market_fallback'.
-    """
+def _market_fallback_enter_multi(state: State, client: BitMEXClient,
+                                   pos: Position) -> None:
+    """Multi-position variant — drops THIS position from state.open_positions on error,
+    not the whole list. Mutates `pos` in place on success."""
     notifier.send(notifier.card_market_fallback_start(pos))
     # 1) place market BUY (no execInst Close — we're opening, not flattening)
     market_cl_ord = f"mkt-{pos.cl_ord_id}"
@@ -201,7 +202,11 @@ def _market_fallback_enter(state: State, client: BitMEXClient,
         notifier.send(notifier.card_error("market_fallback_place_failed", exc))
         logger.exception("auto_executor.market_fallback_place_failed id=%s",
                           pos.setup_id)
-        state.open_position = None
+        # drop ONLY this position; keep other open positions intact
+        try:
+            state.open_positions.remove(pos)
+        except ValueError:
+            pass
         return
     # 2) figure out actual avg fill — order response often has avgPx;
     #    if not, poll position next tick. For now take avgPx or fallback
@@ -235,103 +240,131 @@ def _market_fallback_enter(state: State, client: BitMEXClient,
 
 
 def _manage_placed(state: State, client: BitMEXClient) -> None:
-    """If the entry limit got filled, promote to filled.
-    If timeout passes without fill → cancel + market-fallback (hybrid mode).
+    """Iterate over all 'placed' positions:
+       - promote to 'filled' if BitMEX shows Filled
+       - drop if Canceled/Rejected/Expired
+       - market-fallback when ENTRY_TIMEOUT_MIN passes without fill.
     """
-    pos = state.open_position
-    if pos is None or pos.status != "placed":
-        return
-    placed_at = _from_iso(pos.placed_at) or _now()
-    timeout = placed_at.timestamp() + ENTRY_TIMEOUT_MIN * 60
-    if pos.entry_order_id is None:
-        logger.warning("auto_executor.placed_without_orderid id=%s — dropping",
-                        pos.setup_id)
-        state.open_position = None
-        return
-    try:
-        order = client.get_order(pos.entry_order_id)
-    except BitMEXError:
-        logger.warning("auto_executor.get_order_failed id=%s — will retry",
-                        pos.entry_order_id)
-        return
-    if order is None:
-        logger.warning("auto_executor.order_not_found id=%s — clearing",
-                        pos.entry_order_id)
-        state.open_position = None
-        return
-    status = (order.get("ordStatus") or "").lower()
-    if status == "filled":
-        pos.status = "filled"
-        pos.filled_at = _now().isoformat(timespec="seconds")
-        pos.avg_entry_price = float(order.get("avgPx") or pos.entry_price)
-        pos.entry_mode = ENTRY_MODE_LIMIT
-        logger.info("auto_executor.filled_limit id=%s avg=%.1f",
-                     pos.setup_id, pos.avg_entry_price)
-        notifier.send(notifier.card_filled(pos))
-        return
-    if status in ("canceled", "cancelled", "rejected", "expired"):
-        logger.info("auto_executor.entry_terminal_status id=%s status=%s",
-                     pos.setup_id, status)
-        state.open_position = None
-        return
-    # still working — if past the limit window, switch to market
-    if _now().timestamp() >= timeout:
-        logger.info("auto_executor.limit_timeout_market_fallback id=%s",
-                     pos.setup_id)
+    drop_indices: list[int] = []
+    for idx, pos in enumerate(list(state.open_positions)):
+        if pos.status != "placed":
+            continue
+        placed_at = _from_iso(pos.placed_at) or _now()
+        timeout = placed_at.timestamp() + ENTRY_TIMEOUT_MIN * 60
+        if pos.entry_order_id is None:
+            logger.warning("auto_executor.placed_without_orderid id=%s — dropping",
+                            pos.setup_id)
+            drop_indices.append(idx)
+            continue
         try:
-            client.cancel_order(pos.entry_order_id)
+            order = client.get_order(pos.entry_order_id)
         except BitMEXError:
-            logger.warning("auto_executor.cancel_failed id=%s — proceeding to market",
+            logger.warning("auto_executor.get_order_failed id=%s — will retry",
                             pos.entry_order_id)
-        _market_fallback_enter(state, client, pos)
+            continue
+        if order is None:
+            logger.warning("auto_executor.order_not_found id=%s — clearing",
+                            pos.entry_order_id)
+            drop_indices.append(idx)
+            continue
+        status = (order.get("ordStatus") or "").lower()
+        if status == "filled":
+            pos.status = "filled"
+            pos.filled_at = _now().isoformat(timespec="seconds")
+            pos.avg_entry_price = float(order.get("avgPx") or pos.entry_price)
+            pos.entry_mode = ENTRY_MODE_LIMIT
+            logger.info("auto_executor.filled_limit id=%s avg=%.1f",
+                         pos.setup_id, pos.avg_entry_price)
+            notifier.send(notifier.card_filled(pos))
+            continue
+        if status in ("canceled", "cancelled", "rejected", "expired"):
+            logger.info("auto_executor.entry_terminal_status id=%s status=%s",
+                         pos.setup_id, status)
+            drop_indices.append(idx)
+            continue
+        # still working — if past the limit window, switch to market
+        if _now().timestamp() >= timeout:
+            logger.info("auto_executor.limit_timeout_market_fallback id=%s",
+                         pos.setup_id)
+            try:
+                client.cancel_order(pos.entry_order_id)
+            except BitMEXError:
+                logger.warning("auto_executor.cancel_failed id=%s — proceeding to market",
+                                pos.entry_order_id)
+            _market_fallback_enter_multi(state, client, pos)
+    # remove dropped (in reverse to keep indices valid)
+    for idx in reversed(drop_indices):
+        if 0 <= idx < len(state.open_positions):
+            state.open_positions.pop(idx)
 
 
 def _manage_filled(state: State, client: BitMEXClient) -> None:
-    """For an open long: check current price vs SL/TP1/EXPIRE. On trigger
-    close at market, mark closed, record outcome, run kill-switch."""
-    pos = state.open_position
-    if pos is None or pos.status != "filled":
+    """Iterate over filled positions; close each on SL/TP1/EXPIRE.
+
+    IMPORTANT: BitMEX nets positions per symbol — if we hold 3 trades of
+    100 lots each, BitMEX shows ONE position of 300 lots. To exit only
+    trade A we send a SELL Market of 100 lots WITHOUT execInst=Close
+    (Close would flatten the whole 300-lot netted position). Plain qty
+    sell reduces by the exact amount.
+    """
+    if not state.open_positions:
         return
+    # Pull last price ONCE per tick (saves API calls when N positions open)
     try:
-        last = client.get_last_price(pos.bitmex_symbol)
+        last = client.get_last_price(BITMEX_SYMBOL)
     except BitMEXError:
         logger.warning("auto_executor.last_price_failed (non-fatal)")
         return
     if last <= 0:
         return
-    reason: Optional[str] = None
-    if last <= pos.sl_price:
-        reason = "sl"
-    elif last >= pos.tp1_price:
-        reason = "tp1"
-    elif _from_iso(pos.expires_at) and _now() >= _from_iso(pos.expires_at):
-        reason = "expire"
-    if reason is None:
-        return
-    # close at market
-    try:
-        client.place_market_exit_long(pos.bitmex_symbol, pos.qty_lots,
-                                        cl_ord_id=f"exit-{pos.cl_ord_id}")
-    except BitMEXError as exc:
-        notifier.send(notifier.card_error("market_exit_failed", exc))
-        logger.exception("auto_executor.market_exit_failed id=%s", pos.setup_id)
-        return
-    pos.status = "closed"
-    pos.closed_at = _now().isoformat(timespec="seconds")
-    pos.exit_reason = reason
-    pos.avg_exit_price = last  # approximation; precise fill comes via position poll next tick
-    entry_for_pnl = pos.avg_entry_price or pos.entry_price
-    pos.realized_pnl_usd = _est_pnl_usd_long(pos.qty_btc, entry_for_pnl, last)
-    append_outcome(pos)
-    # Update killstate with this outcome
-    gates.record_outcome_update_killstate(
-        state.kill, setup_type=pos.setup_type,
-        pnl_usd=float(pos.realized_pnl_usd or 0.0),
-    )
-    notifier.send(notifier.card_closed(pos))
-    # check killswitch on outcomes file
-    _maybe_freeze_setups(state)
-    state.open_position = None
+    drop_indices: list[int] = []
+    for idx, pos in enumerate(list(state.open_positions)):
+        if pos.status != "filled":
+            continue
+        reason: Optional[str] = None
+        if last <= pos.sl_price:
+            reason = "sl"
+        elif last >= pos.tp1_price:
+            reason = "tp1"
+        elif _from_iso(pos.expires_at) and _now() >= _from_iso(pos.expires_at):
+            reason = "expire"
+        if reason is None:
+            continue
+        # Close at market — SELL qty, NO execInst=Close (would flatten netted total)
+        try:
+            client._request(  # type: ignore[attr-defined]
+                "POST", "/api/v1/order",
+                body={
+                    "symbol": pos.bitmex_symbol,
+                    "side": "Sell",
+                    "orderQty": int(pos.qty_lots),
+                    "ordType": "Market",
+                    "clOrdID": f"exit-{pos.cl_ord_id}"[:36],
+                },
+            )
+        except BitMEXError as exc:
+            notifier.send(notifier.card_error("market_exit_failed", exc))
+            logger.exception("auto_executor.market_exit_failed id=%s", pos.setup_id)
+            continue
+        pos.status = "closed"
+        pos.closed_at = _now().isoformat(timespec="seconds")
+        pos.exit_reason = reason
+        pos.avg_exit_price = last
+        entry_for_pnl = pos.avg_entry_price or pos.entry_price
+        pos.realized_pnl_usd = _est_pnl_usd_long(pos.qty_btc, entry_for_pnl, last)
+        append_outcome(pos)
+        gates.record_outcome_update_killstate(
+            state.kill, setup_type=pos.setup_type,
+            pnl_usd=float(pos.realized_pnl_usd or 0.0),
+        )
+        notifier.send(notifier.card_closed(pos))
+        drop_indices.append(idx)
+    # Remove closed positions from the live list
+    for idx in reversed(drop_indices):
+        if 0 <= idx < len(state.open_positions):
+            state.open_positions.pop(idx)
+    if drop_indices:
+        _maybe_freeze_setups(state)
 
 
 def _maybe_freeze_setups(state: State) -> None:
@@ -370,14 +403,17 @@ def _maybe_freeze_setups(state: State) -> None:
 
 
 def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
-    """Look for new setups since `offset` and act on the first allowed one.
-    Returns new offset (advanced past every line seen, allowed or not)."""
-    if state.open_position is not None:
-        return offset  # busy — defer reading until free
+    """Look for new setups since `offset` and act on every allowed one
+    up to MAX_PARALLEL concurrent positions. Returns new offset."""
+    if len(state.open_positions) >= MAX_PARALLEL:
+        return offset  # full — defer reading until a slot frees
     records, new_offset = _read_new_setups(offset)
     if not records:
         return new_offset
     for setup in records:
+        # re-check slot availability each iter (may have placed one in this loop)
+        if len(state.open_positions) >= MAX_PARALLEL:
+            break
         st = str(setup.get("setup_type", ""))
         pair = str(setup.get("pair", ""))
         if st not in gates.ALLOWED_SETUPS or pair not in gates.ALLOWED_PAIRS:
@@ -455,11 +491,12 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             entry_order_id=order.get("orderID"),
             status="placed",
         )
-        state.open_position = pos
+        state.open_positions.append(pos)
         notifier.send(notifier.card_placed(pos))
-        logger.info("auto_executor.placed id=%s type=%s qty=%d entry=%.1f",
-                     pos.setup_id, st, qty_lots, entry_price)
-        break  # only one position at a time
+        logger.info("auto_executor.placed id=%s type=%s qty=%d entry=%.1f open_count=%d",
+                     pos.setup_id, st, qty_lots, entry_price,
+                     len(state.open_positions))
+        # continue the loop — may take more setups up to MAX_PARALLEL
     return new_offset
 
 

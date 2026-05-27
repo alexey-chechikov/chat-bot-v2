@@ -72,11 +72,11 @@ def test_position_entry_mode_serializes_through_dict() -> None:
     import pathlib
     pos = _mk(entry=77000.0, sl=76600.0, tp1=77600.0)
     pos.entry_mode = "market_fallback"
-    s = State(open_position=pos)
+    s = State(open_positions=[pos])
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         p = pathlib.Path(td) / "state.json"
         save_state(s, path=p)
         s2 = load_state(path=p)
-    assert s2.open_position is not None
-    assert s2.open_position.entry_mode == "market_fallback"
+    assert len(s2.open_positions) == 1
+    assert s2.open_positions[0].entry_mode == "market_fallback"

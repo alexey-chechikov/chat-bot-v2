@@ -49,19 +49,31 @@ def test_gate_pair_rejects_non_btcusdt() -> None:
     assert not gates.gate_pair("ETHUSDT")[0]
 
 
-def test_gate_max_parallel_blocks_when_one_open() -> None:
-    s = _state_with_balance()
-    s.open_position = Position(
-        setup_id="x", setup_type="long_pdl_bounce", pair="BTCUSDT",
+def _open_pos(setup_id: str = "x") -> Position:
+    return Position(
+        setup_id=setup_id, setup_type="long_pdl_bounce", pair="BTCUSDT",
         bitmex_symbol="XBTUSDT", side="long",
         entry_price=77000, sl_price=76500, tp1_price=77600, tp2_price=78200,
         expires_at="2026-06-01T00:00:00+00:00",
         qty_lots=100, qty_btc=0.0001, nominal_usd=7.7,
-        cl_ord_id="cl-x", status="filled",
+        cl_ord_id=f"cl-{setup_id}", status="filled",
     )
+
+
+def test_gate_max_parallel_allows_below_cap() -> None:
+    s = _state_with_balance()
+    s.open_positions = [_open_pos("a"), _open_pos("b")]  # 2 < 3
+    ok, _ = gates.gate_max_parallel(s)
+    assert ok
+
+
+def test_gate_max_parallel_blocks_at_cap() -> None:
+    s = _state_with_balance()
+    s.open_positions = [_open_pos("a"), _open_pos("b"), _open_pos("c")]
     ok, reason = gates.gate_max_parallel(s)
     assert not ok
     assert "max_parallel" in reason
+    assert "a" in reason and "b" in reason and "c" in reason
 
 
 def test_gate_daily_loss_blocks_at_or_below_limit() -> None:

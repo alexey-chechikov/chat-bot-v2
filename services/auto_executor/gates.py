@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_PAIRS = ("BTCUSDT",)
 ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence")
 ALLOWED_SIDES = ("long",)
+MAX_PARALLEL = 3   # backtest 2026-05-27: 3 = sweet spot (1 too few, 2 has cluster losses)
 
 DAILY_LOSS_LIMIT_USD = -3.0       # freeze for the day at or below this
 BALANCE_FLOOR_USD = 40.0          # kill if available margin drops below
@@ -64,8 +65,10 @@ def gate_side(side: str) -> tuple[bool, str]:
 
 
 def gate_max_parallel(state: State) -> tuple[bool, str]:
-    if state.open_position is not None and state.open_position.is_open():
-        return False, f"max_parallel_1_busy_with:{state.open_position.setup_id}"
+    open_count = sum(1 for p in state.open_positions if p.is_open())
+    if open_count >= MAX_PARALLEL:
+        ids = ",".join(p.setup_id for p in state.open_positions if p.is_open())
+        return False, f"max_parallel_{MAX_PARALLEL}_busy_with:{ids}"
     return True, "ok"
 
 

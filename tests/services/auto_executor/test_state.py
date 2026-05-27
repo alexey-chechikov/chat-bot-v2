@@ -44,17 +44,49 @@ def _make_pos(**over) -> Position:
 
 def test_state_round_trip(tmp_path) -> None:
     path = tmp_path / "state.json"
-    s = State(open_position=_make_pos())
+    s = State(open_positions=[_make_pos()])
     s.kill = KillState(daily_pnl_usd=-1.5, daily_pnl_date="2026-05-24",
                         consecutive_losses=2, last_known_balance_usd=99.0)
     save_state(s, path=path)
     s2 = load_state(path=path)
-    assert s2.open_position is not None
-    assert s2.open_position.setup_id == "setup-1"
-    assert s2.open_position.qty_lots == 100
+    assert len(s2.open_positions) == 1
+    assert s2.open_positions[0].setup_id == "setup-1"
+    assert s2.open_positions[0].qty_lots == 100
     assert s2.kill.daily_pnl_usd == pytest.approx(-1.5)
     assert s2.kill.consecutive_losses == 2
     assert s2.kill.last_known_balance_usd == pytest.approx(99.0)
+
+
+def test_state_load_legacy_schema_v1(tmp_path) -> None:
+    """Old state.json saved with `open_position` (v1) loads into v2 list."""
+    import json
+    path = tmp_path / "state.json"
+    legacy = {
+        "schema_version": 1,
+        "open_position": {
+            "setup_id": "legacy-1", "setup_type": "long_pdl_bounce",
+            "pair": "BTCUSDT", "bitmex_symbol": "XBTUSDT", "side": "long",
+            "entry_price": 76000, "sl_price": 75700, "tp1_price": 76300,
+            "tp2_price": 76600, "expires_at": "2026-06-01T00:00:00+00:00",
+            "qty_lots": 100, "qty_btc": 0.0001, "nominal_usd": 7.6,
+            "cl_ord_id": "ae-legacy",
+        },
+        "kill": {"daily_pnl_usd": 0, "daily_pnl_date": "2026-05-27",
+                 "consecutive_losses": 0},
+    }
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    s = load_state(path=path)
+    assert len(s.open_positions) == 1
+    assert s.open_positions[0].setup_id == "legacy-1"
+
+
+def test_state_load_legacy_no_position(tmp_path) -> None:
+    import json
+    path = tmp_path / "state.json"
+    legacy = {"schema_version": 1, "open_position": None, "kill": {}}
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    s = load_state(path=path)
+    assert s.open_positions == []
 
 
 def test_load_state_returns_default_on_missing(tmp_path) -> None:

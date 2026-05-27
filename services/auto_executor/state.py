@@ -80,24 +80,41 @@ class KillState:
 
 @dataclass
 class State:
-    open_position: Optional[Position] = None
+    open_positions: list[Position] = field(default_factory=list)
     kill: KillState = field(default_factory=KillState)
-    schema_version: int = 1
+    schema_version: int = 2  # 2026-05-27: bumped from 1 — open_position → open_positions[]
+
+    # Convenience accessor for legacy single-position code paths.
+    @property
+    def open_position(self) -> Optional[Position]:
+        """Legacy alias — returns first open position or None. Use
+        `open_positions` directly for multi-position management."""
+        return self.open_positions[0] if self.open_positions else None
+
+    @open_position.setter
+    def open_position(self, value: Optional[Position]) -> None:
+        """Legacy alias — setting to None clears; setting a Position replaces all."""
+        self.open_positions = [value] if value is not None else []
 
     # ─── (de)serialization ───────────────────────────────────────────
     def to_dict(self) -> dict:
         return {
             "schema_version": self.schema_version,
-            "open_position": asdict(self.open_position) if self.open_position else None,
+            "open_positions": [asdict(p) for p in self.open_positions],
             "kill": asdict(self.kill),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "State":
-        op = d.get("open_position")
-        position = Position(**op) if op else None
+        # Backward-compat: schema v1 had single open_position; v2 has list.
+        positions: list[Position] = []
+        if "open_positions" in d and isinstance(d["open_positions"], list):
+            for p in d["open_positions"]:
+                if p:
+                    positions.append(Position(**p))
+        elif d.get("open_position"):
+            positions.append(Position(**d["open_position"]))
         kill_raw = d.get("kill") or {}
-        # backward-compat for added fields
         kill = KillState(
             daily_pnl_usd=float(kill_raw.get("daily_pnl_usd", 0.0)),
             daily_pnl_date=str(kill_raw.get("daily_pnl_date", "")),
@@ -107,8 +124,8 @@ class State:
             last_known_balance_usd=float(kill_raw.get("last_known_balance_usd", 0.0)),
             last_balance_check=kill_raw.get("last_balance_check"),
         )
-        return cls(open_position=position, kill=kill,
-                   schema_version=int(d.get("schema_version", 1)))
+        return cls(open_positions=positions, kill=kill,
+                   schema_version=int(d.get("schema_version", 2)))
 
 
 def load_state(path: Path = STATE_PATH) -> State:
