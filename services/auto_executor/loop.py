@@ -60,6 +60,23 @@ BITMEX_SYMBOL = "XBTUSDT"        # UI: "BTCUSDT"; API: "XBTUSDT"
 ENTRY_MODE_LIMIT = "limit"
 ENTRY_MODE_MARKET_FALLBACK = "market_fallback"
 
+# Per-setup parameter overrides — picked from backtest 2026-05-27 on
+# n=46 historical long_pdl_bounce signals against market_1m.csv. Optimal
+# combo SL 0.40% / TP 0.70% / hold 6h gave +0.108%/trade after 0.10% RT
+# fees vs ~+0.05%/trade with the setup_detector's emitted SL/TP. The
+# setup_detector's values stay in the journal for audit, but the
+# autotrader places orders against these fixed %-distances.
+# long_multi_divergence keeps its own SL/TP — fixed-grid backtest was
+# negative EV (pattern-geometry stop/TP is intrinsic to that detector).
+SETUP_OVERRIDES: dict[str, dict] = {
+    "long_pdl_bounce": {
+        "sl_pct": 0.40,
+        "tp1_pct": 0.70,
+        "tp2_pct": 1.00,  # not used by exit logic; kept for journal
+        "hold_hours": 6,
+    },
+}
+
 
 # ─── Helpers ───────────────────────────────────────────────────────
 def _now() -> datetime:
@@ -394,6 +411,24 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
         qty_lots = _calc_qty_lots()
         cl_ord = f"ae-{uuid.uuid4().hex[:18]}"
         entry_price = float(setup.get("entry_price"))
+        # Apply per-setup parameter override (backtest-optimal). Falls back
+        # to setup_detector's per-signal values for setups that don't have
+        # an entry in SETUP_OVERRIDES (e.g. long_multi_divergence — fixed
+        # grid was -EV on n=62; trust the detector's pattern-geometry stops).
+        override = SETUP_OVERRIDES.get(st)
+        if override:
+            sl_price = round(entry_price * (1 - override["sl_pct"] / 100.0), 1)
+            tp1_price = round(entry_price * (1 + override["tp1_pct"] / 100.0), 1)
+            tp2_price = round(entry_price * (1 + override["tp2_pct"] / 100.0), 1)
+            from datetime import timedelta as _td
+            expires_at = (detected_at + _td(hours=override["hold_hours"])).isoformat(timespec="seconds")
+            logger.info("auto_executor.using_override setup=%s sl=%.2f%% tp1=%.2f%% hold=%dh",
+                         st, override["sl_pct"], override["tp1_pct"], override["hold_hours"])
+        else:
+            sl_price = float(setup.get("stop_price"))
+            tp1_price = float(setup.get("tp1_price"))
+            tp2_price = float(setup.get("tp2_price") or 0.0)
+            expires_at = str(setup.get("expires_at", ""))
         try:
             order = client.place_limit_buy(BITMEX_SYMBOL, qty_lots, entry_price,
                                             cl_ord_id=cl_ord, post_only=True)
@@ -409,10 +444,10 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             bitmex_symbol=BITMEX_SYMBOL,
             side="long",
             entry_price=entry_price,
-            sl_price=float(setup.get("stop_price")),
-            tp1_price=float(setup.get("tp1_price")),
-            tp2_price=float(setup.get("tp2_price") or 0.0),
-            expires_at=str(setup.get("expires_at", "")),
+            sl_price=sl_price,
+            tp1_price=tp1_price,
+            tp2_price=tp2_price,
+            expires_at=expires_at,
             qty_lots=qty_lots,
             qty_btc=_lots_to_btc(qty_lots),
             nominal_usd=_lots_to_btc(qty_lots) * (last or entry_price),
