@@ -738,11 +738,18 @@ async def _run_range_hunter_signal(stop_event: asyncio.Event, *, telegram_app=No
     Multi-asset (BTC/ETH/XRP) × Multi-TF (1m / 5m).
     Walk-forward 2y backtests:
       1m baseline: BTC 68%, ETH 74%, XRP 77% WR
-      5m champion: 70% WR, $26/trade (vs $9 на 1m), 4.5× больше PnL"""
+      5m champion: 70% WR, $26/trade (vs $9 на 1m), 4.5× больше PnL
+
+    2026-05-27 SHADOW MODE: TG send_fn=None — only journal, no operator
+    cards. Operator chose to stop manual execution after autotrader proved
+    out the live-pipeline pattern. Re-enable by passing send_fn from
+    _build_rh_send_fn(telegram_app) when ready to test live, or wire into
+    a dedicated RH executor on a separate sub-account.
+    """
     from services.range_hunter.loop import range_hunter_signal_loop
     params = _rh_params_for(variant, symbol)
     await range_hunter_signal_loop(stop_event=stop_event,
-                                    send_fn=_build_rh_send_fn(telegram_app),
+                                    send_fn=None,  # shadow mode 2026-05-27
                                     params=params)
 
 
@@ -752,11 +759,13 @@ async def _run_range_hunter_outcome(stop_event: asyncio.Event, *, telegram_app=N
     на свежих данных, пишет результат в journal. Hedge advisor.
 
     2026-05-18 (Phase 2 audit): hedge_send_fn перешёл на _build_rh_send_fn —
-    advisory карточки получают inline кнопки [A: Hedged] / [B: Closed] / [C: Hold]."""
+    advisory карточки получают inline кнопки [A: Hedged] / [B: Closed] / [C: Hold].
+    2026-05-27 SHADOW MODE: hedge_send_fn=None paired with signal-loop silence;
+    nothing to hedge if nothing was placed manually."""
     from services.range_hunter.loop import range_hunter_outcome_loop
     params = _rh_params_for(variant, symbol)
     await range_hunter_outcome_loop(stop_event=stop_event,
-                                     hedge_send_fn=_build_rh_send_fn(telegram_app),
+                                     hedge_send_fn=None,  # shadow mode 2026-05-27
                                      params=params)
 
 
