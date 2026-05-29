@@ -149,6 +149,56 @@ def _est_pnl_usd_long(qty_btc: float, entry: float, exit_: float) -> float:
     return (exit_ - entry) * qty_btc
 
 
+# ─── Side-aware primitives (2026-05-29 phase-2: SHORT support) ──────────
+# Pure functions, unit-tested for inversion. LONG branches reproduce the prior
+# long-only behaviour byte-for-byte; SHORT branches mirror them.
+def _est_pnl_usd(side: str, qty_btc: float, entry: float, exit_: float) -> float:
+    """Linear PnL. long: (exit-entry)·q ; short: (entry-exit)·q."""
+    if side == "short":
+        return (entry - exit_) * qty_btc
+    return (exit_ - entry) * qty_btc
+
+
+def _sl_tp_prices(side: str, entry: float, sl_pct: float,
+                  tp1_pct: float, tp2_pct: float) -> tuple[float, float, float]:
+    """SL/TP from % distances. long: sl below / tp above; short: inverted."""
+    if side == "short":
+        sl = entry * (1 + sl_pct / 100.0)
+        tp1 = entry * (1 - tp1_pct / 100.0)
+        tp2 = entry * (1 - tp2_pct / 100.0)
+    else:
+        sl = entry * (1 - sl_pct / 100.0)
+        tp1 = entry * (1 + tp1_pct / 100.0)
+        tp2 = entry * (1 + tp2_pct / 100.0)
+    return round(sl, 1), round(tp1, 1), round(tp2, 1)
+
+
+def _hit_reason(side: str, last: float, sl_price: float,
+                tp1_price: float) -> Optional[str]:
+    """Which exit (if any) the last price triggers. Inverted for short."""
+    if side == "short":
+        if last >= sl_price:
+            return "sl"
+        if last <= tp1_price:
+            return "tp1"
+    else:
+        if last <= sl_price:
+            return "sl"
+        if last >= tp1_price:
+            return "tp1"
+    return None
+
+
+def _open_order_side(side: str) -> str:
+    """Order side to OPEN a position. long→Buy, short→Sell."""
+    return "Sell" if side == "short" else "Buy"
+
+
+def _exit_order_side(side: str) -> str:
+    """Order side to FLATTEN/reduce a position. long→Sell, short→Buy."""
+    return "Buy" if side == "short" else "Sell"
+
+
 # ─── Tick ──────────────────────────────────────────────────────────
 def _refresh_balance_and_daily(state: State, client: BitMEXClient) -> None:
     try:
@@ -185,14 +235,15 @@ def _market_fallback_enter_multi(state: State, client: BitMEXClient,
     """Multi-position variant — drops THIS position from state.open_positions on error,
     not the whole list. Mutates `pos` in place on success."""
     notifier.send(notifier.card_market_fallback_start(pos))
-    # 1) place market BUY (no execInst Close — we're opening, not flattening)
+    # 1) place market order to OPEN (no execInst Close — opening, not flattening).
+    #    long→Buy, short→Sell.
     market_cl_ord = f"mkt-{pos.cl_ord_id}"
     try:
         r = client._request(  # type: ignore[attr-defined]
             "POST", "/api/v1/order",
             body={
                 "symbol": pos.bitmex_symbol,
-                "side": "Buy",
+                "side": _open_order_side(pos.side),
                 "orderQty": int(pos.qty_lots),
                 "ordType": "Market",
                 "clOrdID": market_cl_ord,
@@ -321,22 +372,19 @@ def _manage_filled(state: State, client: BitMEXClient) -> None:
     for idx, pos in enumerate(list(state.open_positions)):
         if pos.status != "filled":
             continue
-        reason: Optional[str] = None
-        if last <= pos.sl_price:
-            reason = "sl"
-        elif last >= pos.tp1_price:
-            reason = "tp1"
-        elif _from_iso(pos.expires_at) and _now() >= _from_iso(pos.expires_at):
+        reason: Optional[str] = _hit_reason(pos.side, last, pos.sl_price, pos.tp1_price)
+        if reason is None and _from_iso(pos.expires_at) and _now() >= _from_iso(pos.expires_at):
             reason = "expire"
         if reason is None:
             continue
-        # Close at market — SELL qty, NO execInst=Close (would flatten netted total)
+        # Close at market — reduce by exact qty, NO execInst=Close (would flatten
+        # the netted total). Side is opposite the position: long→Sell, short→Buy.
         try:
             client._request(  # type: ignore[attr-defined]
                 "POST", "/api/v1/order",
                 body={
                     "symbol": pos.bitmex_symbol,
-                    "side": "Sell",
+                    "side": _exit_order_side(pos.side),
                     "orderQty": int(pos.qty_lots),
                     "ordType": "Market",
                     "clOrdID": f"exit-{pos.cl_ord_id}"[:36],
@@ -351,7 +399,7 @@ def _manage_filled(state: State, client: BitMEXClient) -> None:
         pos.exit_reason = reason
         pos.avg_exit_price = last
         entry_for_pnl = pos.avg_entry_price or pos.entry_price
-        pos.realized_pnl_usd = _est_pnl_usd_long(pos.qty_btc, entry_for_pnl, last)
+        pos.realized_pnl_usd = _est_pnl_usd(pos.side, pos.qty_btc, entry_for_pnl, last)
         append_outcome(pos)
         gates.record_outcome_update_killstate(
             state.kill, setup_type=pos.setup_type,
@@ -392,7 +440,14 @@ def _maybe_freeze_setups(state: State) -> None:
             pnl = rec.get("realized_pnl_usd")
             if pnl is None:
                 continue
-            by_setup.setdefault(rec.get("setup_type", "?"), []).append(float(pnl))
+            st_type = rec.get("setup_type", "?")
+            # 2026-05-29: after a manual unfreeze, only count trades closed AFTER
+            # the unfreeze ts — gives the setup a fresh window instead of instant
+            # re-freeze by the same losing streak.
+            unfrozen = _from_iso(state.kill.unfrozen_at.get(st_type))
+            if unfrozen is not None and ts <= unfrozen:
+                continue
+            by_setup.setdefault(st_type, []).append(float(pnl))
     except OSError:
         return
     newly = gates.evaluate_killswitch_per_setup(state.kill, outcomes_by_setup=by_setup)
@@ -447,29 +502,34 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
         qty_lots = _calc_qty_lots()
         cl_ord = f"ae-{uuid.uuid4().hex[:18]}"
         entry_price = float(setup.get("entry_price"))
+        side = str(setup.get("side", "long")).lower()  # phase-2: side-aware
         # Apply per-setup parameter override (backtest-optimal). Falls back
         # to setup_detector's per-signal values for setups that don't have
         # an entry in SETUP_OVERRIDES (e.g. long_multi_divergence — fixed
         # grid was -EV on n=62; trust the detector's pattern-geometry stops).
         override = SETUP_OVERRIDES.get(st)
         if override:
-            sl_price = round(entry_price * (1 - override["sl_pct"] / 100.0), 1)
-            tp1_price = round(entry_price * (1 + override["tp1_pct"] / 100.0), 1)
-            tp2_price = round(entry_price * (1 + override["tp2_pct"] / 100.0), 1)
+            sl_price, tp1_price, tp2_price = _sl_tp_prices(
+                side, entry_price, override["sl_pct"],
+                override["tp1_pct"], override["tp2_pct"])
             from datetime import timedelta as _td
             expires_at = (detected_at + _td(hours=override["hold_hours"])).isoformat(timespec="seconds")
-            logger.info("auto_executor.using_override setup=%s sl=%.2f%% tp1=%.2f%% hold=%dh",
-                         st, override["sl_pct"], override["tp1_pct"], override["hold_hours"])
+            logger.info("auto_executor.using_override setup=%s side=%s sl=%.2f%% tp1=%.2f%% hold=%dh",
+                         st, side, override["sl_pct"], override["tp1_pct"], override["hold_hours"])
         else:
             sl_price = float(setup.get("stop_price"))
             tp1_price = float(setup.get("tp1_price"))
             tp2_price = float(setup.get("tp2_price") or 0.0)
             expires_at = str(setup.get("expires_at", ""))
         try:
-            order = client.place_limit_buy(BITMEX_SYMBOL, qty_lots, entry_price,
-                                            cl_ord_id=cl_ord, post_only=True)
+            if side == "short":
+                order = client.place_limit_sell(BITMEX_SYMBOL, qty_lots, entry_price,
+                                                 cl_ord_id=cl_ord, post_only=True)
+            else:
+                order = client.place_limit_buy(BITMEX_SYMBOL, qty_lots, entry_price,
+                                                cl_ord_id=cl_ord, post_only=True)
         except BitMEXError as exc:
-            notifier.send(notifier.card_error("place_limit_buy_failed", exc))
+            notifier.send(notifier.card_error("place_limit_entry_failed", exc))
             logger.exception("auto_executor.place_limit_failed id=%s",
                               setup.get("setup_id"))
             break  # don't try more setups this tick
@@ -478,7 +538,7 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             setup_type=st,
             pair=pair,
             bitmex_symbol=BITMEX_SYMBOL,
-            side="long",
+            side=side,
             entry_price=entry_price,
             sl_price=sl_price,
             tp1_price=tp1_price,

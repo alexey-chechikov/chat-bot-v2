@@ -74,6 +74,11 @@ class KillState:
     consecutive_losses: int = 0
     freeze_until: Optional[str] = None  # ISO; if set + future, do not trade
     setup_frozen: dict[str, str] = field(default_factory=dict)  # setup_type → frozen_at_iso
+    # 2026-05-29: manual unfreeze marker. setup_type → iso. The per-setup 7d-WR
+    # killswitch ignores outcomes closed at/before this ts, so a manually
+    # unfrozen setup gets a FRESH evaluation window instead of being re-frozen
+    # immediately by the same losing streak that froze it.
+    unfrozen_at: dict[str, str] = field(default_factory=dict)
     last_known_balance_usd: float = 0.0
     last_balance_check: Optional[str] = None
 
@@ -121,6 +126,7 @@ class State:
             consecutive_losses=int(kill_raw.get("consecutive_losses", 0)),
             freeze_until=kill_raw.get("freeze_until"),
             setup_frozen=dict(kill_raw.get("setup_frozen", {})),
+            unfrozen_at=dict(kill_raw.get("unfrozen_at", {})),
             last_known_balance_usd=float(kill_raw.get("last_known_balance_usd", 0.0)),
             last_balance_check=kill_raw.get("last_balance_check"),
         )

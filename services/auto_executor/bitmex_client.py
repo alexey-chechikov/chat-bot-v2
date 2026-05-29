@@ -7,8 +7,10 @@ Public surface kept minimal — only what auto_executor needs:
   - get_instrument(symbol)           — for tickSize/lotSize/lastPrice
   - get_position(symbol)             — currentQty + avgEntryPrice
   - get_margin()                     — USDt wallet balance/available
-  - place_limit_buy(...)             — post-only LIMIT BUY
-  - place_market_exit_long(...)      — market SELL to flatten
+  - place_limit_buy(...)             — post-only LIMIT BUY (open long)
+  - place_market_exit_long(...)      — market SELL to flatten long
+  - place_limit_sell(...)            — post-only LIMIT SELL (open short)
+  - place_market_exit_short(...)     — market BUY to flatten short
   - cancel_order(order_id)           — best-effort cancel
   - get_order(order_id)              — status lookup
 
@@ -175,6 +177,38 @@ class BitMEXClient:
         body: dict = {
             "symbol": symbol,
             "side": "Sell",
+            "orderQty": int(qty_lots),
+            "ordType": "Market",
+            "execInst": "Close",
+        }
+        if cl_ord_id:
+            body["clOrdID"] = cl_ord_id
+        return self._request("POST", "/api/v1/order", body=body)
+
+    def place_limit_sell(self, symbol: str, qty_lots: int, price: float,
+                         cl_ord_id: Optional[str] = None,
+                         post_only: bool = True) -> dict:
+        """LIMIT SELL for opening SHORT (2026-05-29). Mirror of place_limit_buy.
+        post_only asks BitMEX to reject if it would take liquidity (maker rebate)."""
+        body: dict = {
+            "symbol": symbol,
+            "side": "Sell",
+            "orderQty": int(qty_lots),
+            "price": float(price),
+            "ordType": "Limit",
+        }
+        if post_only:
+            body["execInst"] = "ParticipateDoNotInitiate"
+        if cl_ord_id:
+            body["clOrdID"] = cl_ord_id
+        return self._request("POST", "/api/v1/order", body=body)
+
+    def place_market_exit_short(self, symbol: str, qty_lots: int,
+                                 cl_ord_id: Optional[str] = None) -> dict:
+        """Market BUY to flatten a short. execInst Close = position-aware."""
+        body: dict = {
+            "symbol": symbol,
+            "side": "Buy",
             "orderQty": int(qty_lots),
             "ordType": "Market",
             "execInst": "Close",

@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 # ─── Tuning (mirrors what was agreed with the operator 2026-05-24) ───
 ALLOWED_PAIRS = ("BTCUSDT",)
-ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence")
+# 2026-05-29: added long_dump_reversal — paper PF 3.69 / WR 60% / n=15 (3rd-best
+# proven LONG setup). Diversifies off long_pdl_bounce (currently killswitch-frozen).
+# Still LONG+BTC only (execution layer is long-only); SHORT & alt setups need new
+# bitmex_client order methods + per-contract sizing — separate phase.
+ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence", "long_dump_reversal")
 ALLOWED_SIDES = ("long",)
 MAX_PARALLEL = 3   # backtest 2026-05-27: 3 = sweet spot (1 too few, 2 has cluster losses)
 
@@ -149,7 +153,7 @@ def can_open(setup: dict, state: State, *,
     checks: list[tuple[bool, str]] = [
         gate_setup_type(str(setup.get("setup_type", ""))),
         gate_pair(str(setup.get("pair", ""))),
-        gate_side("long"),  # we only do long setups
+        gate_side(str(setup.get("side", "long")).lower()),  # ALLOWED_SIDES gates it
         gate_max_parallel(state),
         gate_daily_loss(state),
         gate_balance_floor(state),

@@ -37,6 +37,7 @@ def _state_with_balance(usd: float = 100.0) -> State:
 def test_gate_setup_type_allows_allowlist() -> None:
     assert gates.gate_setup_type("long_pdl_bounce")[0]
     assert gates.gate_setup_type("long_multi_divergence")[0]
+    assert gates.gate_setup_type("long_dump_reversal")[0]
 
 
 def test_gate_setup_type_rejects_unknown() -> None:
