@@ -51,12 +51,14 @@ def test_order_sides():
     assert _exit_order_side("short") == "Buy"
 
 
-# ── gate still blocks shorts until activated ───────────────────────────
-def test_short_setup_still_gated_off():
-    """ALLOWED_SIDES is long-only — a short setup must be rejected by can_open."""
-    from services.auto_executor.state import State
-    setup = {"setup_type": "short_div_bos_15m", "pair": "BTCUSDT",
-             "side": "short", "entry_price": 74000.0}
-    ok, reason = gates.can_open(setup, State(), current_price=74000.0)
-    assert ok is False
-    assert "side_not_allowed" in reason or "setup_type_not_allowed" in reason
+# ── phase-3: shorts enabled (micro). Side + proven short setups allowed ──
+def test_short_side_now_allowed():
+    assert gates.gate_side("short")[0] is True
+    assert gates.gate_side("long")[0] is True
+
+
+def test_short_setups_allowlisted():
+    assert gates.gate_setup_type("short_div_bos_15m")[0] is True
+    assert gates.gate_setup_type("short_double_top")[0] is True
+    # a non-allowlisted setup is still rejected
+    assert gates.gate_setup_type("long_double_bottom")[0] is False

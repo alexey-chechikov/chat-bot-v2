@@ -15,12 +15,14 @@ logger = logging.getLogger(__name__)
 
 # ─── Tuning (mirrors what was agreed with the operator 2026-05-24) ───
 ALLOWED_PAIRS = ("BTCUSDT",)
-# 2026-05-29: added long_dump_reversal — paper PF 3.69 / WR 60% / n=15 (3rd-best
-# proven LONG setup). Diversifies off long_pdl_bounce (currently killswitch-frozen).
-# Still LONG+BTC only (execution layer is long-only); SHORT & alt setups need new
-# bitmex_client order methods + per-contract sizing — separate phase.
-ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence", "long_dump_reversal")
-ALLOWED_SIDES = ("long",)
+# 2026-05-29 phase-3: SHORT enabled at micro size (operator go-ahead). Added
+# proven SHORT setups short_div_bos_15m (paper PF 2.89) + short_double_top
+# (PF 1.24 / WR 55%). Execution is side-aware (bitmex_client short methods +
+# loop inversion, both tested). Still BTCUSDT only — alts need per-contract
+# sizing + multi-symbol price (phase 2b). kill-switch + paper_wr_gate guard.
+ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence", "long_dump_reversal",
+                  "short_div_bos_15m", "short_double_top")
+ALLOWED_SIDES = ("long", "short")
 MAX_PARALLEL = 3   # backtest 2026-05-27: 3 = sweet spot (1 too few, 2 has cluster losses)
 
 DAILY_LOSS_LIMIT_USD = -3.0       # freeze for the day at or below this
