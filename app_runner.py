@@ -891,6 +891,36 @@ async def _run_grid_coordinator_intraday(stop_event: asyncio.Event, *, telegram_
     await grid_coordinator_intraday_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_alt_decorr(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Alt decorrelation-divergence detector (ETH/XRP, 25m & 1h).
+
+    Operator brief 2026-05-29: trade alts when they DEcorrelate from BTC, reusing
+    the validated divergence engine. Fires a multi-indicator divergence ON the alt
+    only when the alt's 30-bar return-corr with BTC is below CORR_GATE (idiosyncratic
+    move). Paper-tracked (source=alt_decorr) + PnL-gated TG card so live history
+    judges the edge within days.
+    """
+    from services.alt_decorr import alt_decorr_loop
+    from services.alt_decorr.loop import alt_decorr_promoted
+    from services.telegram.channel_router import build_send_fn
+
+    # Dynamic promotion: shadow (ROUTINE) until live paper proves edge (n>=20 &
+    # PF>=1.2), then auto-route to the primary feed. Channel chosen per-fire.
+    send_primary = build_send_fn(telegram_app, "SETUP_ON")      # PRIMARY channel
+    send_shadow = build_send_fn(telegram_app, "alt_decorr")     # ROUTINE channel
+
+    def _routed_send(text):
+        try:
+            promoted = alt_decorr_promoted()
+        except Exception:
+            promoted = False
+        fn = send_primary if (promoted and send_primary) else send_shadow
+        if fn:
+            fn(text)
+
+    await alt_decorr_loop(stop_event=stop_event, send_fn=_routed_send)
+
+
 async def _run_pre_cascade_alert(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Stage B4 — pre-cascade liquidation prediction (2026-05-09 roadmap).
 
@@ -1234,6 +1264,7 @@ async def main(
     pre_cascade_task = asyncio.create_task(_run_pre_cascade_alert(stop_event, telegram_app=app), name="pre_cascade_alert")
     grid_coordinator_task = asyncio.create_task(_run_grid_coordinator(stop_event, telegram_app=app), name="grid_coordinator")
     grid_coordinator_intraday_task = asyncio.create_task(_run_grid_coordinator_intraday(stop_event, telegram_app=app), name="grid_coordinator_intraday")
+    alt_decorr_task = asyncio.create_task(_run_alt_decorr(stop_event, telegram_app=app), name="alt_decorr")
     heartbeat_task = asyncio.create_task(_run_heartbeat(stop_event), name="heartbeat")
     watchlist_task = asyncio.create_task(_run_watchlist(stop_event, telegram_app=app), name="watchlist")
     play_outcome_task = asyncio.create_task(_run_play_outcome(stop_event), name="play_outcome")
@@ -1271,7 +1302,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0

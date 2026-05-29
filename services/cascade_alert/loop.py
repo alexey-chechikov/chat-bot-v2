@@ -25,6 +25,34 @@ MEGA_WINDOW_MINUTES = 1    # tight window for mega tier
 DEDUP_COOLDOWN_SEC = 1800  # 30 min between alerts per side
 MEGA_DEDUP_COOLDOWN_SEC = 3600  # 1h cooldown for rare mega events
 
+# 2026-05-29 regime gate (docs/STRATEGIES/CASCADE_REGIME_AUDIT.md +
+# CASCADE_SHORT_OPTIMIZE.md): liquidation-cascade follows DIE in strong trends.
+# ADX>=25 cascades = −$61 / PF 0.78 (n=38); ADX<25 = +$157 / PF 1.7. Suppress
+# emission when the 1h ADX says we are in a strong trend.
+ADX_TREND_CAP = 25.0
+_adx_cache: dict = {"ts": 0.0, "val": 0.0}
+_ADX_CACHE_TTL = 300.0
+
+
+def _current_adx_1h() -> float:
+    """Cached Wilder ADX on BTC 1h. Returns 0.0 (fail-open) on any error."""
+    now_s = time.time()
+    if now_s - _adx_cache["ts"] < _ADX_CACHE_TTL:
+        return _adx_cache["val"]
+    val = 0.0
+    try:
+        from core.data_loader import load_klines
+        from core.orchestrator.regime_classifier import calc_adx
+        df = load_klines(symbol="BTCUSDT", timeframe="1h", limit=60)
+        candles = [{"high": float(h), "low": float(l), "close": float(c)}
+                   for h, l, c in zip(df["high"], df["low"], df["close"])]
+        val, _ = calc_adx(candles)
+    except Exception:
+        logger.exception("cascade_alert.adx_compute_failed")
+        val = 0.0
+    _adx_cache.update(ts=now_s, val=float(val))
+    return float(val)
+
 # Predicted +12h % move (from EDGE_TEXT stats). Used by accuracy_tracker.
 PREDICTED_PCT_12H = {
     ("long", 5.0): 1.14,
@@ -561,6 +589,13 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                                 "side=%s trade=%s %s", side, _trade_side, _why)
                     dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
                     continue
+                # 2026-05-29 regime gate: skip cascade follows in strong trend.
+                _adx = _current_adx_1h()
+                if _adx >= ADX_TREND_CAP:
+                    logger.info("cascade_alert.MEGA.suppressed_adx_trend "
+                                "side=%s qty=%.2f adx=%.1f", side, mega_qty, _adx)
+                    dedup[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    continue
                 # Cross-service dedup: skip if cascade_followup already fired
                 # for this side within last 10 min (operator-confusion guard).
                 try:
@@ -652,6 +687,13 @@ async def cascade_alert_loop(stop_event: asyncio.Event, *, send_fn=None, interva
                     logger.info("cascade_alert.suppressed_wr_gate "
                                 "side=%s trade=%s threshold=%.1f %s",
                                 side, _trade_side, threshold, _why)
+                    dedup[key] = now.isoformat(timespec="seconds")
+                    continue
+                # 2026-05-29 regime gate: skip cascade follows in strong trend.
+                _adx = _current_adx_1h()
+                if _adx >= ADX_TREND_CAP:
+                    logger.info("cascade_alert.suppressed_adx_trend "
+                                "side=%s threshold=%.1f adx=%.1f", side, threshold, _adx)
                     dedup[key] = now.isoformat(timespec="seconds")
                     continue
                 # Cross-service dedup

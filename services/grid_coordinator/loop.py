@@ -13,9 +13,23 @@ DOWNSIDE EXHAUSTION (для LONG-ботов):
   Симметрично: RSI <= 25 + растёт, MFI <= 25, vol_z < 0 на лоу,
   OI rising + funding < -0.04%, BTC↔ETH corr + ETH RSI <= 30.
 
-Если 3+ из 5 совпадают — шлёт TG-карточку:
-  «🔝 ВЕРХ ИСТОЩАЕТСЯ — рассмотри закрытие SHORT-сеток (3/5 сигналов)»
-  «🔻 НИЗ ИСТОЩАЕТСЯ — рассмотри закрытие LONG-сеток»
+Если 3+ из 5 совпадают — шлёт TG-карточку.
+
+2026-05-29 ВАЖНО (docs/STRATEGIES/GC_DOWN_DIAGNOSTIC.md): бэктест на 22-дневном
+live-точном окне показал, что DOWNSIDE-сигнал — это НЕ разворот, а ПРОДОЛЖЕНИЕ
+движения вниз. Фейдить его (LONG) убыточно во всех срезах и тем хуже, чем выше
+score; зеркальный SHORT — +EV, WR/PF растут со score (1h score>=5: WR 78%,
+PF 10.7 против 39% безусловного фона). Поэтому down-карточка переименована в
+«🔻 НИЗ — ИМПУЛЬС ВНИЗ» и советует защитить LONG-сетки / рассмотреть SHORT, а не
+«закрыть и откупить на откате». Paper-emit для down теперь SHORT (continuation).
+
+2026-05-29 UP-сторона перевалидирована тем же методом (docs/STRATEGIES/
+GC_UP_DIAGNOSTIC.md): UP — тоже ПРОДОЛЖЕНИЕ, не разворот. SHORT-фейд −EV (score≥3
+WR 17%, EV −0.40%), зеркальный LONG бьёт медвежий baseline, forward-drift
+положительный и растёт со score (%UP@4h 58/75/100 для 3/4/5). Edge СЛАБЫЙ /
+regime-contingent (22-дн окно было net −8.9%), поэтому карточка переименована в
+«🔝 ВЕРХ — ИМПУЛЬС ВВЕРХ» с пометкой low-conviction, а paper-emit для up
+переключён SHORT→LONG (continuation). Перепроверить на ranging/bull окне.
 
 Cooldown 30 мин между алертами одного направления.
 """
@@ -243,13 +257,40 @@ def evaluate_exhaustion(btc: pd.DataFrame, eth: pd.DataFrame | None,
 def _format_card(direction: str, score: int, details: dict) -> str:
     if direction == "up":
         emoji = "🔝"
-        title = f"ВЕРХ ИСТОЩАЕТСЯ ({score}/6 сигналов)"
-        action = "Рассмотри закрытие SHORT-сеток сейчас и переоткрытие на откате."
+        # 2026-05-29 backtest (GC_UP_DIAGNOSTIC.md): the UP side mirrors the DOWN
+        # finding — it is NOT a reversal/exhaustion but an upside-CONTINUATION
+        # signal. The old SHORT fade was -EV (score>=3 deduped EV -0.40%, WR 17%);
+        # the mirror LONG beats the (bearish-window) base rate and forward drift
+        # after a fire is positive & rises with score (%UP@4h 58/75/100 for 3/4/5).
+        # Edge is WEAK / regime-contingent (22d window was net -8.9%), so the card
+        # is re-framed to continuation but flagged low-conviction. Paper-emit
+        # flipped SHORT->LONG to collect correctly-signed live outcomes.
+        title = f"ВЕРХ — ИМПУЛЬС ВВЕРХ ({score}/6 сигналов)"
+        # P(выше через 4ч) по score из бэктеста (n мал — окно медвежье): 3≈58%, 4≈75%, 5≈100%(n=3)
+        p_up = {3: "58%", 4: "75%", 5: "≈100% (n=3)"}.get(score, "60%")
+        action = (
+            f"⬆️ Импульс вверх ПРОДОЛЖАЕТСЯ (не разворот; СЛАБЫЙ сигнал — окно бэктеста "
+            f"было медвежьим). Истор. P(выше через 4ч) ≈ {p_up}.\n"
+            "→ Дай LONG-сеткам работать / SHORT-сетки под риском. На score≥5 — "
+            "потенциальный LONG-сетап (mirror: stop −0.5%, tp +0.75%, ~4ч)."
+        )
         sigs = details.get("up_signals", {})
     else:
         emoji = "🔻"
-        title = f"НИЗ ИСТОЩАЕТСЯ ({score}/6 сигналов)"
-        action = "Рассмотри закрытие LONG-сеток сейчас и переоткрытие на откате."
+        # 2026-05-29 backtest (GC_DOWN_DIAGNOSTIC.md): down-exhaustion is NOT a
+        # reversal — it's a downside-CONTINUATION signal. Fading it (LONG) loses
+        # in every slice and worsens with score; the mirror SHORT is +EV with
+        # WR/PF rising monotonically (1h score>=5: WR 78%, PF 10.7; vs 39% base).
+        # Re-labelled + re-framed from the old "истощение/закрой LONG, откупи на
+        # откате" which had the polarity inverted.
+        title = f"НИЗ — ИМПУЛЬС ВНИЗ ({score}/6 сигналов)"
+        # P(ниже через 4ч) по score из бэктеста: 4/6≈73%, 5/6≈78%, 6/6≈86%
+        p_down = {4: "73%", 5: "78%", 6: "86%"}.get(score, "73%")
+        action = (
+            f"⬇️ Импульс вниз ПРОДОЛЖАЕТСЯ (не разворот). Истор. P(ниже через 4ч) ≈ {p_down}.\n"
+            "→ Защити/сократи LONG-сетки. На score≥5 — потенциальный SHORT-сетап "
+            "(mirror: stop +0.5%, tp −0.75%, ~4ч)."
+        )
         sigs = details.get("down_signals", {})
 
     triggered = [k for k, v in sigs.items() if v]
@@ -320,12 +361,15 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
 
             # Score-escalation: повторный alert на том же уровне игнорируется
             # на cooldown'е; если score вырос (3→4→5) — alert даже на cooldown.
-            # Если score упал ниже threshold — reset last_score.
+            # 2026-05-29: reset-on-sub-threshold убран (см. continue ниже) — он
+            # давал flicker-дубли при колебании score на грани порога.
             for direction, score in (("up", up), ("down", down)):
                 last_score = int(dedup.get(f"{direction}_score") or 0)
                 if score < 3:
-                    if last_score > 0:
-                        dedup[f"{direction}_score"] = 0
+                    # 2026-05-29: do NOT reset last_score on a sub-threshold dip —
+                    # that let a boundary oscillation bypass cooldown (see intraday
+                    # loop flicker fix). Escalation baseline persists; after cooldown
+                    # `_check_cooldown` already permits a fresh fire.
                     continue
                 on_cd = not _check_cooldown(direction, dedup, now)
                 if on_cd and score <= last_score:
@@ -342,33 +386,34 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
                 dedup[f"{direction}_score"] = score
                 _journal({"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                           "direction": direction, "score": score, "details": details})
-                # Paper-trade: exhaustion → reversal. up_exhaustion → SHORT, down → LONG.
-                # 2026-05-23 paper-audit (_paper_perf_audit.py): grid_coord LONG
-                # (down_exhaustion fade) WR 25.9% / −$77 on n=27 across 2 weeks
-                # — actively losing edge. Skip paper-emission of LONG side; keep
-                # SHORT side recording (n=1, insufficient evidence either way,
-                # let data accumulate). Re-enable when ≥20 newer LONG outcomes
-                # show WR ≥45% on rolling basis.
+                # Paper-trade. 2026-05-23 audit disabled down→LONG (fade) as a
+                # 26% WR / −$77 bleeder. 2026-05-29 backtest (GC_DOWN_DIAGNOSTIC.md)
+                # found WHY: down-exhaustion is a CONTINUATION signal, not a
+                # reversal — the polarity was inverted. The mirror SHORT is +EV
+                # (1h score>=5: WR 78%, PF 10.7 vs 39% unconditional base), so
+                # down now emits SHORT (continuation), not LONG (fade).
+                # 2026-05-29 (GC_UP_DIAGNOSTIC.md): the UP side mirrors this —
+                # also a continuation signal (fade SHORT -EV; LONG beats the
+                # bearish-window base, drift positive & rising with score). Edge
+                # is WEAK/regime-contingent, but the polarity is clear, so up now
+                # emits LONG (continuation) too — flip from the old SHORT fade.
+                # Both directions now emit the CONTINUATION trade:
+                #   down -> SHORT (price keeps falling), up -> LONG (price keeps rising).
                 try:
-                    trade_side = "SHORT" if direction == "up" else "LONG"
-                    if trade_side == "LONG":
-                        logger.info(
-                            "grid_coordinator.paper_emit_skipped side=LONG "
-                            "(disabled per 2026-05-23 audit — WR 26%% bleeder)"
+                    trade_side = "SHORT" if direction == "down" else "LONG"
+                    ctx_kind = "continuation"
+                    from services.paper_signal_tracker.journal import (
+                        read_btc_last_price, record_paper_signal,
+                    )
+                    last_price = read_btc_last_price()
+                    if last_price and last_price > 0:
+                        record_paper_signal(
+                            source="grid_coord", side=trade_side,
+                            entry=float(last_price),
+                            stop_pct=-0.5, tp_pct=0.75, hold_h=4,
+                            context=f"{direction}_{ctx_kind}_score{score}",
+                            now=now,
                         )
-                    else:
-                        from services.paper_signal_tracker.journal import (
-                            read_btc_last_price, record_paper_signal,
-                        )
-                        last_price = read_btc_last_price()
-                        if last_price and last_price > 0:
-                            record_paper_signal(
-                                source="grid_coord", side=trade_side,
-                                entry=float(last_price),
-                                stop_pct=-0.5, tp_pct=0.75, hold_h=4,
-                                context=f"{direction}_exhaustion_score{score}",
-                                now=now,
-                            )
                 except Exception:
                     logger.exception("grid_coordinator.paper_signal_failed")
                 fired = True
@@ -455,12 +500,15 @@ async def grid_coordinator_intraday_loop(stop_event, *, send_fn=None,
                 except (ValueError, AttributeError):
                     pass
 
-            # Score-escalation: на cooldown игнорируем если score не вырос
-            # vs прошлого alert. Если down упал ниже threshold — reset last_score.
-            if down < INTRADAY_DOWNSIDE_THRESHOLD:
-                if last_score > 0:
-                    dedup["down_score"] = 0
-                    _save_intraday_dedup(dedup)
+            # Score-escalation + flicker fix (2026-05-29). Within cooldown we fire
+            # ONLY on a strict score increase vs the last alert. The old code also
+            # reset last_score→0 whenever score dipped below threshold, which let a
+            # boundary oscillation (4→3→4 within minutes) bypass cooldown and
+            # re-fire — that produced 72 same-score dupes <30min apart in the live
+            # journal (the operator's paired cards). Removing that reset is enough:
+            # after cooldown expires `not on_cooldown` already permits a fresh fire,
+            # so a persistent condition still re-pings every 30 min, but flicker no
+            # longer does.
             should_fire = (down >= INTRADAY_DOWNSIDE_THRESHOLD
                            and (not on_cooldown or down > last_score))
 

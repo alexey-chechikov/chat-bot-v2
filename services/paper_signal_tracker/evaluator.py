@@ -115,24 +115,59 @@ def evaluate_one(record: dict, bars: list[tuple[datetime, float, float, float]],
     return None
 
 
+def _load_recent_1m_symbol(symbol: str, needed_hours: int
+                           ) -> list[tuple[datetime, float, float, float]]:
+    """Symbol-aware 1m bars. BTCUSDT uses the pre-collected CSV (fast); other
+    symbols (alt TV signals, alt_decorr) fetch via the API loader."""
+    if symbol.upper() in ("BTCUSDT", "", "BTC"):
+        return _load_recent_1m(needed_hours=needed_hours)
+    try:
+        from core.data_loader import load_klines
+        limit = min(1000, needed_hours * 60 + 10)
+        df = load_klines(symbol=symbol, timeframe="1m", limit=limit)
+        if df is None or df.empty:
+            return []
+        tcol = next((c for c in ("ts", "open_time", "timestamp") if c in df.columns), None)
+        if tcol is None:
+            return []
+        import pandas as pd
+        ts = pd.to_datetime(df[tcol], utc=True, errors="coerce")
+        out = [(t.to_pydatetime(), float(h), float(lo), float(cl))
+               for t, h, lo, cl in zip(ts, df["high"], df["low"], df["close"])
+               if t is not None]
+        out.sort(key=lambda x: x[0])
+        return out
+    except Exception:
+        logger.exception("paper_signal.alt_market_load_failed symbol=%s", symbol)
+        return []
+
+
 def tick(*, journal_path: Path = JOURNAL_PATH,
          market_csv: Path = MARKET_1M_CSV,
          now: Optional[datetime] = None) -> int:
     pending = pending_signals(path=journal_path)
     if not pending:
         return 0
-    max_hold = max(int(r.get("hold_h", 4)) for r in pending) + 1
-    bars = _load_recent_1m(needed_hours=max_hold, csv_path=market_csv)
-    if not bars:
-        return 0
-    n = 0
+    # group by symbol so each signal resolves against its own instrument's bars
+    by_symbol: dict[str, list[dict]] = {}
     for r in pending:
-        upd = evaluate_one(r, bars, now=now)
-        if upd is None:
+        by_symbol.setdefault(str(r.get("symbol", "BTCUSDT")).upper(), []).append(r)
+    n = 0
+    for symbol, recs in by_symbol.items():
+        max_hold = max(int(r.get("hold_h", 4)) for r in recs) + 1
+        if symbol in ("BTCUSDT", "", "BTC"):
+            bars = _load_recent_1m(needed_hours=max_hold, csv_path=market_csv)
+        else:
+            bars = _load_recent_1m_symbol(symbol, needed_hours=max_hold)
+        if not bars:
             continue
-        if update_outcome(r["signal_id"], upd["outcome"], upd["exit_ts"],
-                           upd["exit_price"], upd["pnl_usd"], path=journal_path):
-            n += 1
+        for r in recs:
+            upd = evaluate_one(r, bars, now=now)
+            if upd is None:
+                continue
+            if update_outcome(r["signal_id"], upd["outcome"], upd["exit_ts"],
+                              upd["exit_price"], upd["pnl_usd"], path=journal_path):
+                n += 1
     return n
 
 

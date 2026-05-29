@@ -79,9 +79,11 @@ def test_format_card_upside():
                        "volume_no_confirm_at_high": False, "oi_rising_funding_high": False},
     }
     card = gc._format_card("up", 3, details)
-    assert "ВЕРХ ИСТОЩАЕТСЯ" in card
+    # 2026-05-29: up re-framed as upside-continuation (not reversal/fade).
+    assert "ИМПУЛЬС ВВЕРХ" in card
     assert "3/6" in card
-    assert "SHORT" in card
+    assert "LONG" in card  # advice now points to LONG continuation
+    assert "ПРОДОЛЖАЕТСЯ" in card
     assert "rsi_high_falling" in card
     assert "78.0" in card
 
@@ -96,9 +98,11 @@ def test_format_card_downside():
                          "volume_no_confirm_at_low": True, "oi_rising_funding_low": False},
     }
     card = gc._format_card("down", 4, details)
-    assert "НИЗ ИСТОЩАЕТСЯ" in card
+    # 2026-05-29: down re-framed as downside-continuation (not reversal/fade).
+    assert "ИМПУЛЬС ВНИЗ" in card
     assert "4/6" in card
-    assert "LONG" in card
+    assert "LONG" in card  # advice still references protecting LONG grids
+    assert "ПРОДОЛЖАЕТСЯ" in card
 
 
 def test_check_cooldown_blocks_within_window():

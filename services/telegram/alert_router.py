@@ -67,6 +67,8 @@ _EMITTER_CHANNEL: dict[str, str] = {
     "P15_HARVEST":        ROUTINE,    # частичное закрытие 50%
     "LEVEL_BREAK":        ROUTINE,    # пробой уровня без other context
     "PAPER_TRADE":        ROUTINE,    # confirmation paper-trade entry
+    "alt_decorr":         ROUTINE,    # 2026-05-29 alt decorr-divergence — shadow until
+                                      # live paper proves edge (backtest weak), then promote
     # VERBOSE (low-signal, opt-in via /verbose)
     "RSI_EXTREME":        VERBOSE,
     "AUTO_EDGE_ALERT":    VERBOSE,    # auto_edge_alerts SETUP_ON/SETUP_OFF (#4)

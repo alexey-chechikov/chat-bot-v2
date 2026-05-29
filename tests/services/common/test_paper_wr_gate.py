@@ -54,6 +54,25 @@ def test_healthy_bucket_allows(tmp_path):
     assert "healthy" in reason.lower()
 
 
+def test_positive_wr_but_negative_pnl_blocks(tmp_path):
+    """+WR but money-losing (small TPs, big losses) → block on PF.
+    This is the cascade_alert::LONG class: WR 60% yet PF<0.9 / negative PnL."""
+    g.STATE_PATH = tmp_path / "wr_gate.json"
+    g.PSIG = tmp_path / "psig.jsonl"
+    g.PTRD = tmp_path / "ptrd.jsonl"
+    g.P15  = tmp_path / "p15.jsonl"
+    # 12 small wins (+0.5) + 8 big losses (-1.5): WR 60% but PF = 6/12 = 0.5
+    pnls = [+0.5] * 12 + [-1.5] * 8
+    _write_jsonl(g.PSIG, _psig("cascade_alert", "LONG", pnls))
+    state = g._compute_state()
+    b = state["buckets"]["cascade_alert::LONG"]
+    assert b["wr_pct"] == 60.0
+    assert b["pf"] < g.UNHEALTHY_PF
+    ok, reason = g.should_emit("cascade_alert", "LONG", state=state)
+    assert ok is False
+    assert "pf" in reason.lower()
+
+
 def test_small_sample_allows(tmp_path):
     """n < MIN_N → allow (fail-open until we have data)."""
     g.STATE_PATH = tmp_path / "wr_gate.json"

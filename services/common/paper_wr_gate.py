@@ -48,6 +48,12 @@ ROLLING_N = 30            # last N evaluated outcomes per bucket
 MIN_N = 20                # below this, no opinion (always ALLOW)
 UNHEALTHY_WR_PCT = 40.0   # WR strictly below → BLOCK
 RECOVERY_WR_PCT = 50.0    # to re-enable after BLOCK, last MIN_N must be ≥ this
+# 2026-05-29: WR alone misses a class of bleeders — high win-rate but negative
+# net PnL (small TPs, large time-exit losses). cascade_alert::LONG ran WR 60%
+# yet −$170 / PF 0.49 over n=55 and sailed through the WR-only gate. Add a
+# PnL/expectancy block so a bucket that loses money is suppressed even if its
+# WR looks fine. Generalises to any future +WR/−PnL emitter.
+UNHEALTHY_PF = 0.9        # profit factor strictly below → BLOCK (with n>=MIN_N)
 CACHE_TTL_SEC = 300       # 5 min — re-scan jsonl after this
 
 
@@ -142,11 +148,19 @@ def _compute_state(*, now: Optional[datetime] = None,
         n = len(recent)
         wins = sum(1 for _, p in recent if p > 0)
         wr = (100.0 * wins / n) if n else 0.0
+        pnl_sum = sum(p for _, p in recent)
+        gross_win = sum(p for _, p in recent if p > 0)
+        gross_loss = -sum(p for _, p in recent if p < 0)
+        pf = (gross_win / gross_loss) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
         if n < MIN_N:
             status = "small_sample"
             block = False
         elif wr < UNHEALTHY_WR_PCT:
-            status = "unhealthy"
+            status = "unhealthy_wr"
+            block = True
+        elif pf < UNHEALTHY_PF:
+            # +WR but money-losing (the cascade_alert::LONG class)
+            status = "unhealthy_pnl"
             block = True
         else:
             status = "healthy"
@@ -157,6 +171,8 @@ def _compute_state(*, now: Optional[datetime] = None,
             "n": n,
             "wins": wins,
             "wr_pct": round(wr, 1),
+            "pnl_sum": round(pnl_sum, 2),
+            "pf": round(pf, 2),
             "status": status,
             "block_emit": block,
         }
@@ -213,10 +229,13 @@ def should_emit(source: str, signal_class: str, *,
         return True, f"no bucket data for {key} — allow"
     if b["status"] == "small_sample":
         return True, f"small sample n={b['n']} < {state.get('min_n', MIN_N)} — allow"
-    if b["status"] == "unhealthy":
-        return False, (f"unhealthy bucket WR={b['wr_pct']}% over last {b['n']} "
+    if b["status"] == "unhealthy_wr":
+        return False, (f"unhealthy bucket: WR={b['wr_pct']}% over last {b['n']} "
                        f"(< {state.get('unhealthy_wr_pct', UNHEALTHY_WR_PCT)}%)")
-    return True, f"healthy WR={b['wr_pct']}% n={b['n']}"
+    if b["status"] == "unhealthy_pnl":
+        return False, (f"unhealthy bucket: WR={b['wr_pct']}% OK but PF={b.get('pf')} "
+                       f"PnL={b.get('pnl_sum')}$ over last {b['n']} (PF < {UNHEALTHY_PF})")
+    return True, f"healthy WR={b['wr_pct']}% PF={b.get('pf')} n={b['n']}"
 
 
 def gate_status() -> dict:

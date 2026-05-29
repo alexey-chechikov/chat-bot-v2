@@ -60,6 +60,7 @@ def record_paper_signal(*, source: str, side: str, entry: float,
                          stop_pct: float, tp_pct: float, hold_h: int,
                          context: str = "",
                          size_usd: float = 1000.0,
+                         symbol: str = "BTCUSDT",
                          now: Optional[datetime] = None,
                          path: Path = JOURNAL_PATH) -> str:
     """Append a paper-trade hypothetical. Returns signal_id.
@@ -67,6 +68,9 @@ def record_paper_signal(*, source: str, side: str, entry: float,
     side: 'LONG' or 'SHORT'.
     stop_pct, tp_pct: signed percentages relative to entry
       e.g. LONG: stop_pct=-0.5 → stop = entry × 0.995, tp_pct=+0.75 → tp = entry × 1.0075
+    symbol: instrument the entry/stop/tp refer to (default BTCUSDT). The evaluator
+      resolves each signal against ITS OWN symbol's 1m bars (2026-05-29 — needed
+      for alt TV signals & alt_decorr; legacy rows w/o symbol → BTCUSDT).
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -78,6 +82,7 @@ def record_paper_signal(*, source: str, side: str, entry: float,
     record = {
         "signal_id": signal_id,
         "source": source,
+        "symbol": symbol.upper(),
         "ts_signal": now.isoformat(timespec="seconds"),
         "side": side_u,
         "entry": round(entry, 2),
