@@ -15,7 +15,12 @@ ROOT = Path("/Users/alexeychechikov/code/bot7")
 sys.path.insert(0, str(ROOT))
 from services.setup_detector.setup_types import (  # noqa: E402
     detect_long_pdl_bounce, detect_long_dump_reversal, DetectionContext,
+    detect_short_rally_fade, detect_short_pdh_rejection, detect_short_overbought_fade,
 )
+try:
+    from services.setup_detector.double_top_bottom import detect_double_top_setup  # noqa: E402
+except Exception:
+    detect_double_top_setup = None
 
 FEES, TP, SL, HOLD_MIN = 0.165, 1.5, 0.5, 120
 STEP_MIN = 15            # evaluate every 15 minutes
@@ -40,18 +45,27 @@ def _regime(h1: pd.DataFrame, price: float) -> str:
     return "range_wide"
 
 
-def _sim_exit(m1_all, hi, lo, ts_ns, t_entry, entry):
+def _sim_exit(m1_all, hi, lo, ts_ns, t_entry, entry, side="long"):
     pos = int(np.searchsorted(ts_ns, t_entry.value, side="left"))
     end = pos + HOLD_MIN
     if pos >= len(hi) or end > len(hi):
         return None
-    tp, sl = entry * (1 + TP / 100), entry * (1 - SL / 100)
-    for i in range(pos, end):
-        if lo[i] <= sl:
-            return -SL - FEES
-        if hi[i] >= tp:
-            return TP - FEES
-    return (float(m1_all[end - 1]) / entry - 1) * 100 - FEES
+    if side == "long":
+        tp, sl = entry * (1 + TP / 100), entry * (1 - SL / 100)
+        for i in range(pos, end):
+            if lo[i] <= sl:
+                return -SL - FEES
+            if hi[i] >= tp:
+                return TP - FEES
+        return (float(m1_all[end - 1]) / entry - 1) * 100 - FEES
+    else:  # short: tp below, sl above
+        tp, sl = entry * (1 - TP / 100), entry * (1 + SL / 100)
+        for i in range(pos, end):
+            if hi[i] >= sl:
+                return -SL - FEES
+            if lo[i] <= tp:
+                return TP - FEES
+        return (entry / float(m1_all[end - 1]) - 1) * 100 - FEES
 
 
 def run_pair(pair):
@@ -80,16 +94,22 @@ def run_pair(pair):
         reg = _regime(h1_win, price)
         ctx = DetectionContext(pair=pair, current_price=price, regime_label=reg,
                                session_label="ANY", ohlcv_1m=m1_win, ohlcv_1h=h1_win)
-        for fn, name in ((detect_long_dump_reversal, "dump_reversal"),
-                         (detect_long_pdl_bounce, "pdl_bounce")):
+        dets = [(detect_long_dump_reversal, "dump_reversal", "long"),
+                (detect_long_pdl_bounce, "pdl_bounce", "long"),
+                (detect_short_rally_fade, "rally_fade", "short"),
+                (detect_short_pdh_rejection, "pdh_rejection", "short"),
+                (detect_short_overbought_fade, "overbought_fade", "short")]
+        if detect_double_top_setup is not None:
+            dets.append((detect_double_top_setup, "double_top", "short"))
+        for fn, name, side in dets:
             try:
                 s = fn(ctx)
             except Exception:
                 s = None
             if s is not None:
-                r = _sim_exit(cl, hi, lo, ts_ns, t, price)
+                r = _sim_exit(cl, hi, lo, ts_ns, t, price, side=side)
                 if r is not None:
-                    trades.append({"ts": t, "type": name, "pnl": r})
+                    trades.append({"ts": t, "type": name, "side": side, "pnl": r})
                     last_exit_ts = t + timedelta(minutes=HOLD_MIN)
                 break  # one entry per step
     return trades
@@ -125,10 +145,15 @@ def main():
         for name, seg in (("FULL", df), ("1st half", df.iloc[:half]), ("2nd half", df.iloc[half:])):
             s = _stats(list(seg["pnl"]))
             print(f"  {name:10s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]} sum={s[4]}%")
-        for t in ("pdl_bounce", "dump_reversal"):
-            s = _stats(list(df[df["type"] == t]["pnl"]))
+        for sd in ("long", "short"):
+            seg = df[df["side"] == sd]
+            s = _stats(list(seg["pnl"]))
             if s:
-                print(f"    {t:16s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]}")
+                print(f"  -- {sd.upper():5s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]} sum={s[4]}%")
+        for t in sorted(df["type"].unique()):
+            s = _stats(list(df[df["type"] == t]["pnl"]))
+            if s and s[0] >= 10:
+                print(f"    {t:16s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]} sum={s[4]}%")
 
 
 if __name__ == "__main__":
