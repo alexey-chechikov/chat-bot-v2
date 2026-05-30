@@ -77,12 +77,23 @@ ENTRY_MODE_MARKET_FALLBACK = "market_fallback"
 # autotrader places orders against these fixed %-distances.
 # long_multi_divergence keeps its own SL/TP — fixed-grid backtest was
 # negative EV (pattern-geometry stop/TP is intrinsic to that detector).
+# 2026-05-30 exit-optimization on the FIXED per-pair tracker (tools/_exit_optimize.py).
+# Dip-buy setups have good entry timing (low SL-rate) but timed out on too-far TP.
+# Best exits = tight SL 0.5% + wide TP 1.5%, 2h: net +0.30%/trade, WR 65%, PF 2.7
+# on n=209, OOS time-split holds (1st half +0.28 / 2nd +0.31), positive on all 3
+# pairs (BTC +0.13/PF2.0 n=87). First OOS-surviving edge on the corrected source.
 SETUP_OVERRIDES: dict[str, dict] = {
     "long_pdl_bounce": {
-        "sl_pct": 0.40,
-        "tp1_pct": 0.70,
-        "tp2_pct": 1.00,  # not used by exit logic; kept for journal
-        "hold_hours": 6,
+        "sl_pct": 0.50,
+        "tp1_pct": 1.50,
+        "tp2_pct": 1.50,
+        "hold_hours": 2,
+    },
+    "long_dump_reversal": {
+        "sl_pct": 0.50,
+        "tp1_pct": 1.50,
+        "tp2_pct": 1.50,
+        "hold_hours": 2,
     },
 }
 
