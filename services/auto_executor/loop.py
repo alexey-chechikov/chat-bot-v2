@@ -150,6 +150,57 @@ def _lots_to_btc(lots: int) -> float:
     return lots / 1_000_000.0
 
 
+# ─── Phase-2b: multi-symbol (alt) sizing ───────────────────────────────────
+# BitMEX linear-perp symbols (BTC is the special "XBT" ticker).
+SYMBOL_MAP = {"BTCUSDT": "XBTUSDT", "ETHUSDT": "ETHUSDT", "XRPUSDT": "XRPUSDT"}
+TARGET_NOMINAL_USD = 8.0       # micro target; ETH min lot (~$20) overrides upward
+NOMINAL_GUARD_MAX_USD = 30.0   # HARD safety: never place a position above this
+
+
+def _bitmex_symbol(pair: str) -> str:
+    return SYMBOL_MAP.get(pair, pair)
+
+
+def _qty_from_instrument(inst: dict, price: float,
+                         target_usd: float = TARGET_NOMINAL_USD
+                         ) -> tuple[int, float, float]:
+    """Pure: size a micro position from live instrument specs.
+
+    underlying_qty = orderQty / underlyingToPositionMultiplier (BitMEX linear).
+    Returns (qty_lots, qty_underlying, nominal_usd). (0,0,0) if unsafe
+    (price<=0, bad specs, or nominal would exceed the hard guard).
+    """
+    try:
+        lot = int(inst.get("lotSize") or 0)
+        u2p = float(inst.get("underlyingToPositionMultiplier") or 0)
+    except (TypeError, ValueError):
+        return 0, 0.0, 0.0
+    if lot <= 0 or u2p <= 0 or price <= 0:
+        return 0, 0.0, 0.0
+    raw = target_usd / price * u2p          # contracts for target nominal
+    lots = max(lot, round(raw / lot) * lot)  # at least 1 lot-unit, multiple of lotSize
+    qty_under = lots / u2p
+    nominal = qty_under * price
+    if nominal > NOMINAL_GUARD_MAX_USD or lots <= 0:
+        return 0, 0.0, 0.0
+    return int(lots), qty_under, nominal
+
+
+def _size_for_symbol(client: BitMEXClient, bsym: str, price: float
+                     ) -> tuple[int, float, float]:
+    """Fetch instrument + size. (0,0,0) on any failure (caller skips the trade)."""
+    if bsym == "XBTUSDT":
+        # keep the proven BTC path exactly (100 lots = 0.0001 BTC ≈ $7-8)
+        qb = _lots_to_btc(LOTS_PER_TRADE)
+        return LOTS_PER_TRADE, qb, qb * price
+    try:
+        inst = client.get_instrument(bsym)
+    except BitMEXError:
+        logger.warning("auto_executor.instrument_fetch_failed sym=%s", bsym)
+        return 0, 0.0, 0.0
+    return _qty_from_instrument(inst, price)
+
+
 def _est_pnl_usd_long(qty_btc: float, entry: float, exit_: float) -> float:
     """Linear PnL: (exit - entry) * qty_btc (USDT-margined linear contract)."""
     return (exit_ - entry) * qty_btc
@@ -371,17 +422,24 @@ def _manage_filled(state: State, client: BitMEXClient) -> None:
     """
     if not state.open_positions:
         return
-    # Pull last price ONCE per tick (saves API calls when N positions open)
-    try:
-        last = client.get_last_price(BITMEX_SYMBOL)
-    except BitMEXError:
-        logger.warning("auto_executor.last_price_failed (non-fatal)")
-        return
-    if last <= 0:
-        return
+    # Per-symbol last price, fetched once per distinct symbol per tick (phase-2b).
+    price_cache: dict[str, float] = {}
+
+    def _last_for(sym: str) -> float:
+        if sym not in price_cache:
+            try:
+                price_cache[sym] = client.get_last_price(sym)
+            except BitMEXError:
+                logger.warning("auto_executor.last_price_failed sym=%s (non-fatal)", sym)
+                price_cache[sym] = 0.0
+        return price_cache[sym]
+
     drop_indices: list[int] = []
     for idx, pos in enumerate(list(state.open_positions)):
         if pos.status != "filled":
+            continue
+        last = _last_for(pos.bitmex_symbol)
+        if last <= 0:
             continue
         reason: Optional[str] = _hit_reason(pos.side, last, pos.sl_price, pos.tp1_price)
         if reason is None and _from_iso(pos.expires_at) and _now() >= _from_iso(pos.expires_at):
@@ -498,9 +556,10 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
                          setup.get("setup_id"), reason)
             notifier.send(notifier.card_skipped(st, reason))
             continue
+        bsym = _bitmex_symbol(pair)   # phase-2b: per-pair BitMEX symbol
         # confirm slippage isn't already blown out
         try:
-            last = client.get_last_price(BITMEX_SYMBOL)
+            last = client.get_last_price(bsym)
         except BitMEXError:
             last = 0.0
         ok2, reason2 = gates.can_open(setup, state, current_price=last)
@@ -509,10 +568,14 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
                          setup.get("setup_id"), reason2)
             notifier.send(notifier.card_skipped(st, reason2))
             continue
-        # place the order
-        qty_lots = _calc_qty_lots()
-        cl_ord = f"ae-{uuid.uuid4().hex[:18]}"
+        # size from live instrument specs (per-symbol); skip if unsafe/zero
         entry_price = float(setup.get("entry_price"))
+        qty_lots, qty_under, nominal = _size_for_symbol(client, bsym, last or entry_price)
+        if qty_lots <= 0:
+            logger.info("auto_executor.skip_sizing id=%s sym=%s (zero/guarded)",
+                         setup.get("setup_id"), bsym)
+            continue
+        cl_ord = f"ae-{uuid.uuid4().hex[:18]}"
         side = str(setup.get("side", "long")).lower()  # phase-2: side-aware
         # Apply per-setup parameter override (backtest-optimal). Falls back
         # to setup_detector's per-signal values for setups that don't have
@@ -534,10 +597,10 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             expires_at = str(setup.get("expires_at", ""))
         try:
             if side == "short":
-                order = client.place_limit_sell(BITMEX_SYMBOL, qty_lots, entry_price,
+                order = client.place_limit_sell(bsym, qty_lots, entry_price,
                                                  cl_ord_id=cl_ord, post_only=True)
             else:
-                order = client.place_limit_buy(BITMEX_SYMBOL, qty_lots, entry_price,
+                order = client.place_limit_buy(bsym, qty_lots, entry_price,
                                                 cl_ord_id=cl_ord, post_only=True)
         except BitMEXError as exc:
             notifier.send(notifier.card_error("place_limit_entry_failed", exc))
@@ -548,7 +611,7 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             setup_id=str(setup.get("setup_id", cl_ord)),
             setup_type=st,
             pair=pair,
-            bitmex_symbol=BITMEX_SYMBOL,
+            bitmex_symbol=bsym,
             side=side,
             entry_price=entry_price,
             sl_price=sl_price,
@@ -556,8 +619,8 @@ def _try_open_new(state: State, client: BitMEXClient, offset: int) -> int:
             tp2_price=tp2_price,
             expires_at=expires_at,
             qty_lots=qty_lots,
-            qty_btc=_lots_to_btc(qty_lots),
-            nominal_usd=_lots_to_btc(qty_lots) * (last or entry_price),
+            qty_btc=qty_under,           # underlying qty (BTC/ETH/XRP) per-symbol
+            nominal_usd=nominal,
             cl_ord_id=cl_ord,
             entry_order_id=order.get("orderID"),
             status="placed",

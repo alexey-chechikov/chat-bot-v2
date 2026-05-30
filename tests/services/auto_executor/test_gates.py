@@ -50,8 +50,10 @@ def test_gate_setup_type_rejects_unknown() -> None:
     assert "short_pdh_rejection" in reason
 
 
-def test_gate_pair_rejects_non_btcusdt() -> None:
-    assert not gates.gate_pair("ETHUSDT")[0]
+def test_gate_pair_allows_btc_and_eth() -> None:
+    assert gates.gate_pair("BTCUSDT")[0]
+    assert gates.gate_pair("ETHUSDT")[0]   # 2026-05-30 phase-2b
+    assert not gates.gate_pair("SOLUSDT")[0]  # not yet allowlisted
 
 
 def _open_pos(setup_id: str = "x") -> Position:

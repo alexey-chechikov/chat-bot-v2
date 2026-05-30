@@ -14,7 +14,13 @@ from services.auto_executor.state import KillState, Position, State
 logger = logging.getLogger(__name__)
 
 # ─── Tuning (mirrors what was agreed with the operator 2026-05-24) ───
-ALLOWED_PAIRS = ("BTCUSDT",)
+# 2026-05-30 phase-2b: ETHUSDT enabled. The visual breakdown (setup_charts.html)
+# proved the survivors' edge is ALT-concentrated: on ETH long_pdl_bounce 9/9,
+# long_dump_reversal 6/6, long_double_bottom 5/5 TP1 (net +0.50%/trade); on BTC
+# the same setups mostly TIMEOUT (~breakeven). Sizing is dynamic from live
+# instrument specs (ETH lotSize=1000/u2p=1e5 → min ~0.01 ETH ≈ $20) with a hard
+# $30 nominal guard. XRP held for next step (survivor edge there is mixed).
+ALLOWED_PAIRS = ("BTCUSDT", "ETHUSDT")
 # 2026-05-30 REALITY-FILTER re-grade (docs/STRATEGIES/REALITY_FILTER_REGRADE.md,
 # truth = setup_precision_outcomes.jsonl, NOT paper). Paper was systematically
 # inflated (intrabar-touch TP + EXPIRE-in-profit). Honest net-of-cost survivors:
