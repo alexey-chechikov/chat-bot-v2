@@ -56,6 +56,13 @@ ENTRY_TIMEOUT_MIN = 5            # if limit not filled after this: cancel (see b
 # +0.23% slippage. So when the limit doesn't fill in ENTRY_TIMEOUT_MIN we now
 # CANCEL and skip the trade (limit-only entry) instead of market-falling-back.
 MARKET_FALLBACK_ENABLED = False
+
+# 2026-05-30: LIVE TRADING DISABLED. The 2-year backtest (tools/_setup_2y_backtest.py)
+# proved no edge in either direction — LONG -0.18%/trade, SHORT -0.17%, every setup
+# negative every year (2024-2026). The loop still runs (manages any open position,
+# refreshes balance) but opens NO new trades. Re-enable ONLY after a 2y-validated
+# edge exists, via env AUTO_EXECUTOR_TRADING_ENABLED=1.
+TRADING_ENABLED = os.getenv("AUTO_EXECUTOR_TRADING_ENABLED", "0") == "1"
 LOT_SIZE = 100                   # BitMEX XBTUSDT lotSize
 LOTS_PER_TRADE = 100             # 100 lots = 0.0001 BTC = ~$7.70 at $77k
 BITMEX_SYMBOL = "XBTUSDT"        # UI: "BTCUSDT"; API: "XBTUSDT"
@@ -647,8 +654,8 @@ async def auto_executor_loop(stop_event: asyncio.Event,
 
     Exceptions inside _tick are caught and logged; the loop never dies.
     """
-    logger.info("auto_executor_loop.start interval=%ds symbol=%s setups=%s",
-                 interval_sec, BITMEX_SYMBOL, list(gates.ALLOWED_SETUPS))
+    logger.info("auto_executor_loop.start interval=%ds symbol=%s trading_enabled=%s setups=%s",
+                 interval_sec, BITMEX_SYMBOL, TRADING_ENABLED, list(gates.ALLOWED_SETUPS))
     try:
         client = BitMEXClient.from_env()
     except Exception:
@@ -665,7 +672,8 @@ async def auto_executor_loop(stop_event: asyncio.Event,
             logger.info("auto_executor.first_run fastforward offset=%d", offset)
         except OSError:
             pass
-    notifier.send(f"🤖 auto_executor STARTED  symbol={BITMEX_SYMBOL} "
+    _state_txt = "TRADING" if TRADING_ENABLED else "DISABLED (no 2y edge)"
+    notifier.send(f"🤖 auto_executor [{_state_txt}]  symbol={BITMEX_SYMBOL} "
                    f"size={LOTS_PER_TRADE}lots setups={list(gates.ALLOWED_SETUPS)}")
 
     while not stop_event.is_set():
@@ -673,7 +681,14 @@ async def auto_executor_loop(stop_event: asyncio.Event,
             _refresh_balance_and_daily(state, client)
             _manage_placed(state, client)
             _manage_filled(state, client)
-            offset = _try_open_new(state, client, offset)
+            if TRADING_ENABLED:
+                offset = _try_open_new(state, client, offset)
+            else:
+                # trading disabled — keep offset at EOF so re-enable won't replay
+                try:
+                    offset = SETUPS_JSONL.stat().st_size
+                except OSError:
+                    pass
             save_offset(offset)
             save_state(state)
         except Exception:
