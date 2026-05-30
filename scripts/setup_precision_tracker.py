@@ -59,6 +59,52 @@ def _load_prices() -> pd.DataFrame:
     return out.sort_values("ts_utc").set_index("ts_utc")
 
 
+# 2026-05-30 FIX: per-pair price. The old single-frame loader was BTC-only and
+# graded ETH/XRP setups against BTC price → fake instant TP1/SL on alts. Now each
+# setup is evaluated against ITS OWN pair's 1m price (frozen CSV + live tail).
+_PAIR_CACHE: dict = {}
+
+
+def _prices_for_pair(pair: str) -> pd.DataFrame:
+    if pair in _PAIR_CACHE:
+        return _PAIR_CACHE[pair]
+    frames = []
+    fp = ROOT / "backtests" / "frozen" / f"{pair}_1m_2y.csv"
+    if fp.exists():
+        df = pd.read_csv(fp)
+        df["ts_utc"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+        frames.append(df[["ts_utc", "high", "low", "close"]])
+    # live tail beyond the frozen snapshot (so daily runs grade fresh setups)
+    try:
+        from core.data_loader import load_historical_klines
+        import time as _t
+        frozen_max = frames[0]["ts_utc"].max() if frames else None
+        now_ms = int(_t.time() * 1000)
+        start_ms = (int(frozen_max.timestamp() * 1000) if frozen_max is not None
+                    else now_ms - 7 * 86400 * 1000)
+        if now_ms - start_ms > 120000:
+            live = load_historical_klines(symbol=pair, timeframe="1m",
+                                          start_ms=start_ms, end_ms=now_ms)
+            if live is not None and not live.empty:
+                tcol = next((c for c in ("open_time", "ts", "timestamp")
+                             if c in live.columns), None)
+                if tcol == "ts":
+                    live["ts_utc"] = pd.to_datetime(live["ts"], unit="ms", utc=True)
+                elif tcol:
+                    live["ts_utc"] = pd.to_datetime(live[tcol], utc=True)
+                if "ts_utc" in live.columns:
+                    frames.append(live[["ts_utc", "high", "low", "close"]])
+    except Exception:
+        pass
+    if not frames:
+        out = pd.DataFrame()
+    else:
+        out = (pd.concat(frames, ignore_index=True).drop_duplicates("ts_utc")
+               .sort_values("ts_utc").set_index("ts_utc"))
+    _PAIR_CACHE[pair] = out
+    return out
+
+
 _DEFAULT_BACKTEST_EXPECTANCY = {
     "short_pdh_rejection": 0.005,   # PF 1.16 calibrated
     "short_rally_fade": 0.005,      # PF ~1.4 with filter
@@ -199,10 +245,8 @@ def main() -> int:
 
     if not SETUPS.exists():
         print("[precision] no setups.jsonl"); return 0
-    prices = _load_prices()
-    if prices.empty:
-        print("[precision] no price data"); return 1
-    print(f"[precision] price range: {prices.index.min()} -> {prices.index.max()}")
+    # 2026-05-30: price is now per-pair (see _prices_for_pair). No single frame.
+    print("[precision] per-pair pricing (frozen + live tail)")
 
     seen = set()
     if OUTCOMES.exists():
@@ -238,7 +282,12 @@ def main() -> int:
             if stype.startswith("p15_"):
                 skipped_non_trade += 1
                 continue
-            res = _evaluate(setup, prices)
+            pair = setup.get("pair") or "BTCUSDT"
+            px = _prices_for_pair(pair)
+            if px.empty:
+                skipped += 1
+                continue
+            res = _evaluate(setup, px)
             if res is None:
                 skipped += 1
                 continue
