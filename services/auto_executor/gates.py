@@ -14,13 +14,15 @@ from services.auto_executor.state import KillState, Position, State
 logger = logging.getLogger(__name__)
 
 # ─── Tuning (mirrors what was agreed with the operator 2026-05-24) ───
-# 2026-05-30 phase-2b: ETHUSDT enabled. The visual breakdown (setup_charts.html)
-# proved the survivors' edge is ALT-concentrated: on ETH long_pdl_bounce 9/9,
-# long_dump_reversal 6/6, long_double_bottom 5/5 TP1 (net +0.50%/trade); on BTC
-# the same setups mostly TIMEOUT (~breakeven). Sizing is dynamic from live
-# instrument specs (ETH lotSize=1000/u2p=1e5 → min ~0.01 ETH ≈ $20) with a hard
-# $30 nominal guard. XRP held for next step (survivor edge there is mixed).
-ALLOWED_PAIRS = ("BTCUSDT", "ETHUSDT")
+# 2026-05-30 phase-2b REVERTED: the "alt edge" was a MEASUREMENT ARTIFACT.
+# setup_precision_tracker.py is BTC-only (_load_prices loads only BTCUSDT) and
+# graded ETH/XRP setups against BTC price → alt longs got instant fake-TP1
+# (BTC ~73000 > alt tp), alt shorts instant fake-SL. Verified vs real pair price:
+# 21 of 35 survivor-long "TP1" never reached tp1 on the real alt (only
+# long_double_bottom/ETH held, 4/5, n too small). So ETH execution is pulled
+# back to BTC-only until the tracker is fixed per-pair and REAL alt data exists.
+# Per-symbol sizing + side-aware loop infra stays (correct, tested) for re-enable.
+ALLOWED_PAIRS = ("BTCUSDT",)
 # 2026-05-30 REALITY-FILTER re-grade (docs/STRATEGIES/REALITY_FILTER_REGRADE.md,
 # truth = setup_precision_outcomes.jsonl, NOT paper). Paper was systematically
 # inflated (intrabar-touch TP + EXPIRE-in-profit). Honest net-of-cost survivors:

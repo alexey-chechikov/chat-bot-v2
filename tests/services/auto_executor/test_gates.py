@@ -50,10 +50,11 @@ def test_gate_setup_type_rejects_unknown() -> None:
     assert "short_pdh_rejection" in reason
 
 
-def test_gate_pair_allows_btc_and_eth() -> None:
+def test_gate_pair_btc_only_alt_edge_was_artifact() -> None:
+    # 2026-05-30: ETH reverted — alt "edge" was a BTC-only-tracker artifact.
     assert gates.gate_pair("BTCUSDT")[0]
-    assert gates.gate_pair("ETHUSDT")[0]   # 2026-05-30 phase-2b
-    assert not gates.gate_pair("SOLUSDT")[0]  # not yet allowlisted
+    assert not gates.gate_pair("ETHUSDT")[0]
+    assert not gates.gate_pair("SOLUSDT")[0]
 
 
 def _open_pos(setup_id: str = "x") -> Position:
