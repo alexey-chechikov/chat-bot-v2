@@ -49,7 +49,13 @@ SETUPS_JSONL = ROOT / "state" / "setups.jsonl"
 
 # ─── Tuning ────────────────────────────────────────────────────────
 TICK_INTERVAL_SEC = 30           # how often to poll
-ENTRY_TIMEOUT_MIN = 5            # if limit not filled after this, market fallback
+ENTRY_TIMEOUT_MIN = 5            # if limit not filled after this: cancel (see below)
+# 2026-05-30 reality-filter finding: in the 6 live trades, EVERY market_fallback
+# entry hit SL (4/4) while EVERY clean limit fill did NOT (2/2 flat). Chasing a
+# non-filling post-only limit at market = entering adverse momentum + paying
+# +0.23% slippage. So when the limit doesn't fill in ENTRY_TIMEOUT_MIN we now
+# CANCEL and skip the trade (limit-only entry) instead of market-falling-back.
+MARKET_FALLBACK_ENABLED = False
 LOT_SIZE = 100                   # BitMEX XBTUSDT lotSize
 LOTS_PER_TRADE = 100             # 100 lots = 0.0001 BTC = ~$7.70 at $77k
 BITMEX_SYMBOL = "XBTUSDT"        # UI: "BTCUSDT"; API: "XBTUSDT"
@@ -333,16 +339,21 @@ def _manage_placed(state: State, client: BitMEXClient) -> None:
                          pos.setup_id, status)
             drop_indices.append(idx)
             continue
-        # still working — if past the limit window, switch to market
+        # still working — limit window elapsed.
         if _now().timestamp() >= timeout:
-            logger.info("auto_executor.limit_timeout_market_fallback id=%s",
-                         pos.setup_id)
             try:
                 client.cancel_order(pos.entry_order_id)
             except BitMEXError:
-                logger.warning("auto_executor.cancel_failed id=%s — proceeding to market",
-                                pos.entry_order_id)
-            _market_fallback_enter_multi(state, client, pos)
+                logger.warning("auto_executor.cancel_failed id=%s", pos.entry_order_id)
+            if MARKET_FALLBACK_ENABLED:
+                logger.info("auto_executor.limit_timeout_market_fallback id=%s", pos.setup_id)
+                _market_fallback_enter_multi(state, client, pos)
+            else:
+                # 2026-05-30: limit-only — skip the trade rather than chase at market
+                # (market_fallback was 4/4 SL in live data).
+                logger.info("auto_executor.limit_timeout_skip id=%s (fallback disabled)",
+                             pos.setup_id)
+                drop_indices.append(idx)
     # remove dropped (in reverse to keep indices valid)
     for idx in reversed(drop_indices):
         if 0 <= idx < len(state.open_positions):

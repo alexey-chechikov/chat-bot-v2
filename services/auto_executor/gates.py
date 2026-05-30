@@ -15,14 +15,17 @@ logger = logging.getLogger(__name__)
 
 # ─── Tuning (mirrors what was agreed with the operator 2026-05-24) ───
 ALLOWED_PAIRS = ("BTCUSDT",)
-# 2026-05-29 phase-3: SHORT enabled at micro size (operator go-ahead). Added
-# proven SHORT setups short_div_bos_15m (paper PF 2.89) + short_double_top
-# (PF 1.24 / WR 55%). Execution is side-aware (bitmex_client short methods +
-# loop inversion, both tested). Still BTCUSDT only — alts need per-contract
-# sizing + multi-symbol price (phase 2b). kill-switch + paper_wr_gate guard.
-ALLOWED_SETUPS = ("long_pdl_bounce", "long_multi_divergence", "long_dump_reversal",
-                  "short_div_bos_15m", "short_double_top")
-ALLOWED_SIDES = ("long", "short")
+# 2026-05-30 REALITY-FILTER re-grade (docs/STRATEGIES/REALITY_FILTER_REGRADE.md,
+# truth = setup_precision_outcomes.jsonl, NOT paper). Paper was systematically
+# inflated (intrabar-touch TP + EXPIRE-in-profit). Honest net-of-cost survivors:
+#   long_double_bottom +0.88%, long_dump_reversal +0.66%, long_pdl_bounce +0.62%.
+# REMOVED long_multi_divergence (honest −21%, 54/57 TIMEOUT — paper "champion"
+# was a timeout machine). REVERTED the 2026-05-29 SHORT enablement: short_div_bos
+# / short_double_top were promoted on debunked paper PF; honest precision n=1 each,
+# negative. SHORT code stays (built+tested) but GATED OFF until an honest short
+# edge appears. Side-aware execution + kill-switch + paper_wr_gate still active.
+ALLOWED_SETUPS = ("long_pdl_bounce", "long_dump_reversal", "long_double_bottom")
+ALLOWED_SIDES = ("long",)
 MAX_PARALLEL = 3   # backtest 2026-05-27: 3 = sweet spot (1 too few, 2 has cluster losses)
 
 DAILY_LOSS_LIMIT_USD = -3.0       # freeze for the day at or below this

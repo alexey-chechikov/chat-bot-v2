@@ -51,14 +51,15 @@ def test_order_sides():
     assert _exit_order_side("short") == "Buy"
 
 
-# ── phase-3: shorts enabled (micro). Side + proven short setups allowed ──
-def test_short_side_now_allowed():
-    assert gates.gate_side("short")[0] is True
+# ── 2026-05-30 reality-filter: SHORT reverted (paper PF was debunked; honest
+#    precision n=1 each, negative). SHORT code stays but gated off. ──────────
+def test_short_side_gated_off_again():
     assert gates.gate_side("long")[0] is True
+    assert gates.gate_side("short")[0] is False  # reverted
 
 
-def test_short_setups_allowlisted():
-    assert gates.gate_setup_type("short_div_bos_15m")[0] is True
-    assert gates.gate_setup_type("short_double_top")[0] is True
-    # a non-allowlisted setup is still rejected
-    assert gates.gate_setup_type("long_double_bottom")[0] is False
+def test_short_setups_not_allowlisted():
+    assert gates.gate_setup_type("short_div_bos_15m")[0] is False
+    assert gates.gate_setup_type("short_double_top")[0] is False
+    # reality-filter survivor IS allowed
+    assert gates.gate_setup_type("long_double_bottom")[0] is True

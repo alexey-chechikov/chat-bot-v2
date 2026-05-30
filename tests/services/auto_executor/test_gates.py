@@ -35,16 +35,19 @@ def _state_with_balance(usd: float = 100.0) -> State:
 
 # ─── individual gates ──────────────────────────────────────────────
 def test_gate_setup_type_allows_allowlist() -> None:
+    # 2026-05-30 reality-filter survivors
     assert gates.gate_setup_type("long_pdl_bounce")[0]
-    assert gates.gate_setup_type("long_multi_divergence")[0]
     assert gates.gate_setup_type("long_dump_reversal")[0]
+    assert gates.gate_setup_type("long_double_bottom")[0]
+    # removed: long_multi_divergence (honest −21%)
+    assert not gates.gate_setup_type("long_multi_divergence")[0]
 
 
 def test_gate_setup_type_rejects_unknown() -> None:
-    # long_double_bottom is a real but non-allowlisted setup (paper PF 0.66)
-    ok, reason = gates.gate_setup_type("long_double_bottom")
+    # short_pdh_rejection is a real but non-allowlisted ballast setup (honest −0.32%)
+    ok, reason = gates.gate_setup_type("short_pdh_rejection")
     assert not ok
-    assert "long_double_bottom" in reason
+    assert "short_pdh_rejection" in reason
 
 
 def test_gate_pair_rejects_non_btcusdt() -> None:
@@ -175,10 +178,10 @@ def test_can_open_blocks_when_setup_frozen() -> None:
 
 def test_can_open_blocks_for_disallowed_setup_type() -> None:
     s = _state_with_balance()
-    bad = _setup(setup_type="long_double_bottom")  # real but not allowlisted
+    bad = _setup(setup_type="short_pdh_rejection")  # real but not allowlisted (ballast)
     ok, reason = gates.can_open(bad, s)
     assert not ok
-    assert "long_double_bottom" in reason
+    assert "short_pdh_rejection" in reason
 
 
 # ─── kill-switch updates ──────────────────────────────────────────
