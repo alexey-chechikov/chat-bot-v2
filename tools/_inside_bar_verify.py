@@ -17,16 +17,20 @@ import pandas as pd
 
 ROOT = Path("/Users/alexeychechikov/code/bot7")
 sys.path.insert(0, str(ROOT))
-FEE_RT = 0.15        # %
+import os
+FEE_RT = float(os.getenv("FEE_RT", "0.15"))   # %
 SLIP = float(__import__("os").getenv("SLIP", "0.0"))  # % per side
 TP_MULT, SL_MULT, ATR_N = 5.0, 3.0, 14
+
+
+TF = __import__("os").getenv("TF", "4h")
 
 
 def load_4h(pair, src="1m"):
     f = ROOT / "backtests" / "frozen" / f"{pair}_{src}_2y.csv"
     df = pd.read_csv(f)
     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
-    o = (df.set_index("ts").resample("4h").agg(
+    o = (df.set_index("ts").resample(TF).agg(
         {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna())
     return o
 
