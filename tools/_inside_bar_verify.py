@@ -32,6 +32,11 @@ def load_4h(pair, src="1m"):
     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
     o = (df.set_index("ts").resample(TF).agg(
         {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna())
+    start = os.getenv("START"); end = os.getenv("END")
+    if start:
+        o = o[o.index >= start]
+    if end:
+        o = o[o.index <= end]
     return o
 
 
