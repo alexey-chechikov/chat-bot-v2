@@ -5,6 +5,7 @@ with the optimized exits (tp 1.5% / sl 0.5% / 2h). Runs the REAL detectors over
 regime_label approximated (4h move: >+1% trend_up[excluded for pdl], <-1%
 trend_down, else range_wide). dump_reversal has no regime gate (fully faithful).
 """
+import os
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -22,7 +23,10 @@ try:
 except Exception:
     detect_double_top_setup = None
 
-FEES, TP, SL, HOLD_MIN = 0.165, 1.5, 0.5, 120
+# FEES override via env to test maker (limit/grid) vs taker. Taker RT 0.165%;
+# maker-ish RT ~0.03% (limit entry rebate + taker exit); both-maker ~-0.08%.
+FEES = float(os.getenv("FEES", "0.165"))
+TP, SL, HOLD_MIN = 1.5, 0.5, 120
 STEP_MIN = 15            # evaluate every 15 minutes
 H1_WIN, M1_WIN = 60, 60  # bars of context
 
@@ -68,10 +72,32 @@ def _sim_exit(m1_all, hi, lo, ts_ns, t_entry, entry, side="long"):
         return (entry / float(m1_all[end - 1]) - 1) * 100 - FEES
 
 
+def _trend_series(m1):
+    """4h-trend label per 4h bar: up / down / flat (EMA20 position + slope)."""
+    h4 = m1["close"].resample("4h").last().dropna()
+    ema = h4.ewm(span=20, adjust=False).mean()
+    out = {}
+    ema_v = ema.to_numpy(); h4_v = h4.to_numpy(); idx = h4.index
+    for i in range(len(h4)):
+        if i < 3:
+            out[idx[i]] = "flat"; continue
+        rising = ema_v[i] > ema_v[i-3]
+        if h4_v[i] > ema_v[i] and rising:
+            out[idx[i]] = "up"
+        elif h4_v[i] < ema_v[i] and not rising:
+            out[idx[i]] = "down"
+        else:
+            out[idx[i]] = "flat"
+    return pd.Series(out).sort_index()
+
+
 def run_pair(pair):
     m1 = _load(pair)
     h1 = m1.resample("1h").agg({"open": "first", "high": "max", "low": "min",
                                 "close": "last", "volume": "sum"}).dropna()
+    trend = _trend_series(m1)
+    trend_ns = trend.index.astype("int64").to_numpy()
+    trend_v = trend.to_numpy()
     ts_ns = m1.index.astype("int64").to_numpy()
     hi = m1["high"].to_numpy(float); lo = m1["low"].to_numpy(float)
     cl = m1["close"].to_numpy(float)
@@ -109,7 +135,11 @@ def run_pair(pair):
             if s is not None:
                 r = _sim_exit(cl, hi, lo, ts_ns, t, price, side=side)
                 if r is not None:
-                    trades.append({"ts": t, "type": name, "side": side, "pnl": r})
+                    tp_i = int(np.searchsorted(trend_ns, t.value, side="right")) - 1
+                    tr = trend_v[tp_i] if 0 <= tp_i < len(trend_v) else "flat"
+                    aligned = (side == "long" and tr == "up") or (side == "short" and tr == "down")
+                    trades.append({"ts": t, "type": name, "side": side, "pnl": r,
+                                   "trend": tr, "aligned": aligned})
                     last_exit_ts = t + timedelta(minutes=HOLD_MIN)
                 break  # one entry per step
     return trades
@@ -154,6 +184,26 @@ def main():
             s = _stats(list(df[df["type"] == t]["pnl"]))
             if s and s[0] >= 10:
                 print(f"    {t:16s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]} sum={s[4]}%")
+        # ── TREND FILTER (operator's idea): only trade with the 4h trend ──
+        print("  --- 4h-TREND FILTER ---")
+        al = df[df["aligned"]]
+        ct = df[~df["aligned"]]
+        for name, seg in (("ALIGNED (long&up / short&down)", al),
+                          ("COUNTER-trend", ct)):
+            s = _stats(list(seg["pnl"]))
+            if s:
+                print(f"  {name:32s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]} sum={s[4]}%")
+        # aligned, by year (OOS) + by side
+        if len(al):
+            print("  aligned by year: ", end="")
+            for y, g in al.groupby(al.ts.dt.year):
+                s = _stats(list(g["pnl"]))
+                print(f"{y}:n={s[0]} EV={s[2]} PF={s[3]}  ", end="")
+            print()
+            for sd in ("long", "short"):
+                s = _stats(list(al[al["side"] == sd]["pnl"]))
+                if s:
+                    print(f"    aligned {sd:5s} n={s[0]} WR={s[1]}% EV={s[2]}% PF={s[3]}")
 
 
 if __name__ == "__main__":
