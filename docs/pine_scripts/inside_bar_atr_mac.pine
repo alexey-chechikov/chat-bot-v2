@@ -1,0 +1,50 @@
+//@version=5
+// Inside Bar + ATR-volatility filter — Mac canonical (2026-06-01)
+// Спека: docs/INSIDE_BAR_CANONICAL_SPEC.md
+// Применять на BTCUSDT 4h. Комиссия 0.075%/сторона зашита (= 0.15% rt taker).
+// Ожидаемо (мой движок, 2024-05..2026-05, real fee): net +264%, PF 2.34,
+// Sharpe 2.23, maxDD -16%, WR 61%, ~72 сделки (плюс каждый год).
+strategy("Inside Bar + ATR-vol filter (Mac)", overlay=true,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.075,
+     pyramiding=0, calc_on_order_fills=false, process_orders_on_close=true,
+     initial_capital=10000)
+
+// ── параметры (канон) ──
+tpMult  = input.float(5.0, "TP × ATR")
+slMult  = input.float(3.0, "SL × ATR")
+atrLen  = input.int(14,  "ATR length")
+medLen  = input.int(100, "ATR median length (vol-regime)")
+useFilt = input.bool(true, "ATR volatility filter (ключевой фильтр)")
+
+atr    = ta.atr(atrLen)                                   // Wilder RMA = как у меня
+atrpct = atr / close
+atrmed = ta.percentile_nearest_rank(atrpct, medLen, 50)  // медиана ATR% за 100 баров
+volOK  = (not useFilt) or (atrpct >= atrmed)             // торгуем только в волатильном режиме
+
+// ── сигнал: бар[1] внутренний относительно бара[2]; ПРОБОЙ МАТЕРИНСКОГО бара (bar[2]) ──
+inside   = high[1] < high[2] and low[1] > low[2]
+longSig  = inside and close > high[2] and volOK
+shortSig = inside and close < low[2]  and volOK
+
+// ── вход (stop-and-reverse, single entry) + фиксируем ATR на баре входа ──
+var float eAtr = na
+if longSig
+    strategy.entry("L", strategy.long)
+    eAtr := atr
+if shortSig
+    strategy.entry("S", strategy.short)
+    eAtr := atr
+
+// ── выход: TP=5×ATR / SL=3×ATR от средней цены позиции ──
+ap = strategy.position_avg_price
+if strategy.position_size > 0
+    strategy.exit("xL", from_entry="L", limit=ap + tpMult * eAtr, stop=ap - slMult * eAtr)
+if strategy.position_size < 0
+    strategy.exit("xS", from_entry="S", limit=ap - tpMult * eAtr, stop=ap + slMult * eAtr)
+
+// ── визуал ──
+plot(useFilt ? atrmed * close * 0 + na : na)             // (заглушка, чтобы фильтр был виден в коде)
+bgcolor(volOK ? na : color.new(color.gray, 88))          // серый фон = режим ОТФИЛЬТРОВАН (не торгуем)
+plotshape(longSig,  title="LONG",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.aqua, 0), size=size.tiny)
+plotshape(shortSig, title="SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),  size=size.tiny)
