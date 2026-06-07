@@ -1,14 +1,14 @@
 //@version=5
-// GRID REGIME DASHBOARD v5.5 — финал + СИЛА СИГНАЛА / FOLLOW-THROUGH. Mac+Win, 2026-06-07.
-// ЯДРО (валидировано, бот торгует): грид-харвест + off-switch. НЕ прогноз.
-//   Сим Win: харвест ~0.29%/оборот; off-switch далеко-за-красной +125 на крах-цикле.
-// ЛЕГИ: обе ноги ON в FLAT-полосе; цена >band% за красной + стек → режем КОНТР-ногу;
+// GRID REGIME DASHBOARD v5.6 — финал. Mac+Win, 2026-06-07.
+// ЯДРО (валидировано grid-$, бот торгует): обе ноги + price-gate + off-switch. НЕ прогноз.
+//   Win грид-сим (3 окна 2024-чоп/цикл/крах): база (price-gate ±0.3% + vol-off) = +155/+100/+9.
+// ЛЕГИ: обе ноги ON в полосе ±band% от красной; цена за band + стек → режем КОНТР-ногу;
 //   vol-off (z>=2.5) → режем ОБЕ. Архитектура: long-inverse + short-linear, независимо.
-// v5.5: СИЛА СИГНАЛА (на входе) + FOLLOW-THROUGH (постпроверка каждую свечу: цена vs 3 линий +
-//   тело + объём + сила закрытия). НЕ прогноз — реакция на факт. ВНИМАНИЕ: это МОНИТОРИНГ;
-//   правило выхода по health НЕ валидировано (тест: бьёт ли наивный выход + anchor-shift).
+// v5.6: price-gate band = 0.3% (Win grid-$ оптимум). HEALTH/FOLLOW-THROUGH = ТОЛЬКО направленная/
+//   no-edge нога, НЕ грид (Win #3: health-exit на грид-ноге ХУЖE базы — режет харвест, +155→−104..−163).
+//   Inside Bar закрыт (anchor-fragile). Грид-выход = price-gate + vol-off, без health.
 // Причинно: алерты на barstate.isconfirmed. Пресет TEMA.
-indicator("Grid Regime Dashboard v5.5", overlay=true, max_labels_count=500, max_lines_count=20)
+indicator("Grid Regime Dashboard v5.6", overlay=true, max_labels_count=500, max_lines_count=20)
 
 // ---------------- INPUTS ----------------
 gT = "MA / preset"
@@ -17,13 +17,14 @@ lenF   = input.int(50,  "MA fast",  group=gT, minval=2)
 lenM   = input.int(100, "MA mid",   group=gT, minval=2)
 lenS   = input.int(200, "MA slow (красная)", group=gT, minval=2)
 
-gR = "ЯДРО: режим / леги (валидировано)"
-band     = input.float(2.5, "Режем контр-ногу при |цена - красная| % >", group=gR, step=0.5)
+gR = "ЯДРО грида (валидировано grid-$)"
+band     = input.float(0.3, "price-gate (Win): режь контр-ногу при |цена - красная| % >", group=gR, step=0.1)
 confBars = input.int(2, "Подтверждение N баров (анти-флик)", group=gR, minval=1)
 
-gFT = "Сила сигнала / Follow-through (МОНИТОРИНГ, не валид. выход)"
+gFT = "Follow-through health — ТОЛЬКО направленная/no-edge нога, НЕ ГРИД!"
 ftConfirm = input.int(60, "health >= → ПОДТВЕРЖДАЕТСЯ", group=gFT)
-ftFizzle  = input.int(35, "health <= 2 бара → ЗАТУХАЕТ (кандидат выход)", group=gFT)
+ftFizzle  = input.int(40, "health <= K баров → ЗАТУХАЕТ (de-risk напр. ноги)", group=gFT)
+ftBars    = input.int(1, "K баров для затухания (Win sweep: 1)", group=gFT, minval=1)
 
 gE = "Entry add-on (инфо-маркеры входа)"
 freshDist = input.float(4.0, "Confirmed-flip 'чистый' если dist красной % <", group=gE, step=0.5)
@@ -81,7 +82,7 @@ spreadPct = math.abs(t50 - t200) / close * 100.0
 aboveRedPct = (close - t200) / t200 * 100.0
 distSlow = math.abs(aboveRedPct)
 
-// ---------------- РЕЖИМ / ЛЕГИ (валидированное ядро) ----------------
+// ---------------- ГРИД ЛЕГИ (price-gate + vol-off, БЕЗ health) ----------------
 rawUp = aboveRedPct >  band and bullStack
 rawDn = aboveRedPct < -band and bearStack
 var int upCnt = 0
@@ -115,7 +116,7 @@ pbShort = regDir == -1 and distSlow <= pbDist and math.abs(rsi - 50) <= pbRsiMax
 exitLong  = regDir[1] == 1  and regDir != 1
 exitShort = regDir[1] == -1 and regDir != -1
 
-// ---------------- FOLLOW-THROUGH / СИЛА (МОНИТОРИНГ, не прогноз) ----------------
+// ---------------- FOLLOW-THROUGH health (ТОЛЬКО направленная нога, НЕ грид) ----------------
 bodyUp = close > open
 rng = high - low
 closeStr = rng > 0 ? (close - low) / rng : 0.5
@@ -127,7 +128,9 @@ var float entryStrength = na
 if enterLong or enterShort
     entryStrength := regDir == 1 ? ftBull : ftBear
 ftVerdict = na(ftHealth) ? "—" : ftHealth >= ftConfirm ? "ПОДТВЕРЖДАЕТСЯ" : ftHealth <= ftFizzle ? "ЗАТУХАЕТ" : "вяло"
-fizzle = not na(ftHealth) and not na(ftHealth[1]) and ftHealth <= ftFizzle and ftHealth[1] <= ftFizzle
+var int ftLowCnt = 0
+ftLowCnt := (not na(ftHealth) and ftHealth <= ftFizzle) ? ftLowCnt + 1 : 0
+fizzle = not na(ftHealth) and ftLowCnt >= ftBars
 
 // ---------------- КОНТЕКСТ (инфо) ----------------
 oiTk   = oiTicker   == "" ? syminfo.tickerid : oiTicker
@@ -160,7 +163,7 @@ plotshape(showEntries and pbLong,     "Pullback LONG", shape.circle,       locat
 plotshape(showEntries and pbShort,    "Pullback SHORT",shape.circle,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="pb")
 plotshape(showEntries and exitLong,   "STOP long",     shape.xcross,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="x")
 plotshape(showEntries and exitShort,  "STOP short",    shape.xcross,       location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="x")
-plotshape(showExtras  and fizzle,     "FIZZLE",        shape.square,       location.abovebar, color.new(color.purple,0), size=size.tiny, text="fz")
+plotshape(showExtras  and fizzle,     "FIZZLE (напр.)",shape.square,       location.abovebar, color.new(color.purple,0), size=size.tiny, text="fz")
 plotshape(showExtras  and volOff and not volOff[1], "VOL-OFF", shape.xcross, location.abovebar, color.new(color.orange,0), size=size.small, text="off")
 
 var line liqHiLine = na
@@ -185,8 +188,8 @@ stackTxt = bullStack ? "BULL" : bearStack ? "BEAR" : "mixed"
 hdr = color.new(color.blue, 30)
 var table tb = table.new(position.top_right, 2, 16, border_width=1)
 if barstate.islast
-    table.cell(tb, 0, 0, "ЯДРО — бот торгует", text_color=color.white, bgcolor=hdr)
-    table.cell(tb, 1, 0, "v5.5", text_color=color.silver, bgcolor=hdr)
+    table.cell(tb, 0, 0, "ЯДРО ГРИДА — бот торгует", text_color=color.white, bgcolor=hdr)
+    table.cell(tb, 1, 0, "v5.6", text_color=color.silver, bgcolor=hdr)
     table.cell(tb, 0, 1, "ДЕЙСТВИЕ", text_color=color.white, bgcolor=color.new(color.black,0))
     table.cell(tb, 1, 1, action, text_color=color.white, bgcolor=color.new(modeCol, 35))
     table.cell(tb, 0, 2, "LONG-грид (инверс)", text_color=color.silver)
@@ -195,24 +198,24 @@ if barstate.islast
     table.cell(tb, 1, 3, shortState, text_color=color.white, bgcolor=shortCol)
     table.cell(tb, 0, 4, "РЕЖИМ", text_color=color.silver)
     table.cell(tb, 1, 4, mode, text_color=color.white, bgcolor=color.new(modeCol, 50))
-    table.cell(tb, 0, 5, "сила входа", text_color=color.silver)
-    table.cell(tb, 1, 5, na(entryStrength) ? "—" : str.tostring(entryStrength, "#") + "/100", text_color=color.white)
-    table.cell(tb, 0, 6, "follow-through", text_color=color.silver)
-    table.cell(tb, 1, 6, (na(ftHealth) ? "—" : str.tostring(ftHealth, "#") + "/100 ") + ftVerdict, text_color=color.white, bgcolor=color.new(ftCol, 55))
-    table.cell(tb, 0, 7, "цена vs красной %", text_color=color.silver)
-    table.cell(tb, 1, 7, str.tostring(aboveRedPct, "#.##"), text_color=color.white)
-    table.cell(tb, 0, 8, "стек / spread %", text_color=color.silver)
-    table.cell(tb, 1, 8, stackTxt + " / " + str.tostring(spreadPct, "#.##"), text_color=color.white)
-    table.cell(tb, 0, 9, "ATR% / Vol-z", text_color=color.silver)
-    table.cell(tb, 1, 9, str.tostring(atrp, "#.##") + " / " + str.tostring(volZ, "#.##") + (volOff ? " !" : ""), text_color=volOff ? color.orange : color.white)
-    table.cell(tb, 0, 10, "RSI", text_color=color.silver)
-    table.cell(tb, 1, 10, str.tostring(rsi, "#.#"), text_color=color.white)
-    table.cell(tb, 0, 11, useCtx ? "КОНТЕКСТ — инфо, НЕ сигнал" : "", text_color=color.white, bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
-    table.cell(tb, 1, 11, "", bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
-    table.cell(tb, 0, 12, useCtx ? "OI" : "", text_color=color.silver)
-    table.cell(tb, 1, 12, useCtx ? (na(oiVal) ? "n/a" : str.tostring(oiVal, "#.###")) : "", text_color=color.gray)
-    table.cell(tb, 0, 13, useCtx ? "Funding" : "", text_color=color.silver)
-    table.cell(tb, 1, 13, useCtx ? (na(fundVal) ? "n/a" : str.tostring(fundVal, "#.####")) : "", text_color=color.gray)
+    table.cell(tb, 0, 5, "цена vs красной %", text_color=color.silver)
+    table.cell(tb, 1, 5, str.tostring(aboveRedPct, "#.##"), text_color=color.white)
+    table.cell(tb, 0, 6, "стек / spread %", text_color=color.silver)
+    table.cell(tb, 1, 6, stackTxt + " / " + str.tostring(spreadPct, "#.##"), text_color=color.white)
+    table.cell(tb, 0, 7, "ATR% / Vol-z", text_color=color.silver)
+    table.cell(tb, 1, 7, str.tostring(atrp, "#.##") + " / " + str.tostring(volZ, "#.##") + (volOff ? " !" : ""), text_color=volOff ? color.orange : color.white)
+    table.cell(tb, 0, 8, "RSI", text_color=color.silver)
+    table.cell(tb, 1, 8, str.tostring(rsi, "#.#"), text_color=color.white)
+    table.cell(tb, 0, 9, "— напр. нога (НЕ грид) —", text_color=color.white, bgcolor=color.new(color.purple,40))
+    table.cell(tb, 1, 9, "инфо", text_color=color.silver, bgcolor=color.new(color.purple,40))
+    table.cell(tb, 0, 10, "сила входа", text_color=color.silver)
+    table.cell(tb, 1, 10, na(entryStrength) ? "—" : str.tostring(entryStrength, "#") + "/100", text_color=color.white)
+    table.cell(tb, 0, 11, "follow-through", text_color=color.silver)
+    table.cell(tb, 1, 11, (na(ftHealth) ? "—" : str.tostring(ftHealth, "#") + "/100 ") + ftVerdict, text_color=color.white, bgcolor=color.new(ftCol, 55))
+    table.cell(tb, 0, 12, useCtx ? "— КОНТЕКСТ (инфо) —" : "", text_color=color.white, bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
+    table.cell(tb, 1, 12, "", bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
+    table.cell(tb, 0, 13, useCtx ? "OI / Funding" : "", text_color=color.silver)
+    table.cell(tb, 1, 13, useCtx ? ((na(oiVal) ? "n/a" : str.tostring(oiVal, "#.##")) + " / " + (na(fundVal) ? "n/a" : str.tostring(fundVal, "#.####"))) : "", text_color=color.gray)
     table.cell(tb, 0, 14, useCtx ? "ликвид hi / lo" : "", text_color=color.silver)
     table.cell(tb, 1, 14, useCtx ? (str.tostring(lastPH, "#.0") + " / " + str.tostring(lastPL, "#.0")) : "", text_color=color.gray)
     table.cell(tb, 0, 15, "", text_color=color.silver)
@@ -222,7 +225,7 @@ if barstate.islast
 alertcondition(actChanged and barstate.isconfirmed, "Рекомендация изменилась", "Grid recommendation changed")
 alertcondition(enterLong  and barstate.isconfirmed, "UP — LONG ON / SHORT CUT", "Regime UP")
 alertcondition(enterShort and barstate.isconfirmed, "DN — SHORT ON / LONG CUT", "Regime DN")
-alertcondition(fizzle and barstate.isconfirmed, "FIZZLE — сетап затухает", "Follow-through fizzle (candidate exit)")
+alertcondition(fizzle and barstate.isconfirmed, "FIZZLE (направл. нога, НЕ грид)", "Follow-through fizzle — directional leg ONLY, NOT grid")
 alertcondition((volOff and not volOff[1]) and barstate.isconfirmed, "VOL-OFF — режь обе", "Vol-off / crash")
 if actChanged and barstate.isconfirmed
-    alert('{"ind":"grid_regime","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","long":"' + longState + '","short":"' + shortState + '","regime":"' + mode + '","health":' + str.tostring(nz(ftHealth), "#") + ',"price_vs_red":' + str.tostring(aboveRedPct, "#.##") + '}', alert.freq_once_per_bar)
+    alert('{"ind":"grid_regime","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","long":"' + longState + '","short":"' + shortState + '","regime":"' + mode + '","price_vs_red":' + str.tostring(aboveRedPct, "#.##") + '}', alert.freq_once_per_bar)
