@@ -1,143 +1,205 @@
 //@version=5
-// GRID REGIME RULESET v4 — preset (По данным / Твой) + TREND/FLAT + markers + vol off
-// Mac 2026-06-06. First-cross of the line is best (82/2); confirm/buffer/slow-line worsen it.
-indicator("Grid Regime Ruleset v4", overlay=true, max_labels_count=500)
+// GRID REGIME RULESET v5.3 — Win-reframe: REGIME FLIP = SLOW STACK+HOLD (не line-cross)
+// Mac 2026-06-07.
+// v5.3: DIRECTIONAL GATE — UP/DN мало, тренд должен ДОКАЗАТЬ себя (net move >= k*ATR от старта
+//   режима). Пока не доказал → грид SYMMETRIC (доит чоп, 0 направленного риска). Обходит
+//   whipsaw / ложный тренд БЕЗ флет-детектора (§3 провален). Бледный фон = режим есть, но не
+//   подтверждён → symmetric; сочный фон + 'dir' = подтверждён → направленный.
+// v5.2: conflict guard (медленный вход / быстрый выход). v5.1: каждый флип = L/S, объём опц.
+// Чинит баг v4: пуллбэк, прокалывающий линию, флипал бота в SHORT в бычьем стеке.
+indicator("Grid Regime Ruleset v5.3", overlay=true, max_labels_count=500)
 
 // ---------------- INPUTS ----------------
-gT="Preset & lines"
-preset=input.string("Твой: EMA + красная(200)","ПРЕСЕТ",options=["Твой: EMA + красная(200)","По данным: TEMA + жёлтая(100)"],group=gT)
-lenF=input.int(50,"MA fast",group=gT,minval=2)
-lenM=input.int(100,"MA mid (жёлтая)",group=gT,minval=2)
-lenS=input.int(200,"MA slow (красная)",group=gT,minval=2)
-flipBuf=input.float(0.0,"Flip buffer % (0 = first cross = best)",group=gT,step=0.1)
-gReg="Trend / Flat"
-flatThr=input.float(1.0,"FLAT если разлёт риббона % ниже",group=gReg,step=0.1)
-gV="Vol off-switch (hysteresis)"
-atrLen=input.int(14,"ATR length",group=gV)
-volZlen=input.int(100,"Vol z lookback",group=gV)
-volZon=input.float(2.5,"Vol-expansion ON (z>=)",group=gV,step=0.1)
-volZoff=input.float(1.0,"Vol-expansion OFF (z<)",group=gV,step=0.1)
-gR="Window-risk"
-atrRisk=input.float(1.0,"ATR% risky above",group=gR,step=0.05)
-spreadRisk=input.float(1.4,"Ribbon spread risky above %",group=gR,step=0.1)
-redRisk=input.float(0.5,"Adverse-candle frac risky >=",group=gR,step=0.05)
-earlyBars=input.int(12,"Early-cut after N bars",group=gR)
-earlyAdv=input.float(0.5,"Early-cut adverse move % >",group=gR,step=0.1)
-gD="Display"
-showRibbon=input.bool(true,"Show MA lines",group=gD)
-showBG=input.bool(true,"Mode background",group=gD)
-markerMode=input.string("All","Markers",options=["All","Entries only","None"],group=gD)
+gT = "MA / preset"
+useEma = input.bool(false, "EMA вместо TEMA (выкл = TEMA, рекоменд. Win)", group=gT)
+lenF   = input.int(50,  "MA fast",  group=gT, minval=2)
+lenM   = input.int(100, "MA mid",   group=gT, minval=2)
+lenS   = input.int(200, "MA slow",  group=gT, minval=2)
 
-// ---------------- MA lines (preset-driven) ----------------
-isYours = preset=="Твой: EMA + красная(200)"
-ma(len,useEma)=>
-    e1=ta.ema(close,len)
-    e2=ta.ema(e1,len)
-    e3=ta.ema(e2,len)
-    useEma ? e1 : 3*e1-3*e2+e3
-t50=ma(lenF,isYours)
-t100=ma(lenM,isYours)
-t200=ma(lenS,isYours)
+gF = "Regime flip (риск-слой — должен быть ЧИСТЫМ)"
+flipMode = input.string("Stack-hold (new)", "Чем флипать режим",
+     options=["Stack-hold (new)", "Line-cross (old v4)"], group=gF,
+     tooltip="A/B: переключи на старый чтобы увидеть 51%-фейков шум на том же окне")
+holdBars = input.int(3,   "Stack hold bars (анти-флик)", group=gF, minval=1)
+flatThr  = input.float(1.0, "FLAT если разлёт риббона % ниже", group=gF, step=0.1)
 
-atrp=ta.atr(atrLen)/close*100.0
-volZ=(atrp-ta.sma(atrp,volZlen))/ta.stdev(atrp,volZlen)
-var bool volExp=false
-volExp := volZ>=volZon ? true : (volZ<volZoff ? false : volExp)
+gC = "Conflict guard (медленный вход / быстрый выход)"
+useGuard = input.bool(true, "Guard: конфликт цена↔режим → FLAT", group=gC,
+     tooltip="Fast-out (t50<t100 против режима) + не открывать флип в растянутом")
+entryCap = input.float(7.0, "Не открывать НОВЫЙ флип если dist от slow-MA % >", group=gC, step=0.5)
 
-bullStack=t50>t100 and t100>t200
-bearStack=t50<t100 and t100<t200
-spreadPct=math.abs(t50-t200)/close*100.0
-aligned = bullStack or bearStack
-regime = aligned and spreadPct>=flatThr ? "TREND" : "FLAT"
+gG = "Directional gate (тренд должен ДОКАЗАТЬ себя)"
+useDispGate = input.bool(true, "Directional только после displacement (иначе symmetric)", group=gG,
+     tooltip="UP/DN мало — цена должна пройти k*ATR от старта режима, иначе грид symmetric (доит чоп)")
+dispMult = input.float(1.5, "Displacement = k * ATR% от старта режима", group=gG, step=0.5)
 
-refLine = isYours ? t200 : t100
-var int dir=0
-if close > refLine*(1+flipBuf/100)
-    dir := 1
-else if close < refLine*(1-flipBuf/100)
-    dir := -1
-longWin = dir==1
-shortWin= dir==-1
-mode = volExp ? "VOL-OFF" : longWin ? "LONG" : shortWin ? "SHORT" : "FLAT"
-enterLong = longWin and not longWin[1]
-enterShort= shortWin and not shortWin[1]
+gE = "Entry add-on (confirmed-flip / пуллбэк)"
+freshDist = input.float(4.0, "Confirmed-flip 'чистый' если dist от slow-MA % <", group=gE, step=0.5)
+volMult   = input.float(1.3, "Confirmed-flip: объём > x SMA (если есть)", group=gE, step=0.1)
+rsiLen    = input.int(14, "RSI len", group=gE)
+pbDist    = input.float(3.0, "Пуллбэк: dist от slow-MA % <=", group=gE, step=0.1)
+pbFresh   = input.int(10, "Пуллбэк: структура устоялась N бар >=", group=gE)
+pbRsiMax  = input.float(10.0, "Пуллбэк: |RSI-50| <= (не растянут)", group=gE, step=1.0)
 
-// ---------------- WINDOW-RISK score ----------------
-redCnt = math.sum(close<open ? 1.0 : 0.0, earlyBars)
-redFrac= redCnt/earlyBars
-advFracL = redFrac
-advFracS = 1.0-redFrac
-riskAt(adv,_atr,_spr)=> (_atr>atrRisk?1:0)+(_spr>spreadRisk?1:0)+(adv>=redRisk?1:0)
-var int winRisk=0
-var float winStart=na
-var int winBar=na
-var string winSide="-"
-var bool cutFired=false
+gV = "Vol off-switch (hysteresis) + crash"
+atrLen    = input.int(14,  "ATR length", group=gV)
+volZlen   = input.int(100, "Vol z lookback", group=gV)
+volZon    = input.float(2.5, "Vol-expansion ON (z>=)", group=gV, step=0.1)
+volZoff   = input.float(1.0, "Vol-expansion OFF (z<)", group=gV, step=0.1)
+crashRush = input.float(4.0, "Crash: рывок за 1 бар % >", group=gV, step=0.5)
+crashAtrX = input.float(1.4, "Crash: ATR% > x медианы", group=gV, step=0.1)
+
+gD = "Display"
+showRibbon = input.bool(true, "Show MA lines", group=gD)
+showBG     = input.bool(true, "Mode background", group=gD)
+markerMode = input.string("All", "Markers", options=["All","Entries only","None"], group=gD)
+
+// ---------------- MA lines ----------------
+ma(len) =>
+    e1 = ta.ema(close, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    useEma ? e1 : 3 * e1 - 3 * e2 + e3
+t50  = ma(lenF)
+t100 = ma(lenM)
+t200 = ma(lenS)
+
+// ---------------- Vol off-switch + crash ----------------
+atrp = ta.atr(atrLen) / close * 100.0
+volZ = (atrp - ta.sma(atrp, volZlen)) / ta.stdev(atrp, volZlen)
+var bool volExp = false
+volExp := volZ >= volZon ? true : (volZ < volZoff ? false : volExp)
+atrMed = ta.median(atrp, volZlen)
+rush1  = math.abs(close / close[1] - 1) * 100.0
+crash  = rush1 > crashRush and atrp > crashAtrX * atrMed
+
+// ---------------- Stack + hold ----------------
+bullStack = t50 > t100 and t100 > t200
+bearStack = t50 < t100 and t100 < t200
+spreadPct = math.abs(t50 - t200) / close * 100.0
+distSlow  = math.abs(close - t200) / t200 * 100.0
+var int bullCnt = 0
+var int bearCnt = 0
+bullCnt := bullStack ? bullCnt + 1 : 0
+bearCnt := bearStack ? bearCnt + 1 : 0
+bullHeld = bullCnt >= holdBars
+bearHeld = bearCnt >= holdBars
+
+// ---------------- REGIME flip (риск-слой) ----------------
+// regimeDir: +1 UP, -1 DN, 0 FLAT. Медленный вход (полный стек held) / быстрый выход (guard).
+// Конфликт уводит в FLAT, НЕ во встречную сторону — направленный шум не возвращается.
+var int regimeDir = 0
+overext = useGuard and distSlow > entryCap
+if flipMode == "Line-cross (old v4)"
+    refLine = useEma ? t200 : t100
+    nd = close > refLine ? 1 : close < refLine ? -1 : regimeDir
+    regimeDir := spreadPct < flatThr ? 0 : nd
+else
+    if spreadPct < flatThr
+        regimeDir := 0
+    else if bullHeld and not overext
+        regimeDir := 1
+    else if bearHeld and not overext
+        regimeDir := -1
+    else if useGuard and regimeDir == 1 and t50 < t100
+        regimeDir := 0   // fast-out: быстрая потеряла среднюю = трещина бычьего → FLAT
+    else if useGuard and regimeDir == -1 and t50 > t100
+        regimeDir := 0   // fast-out: трещина медвежьего → FLAT
+    // иначе: держим прошлый режим сквозь мелкий пуллбэк
+
+mode = volExp ? "VOL-OFF" : regimeDir == 1 ? "UP" : regimeDir == -1 ? "DN" : "FLAT"
+
+// ---------------- Directional gate (тренд должен ДОКАЗАТЬ себя) ----------------
+// Режим UP/DN сам по себе → грид SYMMETRIC. Направленный включаем только когда цена прошла
+// dispMult*ATR% от старта режима (latched на время режима). В чопе — никогда → symmetric.
+var float regimeAnchor = close
+var bool  dirLatch = false
+if regimeDir != regimeDir[1]
+    regimeAnchor := close
+    dirLatch := false
+netMovePct = regimeAnchor != 0 ? (close - regimeAnchor) / regimeAnchor * 100.0 : 0.0
+dispNeed = dispMult * atrp
+if (regimeDir == 1 and netMovePct >= dispNeed) or (regimeDir == -1 and -netMovePct >= dispNeed)
+    dirLatch := true
+directional = (not useDispGate) or dirLatch
+dirOn = directional and not directional[1] and regimeDir != 0
+
+// ---------------- Entries (КАЖДЫЙ флип режима = маркер; цвет = качество) ----------------
+rsi      = ta.rsi(close, rsiLen)
+rsiMa    = ta.sma(rsi, 9)
+volRatio = nz(volume / ta.sma(volume, volZlen))
+volOk    = na(volume) or volRatio > volMult
+enterLong  = regimeDir == 1  and regimeDir[1] != 1
+enterShort = regimeDir == -1 and regimeDir[1] != -1
+cleanLong  = enterLong  and rsi > rsiMa and volOk and distSlow < freshDist
+cleanShort = enterShort and rsi < rsiMa and volOk and distSlow < freshDist
+
+// Пуллбэк-добор (100-pt скор #1: свежий, у линии, не растянут) — только В тренде
+pbLong  = regimeDir == 1  and distSlow <= pbDist and bullCnt >= pbFresh and math.abs(rsi - 50) <= pbRsiMax and close <= t100
+pbShort = regimeDir == -1 and distSlow <= pbDist and bearCnt >= pbFresh and math.abs(rsi - 50) <= pbRsiMax and close >= t100
+
+// ---------------- Exits (bot STOPS directional grid) ----------------
+exitLong  = regimeDir[1] == 1  and regimeDir != 1
+exitShort = regimeDir[1] == -1 and regimeDir != -1
+crashExit = crash or (volExp and not volExp[1])
+
+// ---------------- Flip counters (для A/B старый vs новый) ----------------
+var int nLong  = 0
+var int nShort = 0
 if enterLong
-    winRisk := riskAt(advFracL,atrp,spreadPct)
-    winStart := close
-    winBar := bar_index
-    winSide := "long"
-    cutFired := false
+    nLong += 1
 if enterShort
-    winRisk := riskAt(advFracS,atrp,spreadPct)
-    winStart := close
-    winBar := bar_index
-    winSide := "short"
-    cutFired := false
-riskTxt = winRisk>=3?"HIGH":winRisk==2?"MED":"LOW"
-riskCol = winRisk>=3?color.red:winRisk==2?color.yellow:color.lime
-
-// ---------------- EARLY-CUT ----------------
-inWin = longWin or shortWin
-barsIn = inWin ? bar_index-winBar : 0
-advMove = na(winStart) ? 0.0 : (winSide=="short" ? close/winStart-1 : winStart/close-1)*100.0
-earlyCut = inWin and barsIn>=earlyBars and advMove>earlyAdv and not cutFired
-if earlyCut
-    cutFired := true
-
-// ---------------- Exits (bot STOPS here) ----------------
-exitShort = shortWin[1] and ta.crossover(close,refLine)
-exitLong  = longWin[1]  and ta.crossunder(close,refLine)
+    nShort += 1
 
 // ---------------- Plots ----------------
-plot(showRibbon?t50 :na,"MA fast",color.new(color.lime,0),1)
-plot(showRibbon?t100:na,"MA mid (жёлтая)", color.new(color.yellow,0),2)
-plot(showRibbon?t200:na,"MA slow (красная)",color.new(color.red,0),1)
-bgCol = mode=="VOL-OFF"?color.new(color.orange,80):mode=="LONG"?color.new(color.green,90):mode=="SHORT"?color.new(color.red,90):color.new(color.gray,92)
-bgcolor(showBG?bgCol:na)
-showEntries = markerMode!="None"
-showExtras  = markerMode=="All"
-eLcol = winRisk>=3?color.new(color.red,0):winRisk==2?color.new(color.orange,0):color.new(color.lime,0)
-eScol = winRisk>=3?color.new(color.red,0):winRisk==2?color.new(color.orange,0):color.new(color.aqua,0)
-plotshape(showEntries and enterLong, "Open LONG",  shape.triangleup,  location.belowbar, eLcol, size=size.small, text="L")
-plotshape(showEntries and enterShort,"Open SHORT", shape.triangledown,location.abovebar, eScol, size=size.small, text="S")
-plotshape(showExtras and earlyCut,  "EARLY-CUT", shape.xcross, location.abovebar, color.fuchsia, size=size.small, text="cut")
-plotshape(showExtras and exitShort, "STOP short", shape.xcross, location.belowbar, color.new(color.aqua,20),    size=size.tiny)
-plotshape(showExtras and exitLong,  "STOP long",  shape.xcross, location.abovebar, color.new(color.fuchsia,20), size=size.tiny)
+plot(showRibbon ? t50  : na, "MA fast", color.new(color.lime,   0), 1)
+plot(showRibbon ? t100 : na, "MA mid",  color.new(color.yellow, 0), 2)
+plot(showRibbon ? t200 : na, "MA slow", color.new(color.red,    0), 1)
+bgCol = mode == "VOL-OFF" ? color.new(color.orange, 80) : mode == "UP" ? color.new(color.green, directional ? 85 : 93) : mode == "DN" ? color.new(color.red, directional ? 85 : 93) : color.new(color.gray, 92)
+bgcolor(showBG ? bgCol : na)
+
+showEntries = markerMode != "None"
+showExtras  = markerMode == "All"
+eLcol = cleanLong  ? color.new(color.lime, 0) : color.new(color.gray, 0)
+eScol = cleanShort ? color.new(color.red,  0) : color.new(color.gray, 0)
+plotshape(showEntries and enterLong,  "Open LONG",     shape.triangleup,   location.belowbar, eLcol, size=size.small, text="L")
+plotshape(showEntries and enterShort, "Open SHORT",    shape.triangledown, location.abovebar, eScol, size=size.small, text="S")
+plotshape(showExtras  and dirOn,      "DIRECTIONAL",   shape.flag,         location.belowbar, color.new(color.blue,0), size=size.tiny, text="dir")
+plotshape(showEntries and pbLong,     "Pullback LONG", shape.circle,       location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="pb")
+plotshape(showEntries and pbShort,    "Pullback SHORT",shape.circle,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="pb")
+plotshape(showEntries and exitLong,   "STOP long",     shape.xcross,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="x")
+plotshape(showEntries and exitShort,  "STOP short",    shape.xcross,       location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="x")
+plotshape(showEntries and crashExit,  "CRASH/VOL-OFF", shape.xcross,       location.abovebar, color.new(color.orange, 0), size=size.small, text="off")
 
 // ---------------- Table ----------------
-modeCol = mode=="VOL-OFF"?color.orange:mode=="LONG"?color.green:mode=="SHORT"?color.red:color.gray
-gaAct = volExp ? "PAUSE / cut / hedge" : regime=="FLAT" ? "SYMMETRIC grid (chop)" : longWin ? "LONG directional grid" : "SHORT directional grid"
-var table tb=table.new(position.top_right,2,7,border_width=1)
+dirState = volExp ? "—" : (mode == "FLAT" or not directional) ? "SYMMETRIC" : "DIRECTIONAL"
+modeCol = mode == "VOL-OFF" ? color.orange : mode == "UP" ? color.green : mode == "DN" ? color.red : color.gray
+gaAct = volExp ? "PAUSE / cut / hedge" : (mode == "FLAT" or not directional) ? "SYMMETRIC grid (chop)" : mode == "UP" ? "LONG grid (попутный дрейф)" : "SHORT grid (ТАКТИЧ — против дрейфа)"
+var table tb = table.new(position.top_right, 2, 9, border_width=1)
 if barstate.islast
-    table.cell(tb,0,0,"ПРЕСЕТ",text_color=color.silver)
-    table.cell(tb,1,0,isYours?"Твой EMA/красная":"По данным TEMA/жёлтая",text_color=color.white)
-    table.cell(tb,0,1,"MODE",text_color=color.white,bgcolor=color.new(color.black,0))
-    table.cell(tb,1,1,mode,text_color=color.white,bgcolor=modeCol)
-    table.cell(tb,0,2,"Regime",text_color=color.silver)
-    table.cell(tb,1,2,regime,text_color=color.white,bgcolor=regime=="TREND"?color.new(color.blue,50):color.new(color.gray,50))
-    table.cell(tb,0,3,"Window risk",text_color=color.silver)
-    table.cell(tb,1,3,riskTxt+" ("+str.tostring(winRisk)+"/3)",text_color=color.white,bgcolor=color.new(riskCol,60))
-    table.cell(tb,0,4,"GinArea",text_color=color.silver)
-    table.cell(tb,1,4,gaAct,text_color=color.white,bgcolor=color.new(modeCol,70))
-    table.cell(tb,0,5,"ATR% / spread",text_color=color.silver)
-    table.cell(tb,1,5,str.tostring(atrp,"#.##")+" / "+str.tostring(spreadPct,"#.##"),text_color=color.white)
-    table.cell(tb,0,6,"Vol z",text_color=color.silver)
-    table.cell(tb,1,6,str.tostring(volZ,"#.##")+(volExp?" !":""),text_color=volExp?color.orange:color.white)
+    table.cell(tb, 0, 0, "FLIP",  text_color=color.silver)
+    table.cell(tb, 1, 0, flipMode == "Stack-hold (new)" ? "stack-hold" : "line-cross(old)", text_color=color.white)
+    table.cell(tb, 0, 1, "MODE",  text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(tb, 1, 1, mode + " / " + dirState, text_color=color.white, bgcolor=modeCol)
+    table.cell(tb, 0, 2, "GinArea", text_color=color.silver)
+    table.cell(tb, 1, 2, gaAct,  text_color=color.white, bgcolor=color.new(modeCol, 70))
+    table.cell(tb, 0, 3, "dir net / need %", text_color=color.silver)
+    table.cell(tb, 1, 3, str.tostring(netMovePct, "#.#") + " / " + str.tostring(dispNeed, "#.#") + (dirLatch ? "  ✓" : ""), text_color=color.white)
+    table.cell(tb, 0, 4, "flips L / S", text_color=color.silver)
+    table.cell(tb, 1, 4, str.tostring(nLong) + " / " + str.tostring(nShort), text_color=color.white)
+    table.cell(tb, 0, 5, "MA",    text_color=color.silver)
+    table.cell(tb, 1, 5, useEma ? "EMA" : "TEMA", text_color=color.white)
+    table.cell(tb, 0, 6, "spread / dist200 %", text_color=color.silver)
+    table.cell(tb, 1, 6, str.tostring(spreadPct, "#.##") + " / " + str.tostring(distSlow, "#.##"), text_color=color.white)
+    table.cell(tb, 0, 7, "ATR% / Vol z", text_color=color.silver)
+    table.cell(tb, 1, 7, str.tostring(atrp, "#.##") + " / " + str.tostring(volZ, "#.##") + (volExp ? " !" : ""), text_color=volExp ? color.orange : color.white)
+    table.cell(tb, 0, 8, "RSI",   text_color=color.silver)
+    table.cell(tb, 1, 8, str.tostring(rsi, "#.#"), text_color=color.white)
 
 // ---------------- Alerts ----------------
-alertcondition(enterLong, "Open LONG", "Open LONG grid")
-alertcondition(enterShort,"Open SHORT","Open SHORT grid")
-alertcondition(earlyCut,  "EARLY-CUT","Adverse move - stop/cut grid")
-alertcondition(volExp,    "VOL-EXPANSION","ATR spike - pause/cut/hedge")
+alertcondition(enterLong,  "Open LONG",  "Regime UP - start LONG grid")
+alertcondition(enterShort, "Open SHORT", "Regime DN - start SHORT grid")
+alertcondition(dirOn,      "Directional ON", "Trend confirmed - switch grid to directional")
+alertcondition(pbLong,     "Pullback LONG", "Pullback LONG add")
+alertcondition(exitLong or exitShort, "STACK-FLIP exit", "Regime flipped - stop directional grid")
+alertcondition(crashExit,  "CRASH / VOL-OFF", "Vol expansion / crash - pause/cut/hedge")
