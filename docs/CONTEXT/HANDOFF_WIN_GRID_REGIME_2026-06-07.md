@@ -78,4 +78,32 @@ BTCUSDT, INDICATOR GRID, шаг 0.04, 600 ордеров, мульт 1.4. Мет
 - **Mac:** вшить v5.3 регим в bot7 → live Telegram-карточка светофора (LONG inverse ON / SHORT
   linear / FLAT both / VOL-OFF cut), чтобы оператор получал сигнал на телефон, не пялясь в TV.
 
-Связано: `[[project_offswitch_nonprice]]` `[[project_bitmex_fees]]` `[[feedback_test_before_deploy]]`
+---
+
+## 6. ДОБАВЛЕНО ВЕЧЕРОМ (Mac): IB закрыт, follow-through EXIT валидирован
+
+**Inside Bar — ЗАКРЫТ (anchor-fragile).** `scripts/_ib_anchor_test.py`: сдвиг 4ч-сетки на 1ч →
++264% превращается в +26% (WR 61→44), 2ч −10%, 3ч −26%. +281% = артефакт удачного UTC-якоря.
+Mac+Win совпали. Не торговать. (Также `_ib_regime_combo.py`: IB×наши-линии = ХУЖE.)
+
+**Follow-through EXIT — ВАЛИДИРОВАН как DE-RISK (первый робастный плюс дня).**
+`scripts/_followthrough_exit_test.py` + `_ft_threshold_sweep.py`. Entry зафиксирован (edge режима),
+меняется только выход. Health score (как в dashboard v5.5, в сторону позиции):
+`25·(close>t50) + 15·(close>t100) + 10·(close>t200) + 20·(тело по дир) + 15·(vol>vma100) + 15·(сила закрытия)`.
+Выход `fizzle` = health ≤ T в течение K баров.
+
+Результат (anchors 0/1/2/3ч, regime+voloff+fizzle):
+- baseline (без fizzle): DD −51..−57, net −42..−47.
+- **T=40, K=1 (робастный оптимум): DD −25..−34, net −10..−29.** Просадка ВДВОЕ ниже, на ВСЕХ якорях.
+- K=1 бьёт K=2/3. Пережил anchor-тест (в отличие от IB).
+- ВАЖНО: net всё равно минус — это НЕ альфа, направленный вход = монетка. Это **режет просадку**
+  (теряет меньше, WR не растёт). T=40/K=1 оптимизирован на сделке БЕЗ эджа.
+
+### Задача Win (#3) — follow-through на ГРИД-ноге в грид-симе
+Оптимум T=40/K=1 — для направленной сделки без эджа (там режь агрессивно). У ГРИД-ноги эдж ЕСТЬ
+(харвест 0.29%/оборот) → слишком резкий выход срежет харвест. **Прогони в грид-симе: применить
+health-decay exit к направленной ноге (срезать ногу / вернуть symmetric когда health≤T K баров),
+найти T/K что МИНИМИЗИРУЕТ give-back НЕ убивая харвест. Дай grid-$ delta vs без оверлея + по якорям.**
+Это закрывает §2 (точка выхода) в деньгах.
+
+Связано: `[[project_offswitch_nonprice]]` `[[project_bitmex_fees]]` `[[feedback_test_before_deploy]]` `[[project_inside_bar_fragile]]`
