@@ -1,44 +1,35 @@
 //@version=5
-// GRID REGIME RULESET v5.3 — Win-reframe: REGIME FLIP = SLOW STACK+HOLD (не line-cross)
-// Mac 2026-06-07.
-// v5.3: DIRECTIONAL GATE — UP/DN мало, тренд должен ДОКАЗАТЬ себя (net move >= k*ATR от старта
-//   режима). Пока не доказал → грид SYMMETRIC (доит чоп, 0 направленного риска). Обходит
-//   whipsaw / ложный тренд БЕЗ флет-детектора (§3 провален). Бледный фон = режим есть, но не
-//   подтверждён → symmetric; сочный фон + 'dir' = подтверждён → направленный.
-// v5.2: conflict guard (медленный вход / быстрый выход). v5.1: каждый флип = L/S, объём опц.
-// Чинит баг v4: пуллбэк, прокалывающий линию, флипал бота в SHORT в бычьем стеке.
-indicator("Grid Regime Ruleset v5.3", overlay=true, max_labels_count=500)
+// GRID REGIME DASHBOARD v5.5 — финал + СИЛА СИГНАЛА / FOLLOW-THROUGH. Mac+Win, 2026-06-07.
+// ЯДРО (валидировано, бот торгует): грид-харвест + off-switch. НЕ прогноз.
+//   Сим Win: харвест ~0.29%/оборот; off-switch далеко-за-красной +125 на крах-цикле.
+// ЛЕГИ: обе ноги ON в FLAT-полосе; цена >band% за красной + стек → режем КОНТР-ногу;
+//   vol-off (z>=2.5) → режем ОБЕ. Архитектура: long-inverse + short-linear, независимо.
+// v5.5: СИЛА СИГНАЛА (на входе) + FOLLOW-THROUGH (постпроверка каждую свечу: цена vs 3 линий +
+//   тело + объём + сила закрытия). НЕ прогноз — реакция на факт. ВНИМАНИЕ: это МОНИТОРИНГ;
+//   правило выхода по health НЕ валидировано (тест: бьёт ли наивный выход + anchor-shift).
+// Причинно: алерты на barstate.isconfirmed. Пресет TEMA.
+indicator("Grid Regime Dashboard v5.5", overlay=true, max_labels_count=500, max_lines_count=20)
 
 // ---------------- INPUTS ----------------
 gT = "MA / preset"
-useEma = input.bool(false, "EMA вместо TEMA (выкл = TEMA, рекоменд. Win)", group=gT)
+useEma = input.bool(false, "EMA вместо TEMA (выкл = TEMA, рекоменд.)", group=gT)
 lenF   = input.int(50,  "MA fast",  group=gT, minval=2)
 lenM   = input.int(100, "MA mid",   group=gT, minval=2)
-lenS   = input.int(200, "MA slow",  group=gT, minval=2)
+lenS   = input.int(200, "MA slow (красная)", group=gT, minval=2)
 
-gF = "Regime flip (риск-слой — должен быть ЧИСТЫМ)"
-flipMode = input.string("Stack-hold (new)", "Чем флипать режим",
-     options=["Stack-hold (new)", "Line-cross (old v4)"], group=gF,
-     tooltip="A/B: переключи на старый чтобы увидеть 51%-фейков шум на том же окне")
-holdBars = input.int(3,   "Stack hold bars (анти-флик)", group=gF, minval=1)
-flatThr  = input.float(1.0, "FLAT если разлёт риббона % ниже", group=gF, step=0.1)
+gR = "ЯДРО: режим / леги (валидировано)"
+band     = input.float(2.5, "Режем контр-ногу при |цена - красная| % >", group=gR, step=0.5)
+confBars = input.int(2, "Подтверждение N баров (анти-флик)", group=gR, minval=1)
 
-gC = "Conflict guard (медленный вход / быстрый выход)"
-useGuard = input.bool(true, "Guard: конфликт цена↔режим → FLAT", group=gC,
-     tooltip="Fast-out (t50<t100 против режима) + не открывать флип в растянутом")
-entryCap = input.float(7.0, "Не открывать НОВЫЙ флип если dist от slow-MA % >", group=gC, step=0.5)
+gFT = "Сила сигнала / Follow-through (МОНИТОРИНГ, не валид. выход)"
+ftConfirm = input.int(60, "health >= → ПОДТВЕРЖДАЕТСЯ", group=gFT)
+ftFizzle  = input.int(35, "health <= 2 бара → ЗАТУХАЕТ (кандидат выход)", group=gFT)
 
-gG = "Directional gate (тренд должен ДОКАЗАТЬ себя)"
-useDispGate = input.bool(true, "Directional только после displacement (иначе symmetric)", group=gG,
-     tooltip="UP/DN мало — цена должна пройти k*ATR от старта режима, иначе грид symmetric (доит чоп)")
-dispMult = input.float(1.5, "Displacement = k * ATR% от старта режима", group=gG, step=0.5)
-
-gE = "Entry add-on (confirmed-flip / пуллбэк)"
-freshDist = input.float(4.0, "Confirmed-flip 'чистый' если dist от slow-MA % <", group=gE, step=0.5)
+gE = "Entry add-on (инфо-маркеры входа)"
+freshDist = input.float(4.0, "Confirmed-flip 'чистый' если dist красной % <", group=gE, step=0.5)
 volMult   = input.float(1.3, "Confirmed-flip: объём > x SMA (если есть)", group=gE, step=0.1)
 rsiLen    = input.int(14, "RSI len", group=gE)
-pbDist    = input.float(3.0, "Пуллбэк: dist от slow-MA % <=", group=gE, step=0.1)
-pbFresh   = input.int(10, "Пуллбэк: структура устоялась N бар >=", group=gE)
+pbDist    = input.float(3.0, "Пуллбэк-добор: dist красной % <=", group=gE, step=0.1)
 pbRsiMax  = input.float(10.0, "Пуллбэк: |RSI-50| <= (не растянут)", group=gE, step=1.0)
 
 gV = "Vol off-switch (hysteresis) + crash"
@@ -49,12 +40,19 @@ volZoff   = input.float(1.0, "Vol-expansion OFF (z<)", group=gV, step=0.1)
 crashRush = input.float(4.0, "Crash: рывок за 1 бар % >", group=gV, step=0.5)
 crashAtrX = input.float(1.4, "Crash: ATR% > x медианы", group=gV, step=0.1)
 
+gX = "КОНТЕКСТ (инфо, бот НЕ торгует)"
+useCtx     = input.bool(true,  "Показать блок КОНТЕКСТ", group=gX)
+oiTicker   = input.string("",  "OI тикер (пусто=выкл)", group=gX)
+fundTicker = input.string("",  "Funding тикер (пусто=выкл)", group=gX)
+showLiq    = input.bool(true,  "Свинг-уровни ликвидности (линии)", group=gX)
+liqLen     = input.int(15, "Свинг pivot N", group=gX, minval=2)
+
 gD = "Display"
 showRibbon = input.bool(true, "Show MA lines", group=gD)
 showBG     = input.bool(true, "Mode background", group=gD)
 markerMode = input.string("All", "Markers", options=["All","Entries only","None"], group=gD)
 
-// ---------------- MA lines ----------------
+// ---------------- MA / RSI ----------------
 ma(len) =>
     e1 = ta.ema(close, len)
     e2 = ta.ema(e1, len)
@@ -63,6 +61,8 @@ ma(len) =>
 t50  = ma(lenF)
 t100 = ma(lenM)
 t200 = ma(lenS)
+rsi   = ta.rsi(close, rsiLen)
+rsiMa = ta.sma(rsi, 9)
 
 // ---------------- Vol off-switch + crash ----------------
 atrp = ta.atr(atrLen) / close * 100.0
@@ -72,90 +72,82 @@ volExp := volZ >= volZon ? true : (volZ < volZoff ? false : volExp)
 atrMed = ta.median(atrp, volZlen)
 rush1  = math.abs(close / close[1] - 1) * 100.0
 crash  = rush1 > crashRush and atrp > crashAtrX * atrMed
+volOff = volExp or crash
 
-// ---------------- Stack + hold ----------------
+// ---------------- Stack + price-vs-red ----------------
 bullStack = t50 > t100 and t100 > t200
 bearStack = t50 < t100 and t100 < t200
 spreadPct = math.abs(t50 - t200) / close * 100.0
-distSlow  = math.abs(close - t200) / t200 * 100.0
-var int bullCnt = 0
-var int bearCnt = 0
-bullCnt := bullStack ? bullCnt + 1 : 0
-bearCnt := bearStack ? bearCnt + 1 : 0
-bullHeld = bullCnt >= holdBars
-bearHeld = bearCnt >= holdBars
+aboveRedPct = (close - t200) / t200 * 100.0
+distSlow = math.abs(aboveRedPct)
 
-// ---------------- REGIME flip (риск-слой) ----------------
-// regimeDir: +1 UP, -1 DN, 0 FLAT. Медленный вход (полный стек held) / быстрый выход (guard).
-// Конфликт уводит в FLAT, НЕ во встречную сторону — направленный шум не возвращается.
-var int regimeDir = 0
-overext = useGuard and distSlow > entryCap
-if flipMode == "Line-cross (old v4)"
-    refLine = useEma ? t200 : t100
-    nd = close > refLine ? 1 : close < refLine ? -1 : regimeDir
-    regimeDir := spreadPct < flatThr ? 0 : nd
-else
-    if spreadPct < flatThr
-        regimeDir := 0
-    else if bullHeld and not overext
-        regimeDir := 1
-    else if bearHeld and not overext
-        regimeDir := -1
-    else if useGuard and regimeDir == 1 and t50 < t100
-        regimeDir := 0   // fast-out: быстрая потеряла среднюю = трещина бычьего → FLAT
-    else if useGuard and regimeDir == -1 and t50 > t100
-        regimeDir := 0   // fast-out: трещина медвежьего → FLAT
-    // иначе: держим прошлый режим сквозь мелкий пуллбэк
+// ---------------- РЕЖИМ / ЛЕГИ (валидированное ядро) ----------------
+rawUp = aboveRedPct >  band and bullStack
+rawDn = aboveRedPct < -band and bearStack
+var int upCnt = 0
+var int dnCnt = 0
+upCnt := rawUp ? upCnt + 1 : 0
+dnCnt := rawDn ? dnCnt + 1 : 0
+var int regDir = 0
+if upCnt >= confBars
+    regDir := 1
+else if dnCnt >= confBars
+    regDir := -1
+else if not rawUp and not rawDn
+    regDir := 0
 
-mode = volExp ? "VOL-OFF" : regimeDir == 1 ? "UP" : regimeDir == -1 ? "DN" : "FLAT"
+mode = volOff ? "VOL-OFF" : regDir == 1 ? "UP" : regDir == -1 ? "DN" : "FLAT"
+longState  = volOff ? "PAUSE" : regDir == -1 ? "CUT" : "ON"
+shortState = volOff ? "PAUSE" : regDir == 1  ? "CUT" : "ON"
+action = volOff ? "VOL-OFF — режь ОБЕ ноги" : regDir == 1 ? "АПТРЕНД — LONG ON / SHORT CUT" : regDir == -1 ? "ДАУНТРЕНД — SHORT ON / LONG CUT" : "FLAT — ОБЕ ноги ON (харвест чопа)"
+actCode = volOff ? 9 : regDir
+actChanged = actCode != actCode[1]
 
-// ---------------- Directional gate (тренд должен ДОКАЗАТЬ себя) ----------------
-// Режим UP/DN сам по себе → грид SYMMETRIC. Направленный включаем только когда цена прошла
-// dispMult*ATR% от старта режима (latched на время режима). В чопе — никогда → symmetric.
-var float regimeAnchor = close
-var bool  dirLatch = false
-if regimeDir != regimeDir[1]
-    regimeAnchor := close
-    dirLatch := false
-netMovePct = regimeAnchor != 0 ? (close - regimeAnchor) / regimeAnchor * 100.0 : 0.0
-dispNeed = dispMult * atrp
-if (regimeDir == 1 and netMovePct >= dispNeed) or (regimeDir == -1 and -netMovePct >= dispNeed)
-    dirLatch := true
-directional = (not useDispGate) or dirLatch
-dirOn = directional and not directional[1] and regimeDir != 0
-
-// ---------------- Entries (КАЖДЫЙ флип режима = маркер; цвет = качество) ----------------
-rsi      = ta.rsi(close, rsiLen)
-rsiMa    = ta.sma(rsi, 9)
+// ---------------- Entry markers (инфо) ----------------
 volRatio = nz(volume / ta.sma(volume, volZlen))
 volOk    = na(volume) or volRatio > volMult
-enterLong  = regimeDir == 1  and regimeDir[1] != 1
-enterShort = regimeDir == -1 and regimeDir[1] != -1
+enterLong  = regDir == 1  and regDir[1] != 1
+enterShort = regDir == -1 and regDir[1] != -1
 cleanLong  = enterLong  and rsi > rsiMa and volOk and distSlow < freshDist
 cleanShort = enterShort and rsi < rsiMa and volOk and distSlow < freshDist
+pbLong  = regDir == 1  and distSlow <= pbDist and math.abs(rsi - 50) <= pbRsiMax and close <= t100
+pbShort = regDir == -1 and distSlow <= pbDist and math.abs(rsi - 50) <= pbRsiMax and close >= t100
+exitLong  = regDir[1] == 1  and regDir != 1
+exitShort = regDir[1] == -1 and regDir != -1
 
-// Пуллбэк-добор (100-pt скор #1: свежий, у линии, не растянут) — только В тренде
-pbLong  = regimeDir == 1  and distSlow <= pbDist and bullCnt >= pbFresh and math.abs(rsi - 50) <= pbRsiMax and close <= t100
-pbShort = regimeDir == -1 and distSlow <= pbDist and bearCnt >= pbFresh and math.abs(rsi - 50) <= pbRsiMax and close >= t100
+// ---------------- FOLLOW-THROUGH / СИЛА (МОНИТОРИНГ, не прогноз) ----------------
+bodyUp = close > open
+rng = high - low
+closeStr = rng > 0 ? (close - low) / rng : 0.5
+volPart = volRatio > 1.0
+ftBull = (close > t50 ? 25 : 0) + (close > t100 ? 15 : 0) + (close > t200 ? 10 : 0) + (bodyUp ? 20 : 0) + (volPart ? 15 : 0) + (closeStr > 0.6 ? 15 : 0)
+ftBear = (close < t50 ? 25 : 0) + (close < t100 ? 15 : 0) + (close < t200 ? 10 : 0) + (not bodyUp ? 20 : 0) + (volPart ? 15 : 0) + (closeStr < 0.4 ? 15 : 0)
+ftHealth = regDir == 1 ? ftBull : regDir == -1 ? ftBear : na
+var float entryStrength = na
+if enterLong or enterShort
+    entryStrength := regDir == 1 ? ftBull : ftBear
+ftVerdict = na(ftHealth) ? "—" : ftHealth >= ftConfirm ? "ПОДТВЕРЖДАЕТСЯ" : ftHealth <= ftFizzle ? "ЗАТУХАЕТ" : "вяло"
+fizzle = not na(ftHealth) and not na(ftHealth[1]) and ftHealth <= ftFizzle and ftHealth[1] <= ftFizzle
 
-// ---------------- Exits (bot STOPS directional grid) ----------------
-exitLong  = regimeDir[1] == 1  and regimeDir != 1
-exitShort = regimeDir[1] == -1 and regimeDir != -1
-crashExit = crash or (volExp and not volExp[1])
-
-// ---------------- Flip counters (для A/B старый vs новый) ----------------
-var int nLong  = 0
-var int nShort = 0
-if enterLong
-    nLong += 1
-if enterShort
-    nShort += 1
+// ---------------- КОНТЕКСТ (инфо) ----------------
+oiTk   = oiTicker   == "" ? syminfo.tickerid : oiTicker
+fundTk = fundTicker == "" ? syminfo.tickerid : fundTicker
+oiRaw   = request.security(oiTk,   timeframe.period, close, ignore_invalid_symbol=true)
+fundRaw = request.security(fundTk, timeframe.period, close, ignore_invalid_symbol=true)
+oiVal   = oiTicker   == "" ? na : oiRaw
+fundVal = fundTicker == "" ? na : fundRaw
+ph = ta.pivothigh(liqLen, liqLen)
+pl = ta.pivotlow(liqLen, liqLen)
+var float lastPH = na
+var float lastPL = na
+lastPH := na(ph) ? lastPH : ph
+lastPL := na(pl) ? lastPL : pl
 
 // ---------------- Plots ----------------
 plot(showRibbon ? t50  : na, "MA fast", color.new(color.lime,   0), 1)
 plot(showRibbon ? t100 : na, "MA mid",  color.new(color.yellow, 0), 2)
-plot(showRibbon ? t200 : na, "MA slow", color.new(color.red,    0), 1)
-bgCol = mode == "VOL-OFF" ? color.new(color.orange, 80) : mode == "UP" ? color.new(color.green, directional ? 85 : 93) : mode == "DN" ? color.new(color.red, directional ? 85 : 93) : color.new(color.gray, 92)
+plot(showRibbon ? t200 : na, "MA slow (красная)", color.new(color.red, 0), 2)
+bgCol = mode == "VOL-OFF" ? color.new(color.orange, 80) : mode == "UP" ? color.new(color.green, 88) : mode == "DN" ? color.new(color.red, 88) : color.new(color.gray, 92)
 bgcolor(showBG ? bgCol : na)
 
 showEntries = markerMode != "None"
@@ -164,42 +156,73 @@ eLcol = cleanLong  ? color.new(color.lime, 0) : color.new(color.gray, 0)
 eScol = cleanShort ? color.new(color.red,  0) : color.new(color.gray, 0)
 plotshape(showEntries and enterLong,  "Open LONG",     shape.triangleup,   location.belowbar, eLcol, size=size.small, text="L")
 plotshape(showEntries and enterShort, "Open SHORT",    shape.triangledown, location.abovebar, eScol, size=size.small, text="S")
-plotshape(showExtras  and dirOn,      "DIRECTIONAL",   shape.flag,         location.belowbar, color.new(color.blue,0), size=size.tiny, text="dir")
 plotshape(showEntries and pbLong,     "Pullback LONG", shape.circle,       location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="pb")
 plotshape(showEntries and pbShort,    "Pullback SHORT",shape.circle,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="pb")
 plotshape(showEntries and exitLong,   "STOP long",     shape.xcross,       location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="x")
 plotshape(showEntries and exitShort,  "STOP short",    shape.xcross,       location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="x")
-plotshape(showEntries and crashExit,  "CRASH/VOL-OFF", shape.xcross,       location.abovebar, color.new(color.orange, 0), size=size.small, text="off")
+plotshape(showExtras  and fizzle,     "FIZZLE",        shape.square,       location.abovebar, color.new(color.purple,0), size=size.tiny, text="fz")
+plotshape(showExtras  and volOff and not volOff[1], "VOL-OFF", shape.xcross, location.abovebar, color.new(color.orange,0), size=size.small, text="off")
 
-// ---------------- Table ----------------
-dirState = volExp ? "—" : (mode == "FLAT" or not directional) ? "SYMMETRIC" : "DIRECTIONAL"
-modeCol = mode == "VOL-OFF" ? color.orange : mode == "UP" ? color.green : mode == "DN" ? color.red : color.gray
-gaAct = volExp ? "PAUSE / cut / hedge" : (mode == "FLAT" or not directional) ? "SYMMETRIC grid (chop)" : mode == "UP" ? "LONG grid (попутный дрейф)" : "SHORT grid (ТАКТИЧ — против дрейфа)"
-var table tb = table.new(position.top_right, 2, 9, border_width=1)
+var line liqHiLine = na
+var line liqLoLine = na
 if barstate.islast
-    table.cell(tb, 0, 0, "FLIP",  text_color=color.silver)
-    table.cell(tb, 1, 0, flipMode == "Stack-hold (new)" ? "stack-hold" : "line-cross(old)", text_color=color.white)
-    table.cell(tb, 0, 1, "MODE",  text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(tb, 1, 1, mode + " / " + dirState, text_color=color.white, bgcolor=modeCol)
-    table.cell(tb, 0, 2, "GinArea", text_color=color.silver)
-    table.cell(tb, 1, 2, gaAct,  text_color=color.white, bgcolor=color.new(modeCol, 70))
-    table.cell(tb, 0, 3, "dir net / need %", text_color=color.silver)
-    table.cell(tb, 1, 3, str.tostring(netMovePct, "#.#") + " / " + str.tostring(dispNeed, "#.#") + (dirLatch ? "  ✓" : ""), text_color=color.white)
-    table.cell(tb, 0, 4, "flips L / S", text_color=color.silver)
-    table.cell(tb, 1, 4, str.tostring(nLong) + " / " + str.tostring(nShort), text_color=color.white)
-    table.cell(tb, 0, 5, "MA",    text_color=color.silver)
-    table.cell(tb, 1, 5, useEma ? "EMA" : "TEMA", text_color=color.white)
-    table.cell(tb, 0, 6, "spread / dist200 %", text_color=color.silver)
-    table.cell(tb, 1, 6, str.tostring(spreadPct, "#.##") + " / " + str.tostring(distSlow, "#.##"), text_color=color.white)
-    table.cell(tb, 0, 7, "ATR% / Vol z", text_color=color.silver)
-    table.cell(tb, 1, 7, str.tostring(atrp, "#.##") + " / " + str.tostring(volZ, "#.##") + (volExp ? " !" : ""), text_color=volExp ? color.orange : color.white)
-    table.cell(tb, 0, 8, "RSI",   text_color=color.silver)
-    table.cell(tb, 1, 8, str.tostring(rsi, "#.#"), text_color=color.white)
+    line.delete(liqHiLine)
+    line.delete(liqLoLine)
+    if showLiq and not na(lastPH)
+        liqHiLine := line.new(bar_index - 80, lastPH, bar_index + 3, lastPH, xloc=xloc.bar_index, color=color.new(color.red, 45),   style=line.style_dotted)
+    if showLiq and not na(lastPL)
+        liqLoLine := line.new(bar_index - 80, lastPL, bar_index + 3, lastPL, xloc=xloc.bar_index, color=color.new(color.green, 45), style=line.style_dotted)
 
-// ---------------- Alerts ----------------
-alertcondition(enterLong,  "Open LONG",  "Regime UP - start LONG grid")
-alertcondition(enterShort, "Open SHORT", "Regime DN - start SHORT grid")
-alertcondition(dirOn,      "Directional ON", "Trend confirmed - switch grid to directional")
-alertcondition(pbLong,     "Pullback LONG", "Pullback LONG add")
-alertcondition(exitLong or exitShort, "STACK-FLIP exit", "Regime flipped - stop directional grid")
-alertcondition(crashExit,  "CRASH / VOL-OFF", "Vol expansion / crash - pause/cut/hedge")
+// ---------------- DASHBOARD (table) ----------------
+cON = color.new(color.green, 0)
+cCUT = color.new(color.red, 0)
+cP = color.new(color.orange, 0)
+longCol  = longState  == "ON" ? cON : longState  == "CUT" ? cCUT : cP
+shortCol = shortState == "ON" ? cON : shortState == "CUT" ? cCUT : cP
+modeCol = mode == "VOL-OFF" ? color.orange : mode == "UP" ? color.green : mode == "DN" ? color.red : color.gray
+ftCol = na(ftHealth) ? color.gray : ftHealth >= ftConfirm ? color.green : ftHealth <= ftFizzle ? color.red : color.orange
+stackTxt = bullStack ? "BULL" : bearStack ? "BEAR" : "mixed"
+hdr = color.new(color.blue, 30)
+var table tb = table.new(position.top_right, 2, 16, border_width=1)
+if barstate.islast
+    table.cell(tb, 0, 0, "ЯДРО — бот торгует", text_color=color.white, bgcolor=hdr)
+    table.cell(tb, 1, 0, "v5.5", text_color=color.silver, bgcolor=hdr)
+    table.cell(tb, 0, 1, "ДЕЙСТВИЕ", text_color=color.white, bgcolor=color.new(color.black,0))
+    table.cell(tb, 1, 1, action, text_color=color.white, bgcolor=color.new(modeCol, 35))
+    table.cell(tb, 0, 2, "LONG-грид (инверс)", text_color=color.silver)
+    table.cell(tb, 1, 2, longState, text_color=color.white, bgcolor=longCol)
+    table.cell(tb, 0, 3, "SHORT-грид (линейка)", text_color=color.silver)
+    table.cell(tb, 1, 3, shortState, text_color=color.white, bgcolor=shortCol)
+    table.cell(tb, 0, 4, "РЕЖИМ", text_color=color.silver)
+    table.cell(tb, 1, 4, mode, text_color=color.white, bgcolor=color.new(modeCol, 50))
+    table.cell(tb, 0, 5, "сила входа", text_color=color.silver)
+    table.cell(tb, 1, 5, na(entryStrength) ? "—" : str.tostring(entryStrength, "#") + "/100", text_color=color.white)
+    table.cell(tb, 0, 6, "follow-through", text_color=color.silver)
+    table.cell(tb, 1, 6, (na(ftHealth) ? "—" : str.tostring(ftHealth, "#") + "/100 ") + ftVerdict, text_color=color.white, bgcolor=color.new(ftCol, 55))
+    table.cell(tb, 0, 7, "цена vs красной %", text_color=color.silver)
+    table.cell(tb, 1, 7, str.tostring(aboveRedPct, "#.##"), text_color=color.white)
+    table.cell(tb, 0, 8, "стек / spread %", text_color=color.silver)
+    table.cell(tb, 1, 8, stackTxt + " / " + str.tostring(spreadPct, "#.##"), text_color=color.white)
+    table.cell(tb, 0, 9, "ATR% / Vol-z", text_color=color.silver)
+    table.cell(tb, 1, 9, str.tostring(atrp, "#.##") + " / " + str.tostring(volZ, "#.##") + (volOff ? " !" : ""), text_color=volOff ? color.orange : color.white)
+    table.cell(tb, 0, 10, "RSI", text_color=color.silver)
+    table.cell(tb, 1, 10, str.tostring(rsi, "#.#"), text_color=color.white)
+    table.cell(tb, 0, 11, useCtx ? "КОНТЕКСТ — инфо, НЕ сигнал" : "", text_color=color.white, bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
+    table.cell(tb, 1, 11, "", bgcolor=useCtx ? color.new(color.gray,20) : color.new(color.black,100))
+    table.cell(tb, 0, 12, useCtx ? "OI" : "", text_color=color.silver)
+    table.cell(tb, 1, 12, useCtx ? (na(oiVal) ? "n/a" : str.tostring(oiVal, "#.###")) : "", text_color=color.gray)
+    table.cell(tb, 0, 13, useCtx ? "Funding" : "", text_color=color.silver)
+    table.cell(tb, 1, 13, useCtx ? (na(fundVal) ? "n/a" : str.tostring(fundVal, "#.####")) : "", text_color=color.gray)
+    table.cell(tb, 0, 14, useCtx ? "ликвид hi / lo" : "", text_color=color.silver)
+    table.cell(tb, 1, 14, useCtx ? (str.tostring(lastPH, "#.0") + " / " + str.tostring(lastPL, "#.0")) : "", text_color=color.gray)
+    table.cell(tb, 0, 15, "", text_color=color.silver)
+    table.cell(tb, 1, 15, "", text_color=color.gray)
+
+// ---------------- Alerts (причинно: barstate.isconfirmed) ----------------
+alertcondition(actChanged and barstate.isconfirmed, "Рекомендация изменилась", "Grid recommendation changed")
+alertcondition(enterLong  and barstate.isconfirmed, "UP — LONG ON / SHORT CUT", "Regime UP")
+alertcondition(enterShort and barstate.isconfirmed, "DN — SHORT ON / LONG CUT", "Regime DN")
+alertcondition(fizzle and barstate.isconfirmed, "FIZZLE — сетап затухает", "Follow-through fizzle (candidate exit)")
+alertcondition((volOff and not volOff[1]) and barstate.isconfirmed, "VOL-OFF — режь обе", "Vol-off / crash")
+if actChanged and barstate.isconfirmed
+    alert('{"ind":"grid_regime","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","long":"' + longState + '","short":"' + shortState + '","regime":"' + mode + '","health":' + str.tostring(nz(ftHealth), "#") + ',"price_vs_red":' + str.tostring(aboveRedPct, "#.##") + '}', alert.freq_once_per_bar)
