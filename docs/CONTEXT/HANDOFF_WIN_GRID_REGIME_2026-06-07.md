@@ -106,4 +106,27 @@ health-decay exit к направленной ноге (срезать ногу 
 найти T/K что МИНИМИЗИРУЕТ give-back НЕ убивая харвест. Дай grid-$ delta vs без оверлея + по якорям.**
 Это закрывает §2 (точка выхода) в деньгах.
 
+---
+
+## 7. ВЕЧЕР 2: gate-сверка зашита (dashboard v5.7), задача Win #4 = vol-off counter-only
+
+**Сверка Win принята и зашита в `grid_regime_ruleset.pine` v5.7:**
+- GATE = чистая ЦЕНА vs TEMA200 (НЕ стек): long `close>красная·(1−0.3%)`, short `close<красная·(1+0.3%)`, hold 2.
+- СЕМАНТИКА = OPEN-STOP (контр-нога = пауза НОВЫХ ордеров «STOP-IN», существующие доживают до target;
+  force-close ХУЖE). Дашборд переименован CUT→STOP-IN.
+- vol-off = СОВЕТНИК (дефолт), НЕ авто-режь-обе (net-отрицателен: 2024 +155→−84). Тумблер `volMode`.
+- Health/стек = вне гейта (только инфо/направленная нога).
+
+**Решение оператора по vol-off: вариант (б) — Win тестит counter-leg-only.**
+
+### Задача Win (#4) — vol-off counter-leg-only в грид-симе
+База = price-gate (TEMA200/hold2/band0.3/OPEN-STOP, both legs) = +155/+100/+9 (без vol-off).
+Прогони варианты vol-off (z≥2.5 ON, гистерезис): на вол-спайке действовать ТОЛЬКО на ногу ПРОТИВ
+движения (краш-вниз → long-нога; спайк-вверх → short-нога), сравнить:
+1. counter-leg **STOP-IN** (пауза новых на контр-ноге)
+2. counter-leg **CUT** (закрыть контр-ногу)
+3. оба при z≥2.5 и z≥3.5
+vs база (без vol-off) и vs cut-both (net−). **Цель: срезать крах-мешок (−105/−171) НЕ убивая чоп-net
+(+155).** Дай net + мешок/DD по 3 окнам (+ по якорям). Победитель → оператор флипает `volMode` в дашборде.
+
 Связано: `[[project_offswitch_nonprice]]` `[[project_bitmex_fees]]` `[[feedback_test_before_deploy]]` `[[project_inside_bar_fragile]]`
