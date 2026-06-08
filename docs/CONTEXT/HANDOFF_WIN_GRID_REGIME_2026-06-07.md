@@ -129,4 +129,13 @@ health-decay exit к направленной ноге (срезать ногу 
 vs база (без vol-off) и vs cut-both (net−). **Цель: срезать крах-мешок (−105/−171) НЕ убивая чоп-net
 (+155).** Дай net + мешок/DD по 3 окнам (+ по якорям). Победитель → оператор флипает `volMode` в дашборде.
 
+### Задача Win (#5) — EMA vs TEMA vs SMA гейт в грид-$
+Оператор: «с простой EMA чище». Мой proxy (`scripts/_gate_ma_cleanliness.py`, flips по якорям):
+EMA200 ~130, TEMA200 ~205, SMA200 ~105 — EMA на ~35% / SMA на ~50% МЕНЬШЕ флипов, чем TEMA.
+Но чистота ≠ grid-$. **Прогони базу (price-gate/hold2/band0.3/OPEN-STOP) с MA200 = EMA / TEMA / SMA,
+дай net + мешок по 3 окнам.** Если EMA/SMA держат +155/+100/+9 при меньшем мешке → меняем гейт-MA
+(в дашборде уже есть тумблер useEma). Если хуже — TEMA остаётся.
+NB: оператор хочет ещё RSI+Vol осциллятор как фильтр гейта (его кастом «RSIVol_2graf») — ждём исходник;
+осц-фильтры у нас дохли (RSI-див AUC0.5, MACD редундант) → тестить в грид-$, не на глаз.
+
 Связано: `[[project_offswitch_nonprice]]` `[[project_bitmex_fees]]` `[[feedback_test_before_deploy]]` `[[project_inside_bar_fragile]]`
