@@ -5,10 +5,9 @@
     {"bot_id": "4729923198", "tier": "T1", "alias": "SHORT-T1", "side": "short"},
     {"bot_id": "6287583200", "tier": "T2", "alias": "SHORT-T2", "side": "short"},
     {"bot_id": "5736281160", "tier": "T3", "alias": "SHORT-T3", "side": "short"},
-    {"bot_id": "5154651487", "tier": "LONG-D", "alias": "BTC-LONG-D-хедж", "side": "long"},
-    {"bot_id": "4979458320", "tier": "LONG-V5", "alias": "BTC-LONG-хедж V5", "side": "long"},
     {"bot_id": "4525648417", "tier": "TB", "alias": "SHORT-Ttestmac", "side": "short", "testbed": true}
   ],
+  "_note_2026_06_10": "LONG-D (5154651487) и LONG-V5 (4979458320) удалены: исчезли из GinArea 2026-05-21, оператор подтвердил неактуальность. Новые BTC-LONG-боты добавить по решению оператора.",
   "pause_triggers": {
     "cascade_short_5.0": {
       "affect_tiers": [],

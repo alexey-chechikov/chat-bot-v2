@@ -24,6 +24,9 @@ SNAP_ROWS_REAL = """\
 2026-06-09T22:00:58+00:00,5086761417,🐉ЭФИР ШОРТ 1.4%,,2,0,47.2700120001,-150.5,222,,182,,0,,0,41706.2526,26587.283187,0,3
 2026-06-09T22:00:58+00:00,4549046435,🐉SHORT-T1🐉   GIN_c_c,,0,0,0,0,0,,0,,0,,0,0,,190631.8,3
 2026-06-09T22:00:58+00:00,5826914272,MegaHard_100_2026-06-04_10:54:18,,2,0,95.0,95.0,30,,25,,0,,0,5000.0,1000.0,0,3
+2026-06-09T22:00:58+00:00,5317457827,BTC-LONG-✨ ,,2,0,-1.11e-06,-1.11e-06,1,,1,,0,,0,200,0.00405505,0,3
+2026-06-09T22:00:58+00:00,5268946146,BTC-LONG-✨ INV,,2,102400,0.01957788910000001,-0.23194025079999997,1786,,887,,378,,73768.72653662109,1258600,0.00117956,34494.6,3
+2026-06-07T10:01:23+00:00,4999999999,GHOST-DELETED,,2,500,10.0,-50.0,5,,2,,0,,70000,1000,800.0,0,3
 """
 
 # реальная строка params.csv (SHORT-T2, raw json сокращён до валидного)
@@ -56,6 +59,9 @@ def test_read_snapshots_latest_day0_and_types(live_dir: Path):
     assert hedge["position"] == pytest.approx(0.637)
     # пустой liquidation_price ('' у ЭФИР) → None... здесь 0 → 0.0
     assert res["stale_min"] == pytest.approx(4.03, abs=0.5)
+    # призрак: последний снапшот 07.06 при цикле трекера 09.06 → fresh=False
+    assert bots["4999999999"]["fresh"] is False
+    assert bots["6287583200"]["fresh"] is True
 
 
 def test_read_params_border(live_dir: Path):
@@ -111,8 +117,18 @@ def test_build_card_full(live_dir: Path):
     assert "МЕШКИ НА СТОПЕ" in card
     assert "хедж лонг на шорте-T1" in card
     assert "стоп-мешки" in card
-    # прочие активные: ЭФИР с мешком −150 → алерт "у SL"
+    # прочие активные: ЭФИР, мешок = current−profit = −197.8 → алерт "у SL"
     assert "у SL" in card
+    assert "-198$" in card
+    # пыль (BTC-LONG-✨ 5317457827: профит ~0, поз 0) отфильтрована, INV остался
+    assert "BTC-LONG-✨ :" not in card and "BTC-LONG-✨:" not in card
+    # призрак (удалён из GinArea 07.06, нет в текущем цикле) не показан
+    assert "GHOST-DELETED" not in card
+    # inverse-бот: PnL в XBT → конверсия по px 63100; мешок −0.2515 XBT = −15 871$
+    assert "BTC-LONG-✨ INV" in card
+    assert "-15 871$" in card
+    # мешок хеджа (linear, USDT как был) = −2048.62 − 351.05 = −2399.67
+    assert "-2 400$" in card
     # кандидаты: только ✅ (WLD danger → не попадает)
     assert "HYPEUSDT" in card
     assert "WLDUSDT" not in card
@@ -135,12 +151,24 @@ def test_build_card_voloff_and_degraded(live_dir: Path):
     assert len(card) < 4096
 
 
+def test_delta_block_vs_prev_card(live_dir: Path):
+    """Δ-анализ против прошлой карточки (4ч-режим): BTC % и портфель $."""
+    from datetime import timedelta
+    d = _data(live_dir)
+    d["prev"] = {"ts": NOW.astimezone(tr.MSK) - timedelta(hours=4),
+                 "px": 63500.0, "total_current": 700.0}
+    card = build_card(d)
+    # BTC 63100 vs 63500 = −0.6%
+    assert "Δ4ч -0.6%" in card
+    assert "Δ4ч" in card.split("ПОРТФЕЛЬ")[1].splitlines()[1]
+
+
 def test_day_limit_alert(live_dir: Path):
     d = _data(live_dir)
-    # подменяем day0 T2 так, чтобы дневной net был −400 (realized −400, мешок без Δ)
+    # подменяем day0 T2 так, чтобы дневной net (ΔcurrentProfit) был −400
     snap = d["snap"]
     snap["bots"]["6287583200"]["day0"]["profit"] = 1012.5
-    snap["bots"]["6287583200"]["day0"]["current_profit"] = 612.5
+    snap["bots"]["6287583200"]["day0"]["current_profit"] = 1012.5
     card = build_card(d)
     assert "СТОП-ДЕНЬ" in card
     assert "дневной лимит пробит" in card

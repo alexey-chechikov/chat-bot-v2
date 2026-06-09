@@ -27,6 +27,10 @@ STATUS_LABEL = {2: "активен", 3: "пауза", 10: "FAILED", 12: "вык�
 SNAP_TAIL_BYTES = 12_000_000
 PARAMS_TAIL_BYTES = 16_000_000
 
+# бот «свежий», если его последний снапшот в текущем цикле трекера; иначе бот
+# удалён из GinArea (трекер перестал его писать) — призраков не показываем
+FRESH_WINDOW_SEC = 300.0
+
 
 def _tail_lines(path: Path, max_bytes: int) -> list[str]:
     size = path.stat().st_size
@@ -55,10 +59,11 @@ def _parse_rows(lines: list[str], headers: list[str]) -> list[dict]:
 
 
 def read_snapshots(path: Path | None = None, now: datetime | None = None) -> dict:
-    """→ {"bots": {bot_id: {"latest": row, "day0": row|None}}, "stale_min": float|None}
+    """→ {"bots": {bot_id: {"latest": row, "day0": row|None, "fresh": bool}}, "stale_min": float|None}
 
     latest — последний снапшот бота; day0 — первый снапшот текущих суток (мск),
     для дневного Δ. Числовые поля приведены к float (пустые → None).
+    fresh — бот есть в текущем цикле трекера (False = удалён из GinArea, призрак).
     stale_min — минут с последнего снапшота трекера (None если файла нет).
     """
     path = path or (LIVE_DIR / "snapshots.csv")
@@ -81,12 +86,16 @@ def read_snapshots(path: Path | None = None, now: datetime | None = None) -> dic
             v = _f(r[k])
             r[k] = int(v) if v is not None else None
         r["status"] = int(_f(r["status"]) or 0)
-        slot = bots.setdefault(r["bot_id"], {"latest": None, "day0": None})
+        r["_ts"] = ts
+        slot = bots.setdefault(r["bot_id"], {"latest": None, "day0": None, "fresh": False})
         slot["latest"] = r  # строки идут хронологически — последняя побеждает
         if slot["day0"] is None and ts.astimezone(MSK).date() == today_msk:
             slot["day0"] = r
         if last_ts is None or ts > last_ts:
             last_ts = ts
+    if last_ts:
+        for slot in bots.values():
+            slot["fresh"] = (last_ts - slot["latest"]["_ts"]).total_seconds() <= FRESH_WINDOW_SEC
     stale_min = (now - last_ts).total_seconds() / 60.0 if last_ts else None
     return {"bots": bots, "stale_min": stale_min}
 
