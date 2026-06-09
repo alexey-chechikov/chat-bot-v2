@@ -40,8 +40,8 @@ def build_main_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     # Row 1 — состояние
     kb.row(_btn("/status"), _btn("/setups"), _btn("/ginarea"))
-    # Row 2 — решения
-    kb.row(_btn("/morning_brief"), _btn("/advise"), _btn("FINAL DECISION"))
+    # Row 2 — решения (/card — 4ч-карточка-брифинг по запросу, 2026-06-10)
+    kb.row(_btn("/card"), _btn("/morning_brief"), _btn("/advise"), _btn("FINAL DECISION"))
     # Row 3 — история + помощь
     kb.row(_btn("/changelog"), _btn("/watch"), _btn("HELP"))
     return kb

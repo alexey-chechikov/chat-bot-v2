@@ -21,7 +21,7 @@ def test_keyboard_essential_buttons_present():
     for row in kb.keyboard:
         for btn in row:
             texts.add(btn["text"] if isinstance(btn, dict) else btn.text)
-    essentials = {"/status", "/setups", "/ginarea", "/morning_brief", "HELP"}
+    essentials = {"/status", "/setups", "/ginarea", "/card", "/morning_brief", "HELP"}
     missing = essentials - texts
     assert not missing, f"Missing essential buttons: {missing}"
 

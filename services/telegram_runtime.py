@@ -2640,6 +2640,36 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
+        # ── /card — 4ч-карточка-брифинг по запросу (2026-06-10).
+        # Та же карточка, что шлёт LaunchAgent com.bot7.morning-brief по
+        # расписанию (BTC-режим + боты из трекера + альт-кандидаты + риск).
+        # Альт-сканер ~30с (BitMEX) → сразу ⏳-ack, сборка в фоновом потоке.
+        # `/card fast` — без сканера (~2с, без секции кандидатов).
+        @self.bot.message_handler(commands=['card'])
+        def handle_card(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            parts = str(message.text or '').strip().split()
+            fast = len(parts) > 1 and parts[1].lower() in ('fast', 'быстро')
+            self.bot.send_message(
+                chat_id,
+                '⏳ Собираю карточку (fast, без альт-сканера)…' if fast
+                else '⏳ Собираю карточку (~30с, гоняю альт-сканер; быстрее: /card fast)…')
+
+            def _build_and_send() -> None:
+                try:
+                    from services.morning_brief.card import build_morning_card
+                    text = build_morning_card(include_scan=not fast)
+                except Exception as exc:
+                    logger.exception('handle_card.failed')
+                    self.bot.send_message(chat_id, f'❌ /card failed: {exc}')
+                    return
+                self.bot.send_message(chat_id, text)
+
+            threading.Thread(target=_build_and_send, name='card-builder', daemon=True).start()
+
         # ── TZ-D-ADVISOR-V1: /advise ──────────────────────────────────────────
 
         @self.bot.message_handler(commands=['advise'])
