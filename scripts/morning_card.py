@@ -6,7 +6,8 @@
   /Users/alexeychechikov/code/bot7/.venv/bin/python3 scripts/morning_card.py --send     # + push в TG
   --no-scan — пропустить альт-сканер (быстро, без секции кандидатов)
 
-Расписание: LaunchAgent com.bot7.morning-brief (08:00 локальных CEST = 09:00 мск).
+Расписание: LaunchAgent com.bot7.morning-brief — каждые 4ч по Варшаве:
+03/07/11/15/19/23 (= 04/08/12/16/20/00 мск).
 Состояние ботов читается из выгрузки ginarea-tracker (НЕ GinArea API — сессию держит трекер).
 """
 from __future__ import annotations
