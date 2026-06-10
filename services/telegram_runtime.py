@@ -1131,7 +1131,14 @@ class TelegramBotApp:
             os.getenv('ALLOWED_CHAT_IDS', ''),
             getattr(config, 'CHAT_ID', ''),
         )
-        self.bot = telebot.TeleBot(token, parse_mode=None)
+        # threaded=False ОБЯЗАТЕЛЬНО: при threaded=True исключение в хэндлере
+        # блокирует WorkerThread навсегда (continue_event.wait() в telebot/util.py
+        # снимают только встроенные поллеры, а у нас свой цикл get_updates).
+        # Пул из 2 воркеров → 2 любых исключения = бот молча ест команды без
+        # ответа (инцидент /card 2026-06-10). Inline-режим: исключения ловятся
+        # и логируются нашим циклом (update_dispatch_failed); долгие команды
+        # обязаны уходить в свой поток (как /card).
+        self.bot = telebot.TeleBot(token, parse_mode=None, threaded=False)
         self.responder = TelegramResponder(self.bot)
         self.command_handler = CommandHandler(self.responder.send)
         self.alert_worker = MarketAlertWorker(
