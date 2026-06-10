@@ -545,6 +545,16 @@ async def _run_liq_pre_cascade(stop_event: asyncio.Event, *, telegram_app=None) 
     await liq_pre_cascade_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_alt_guard(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Alt-Guard (2026-06-10): сторож живых альт-гридов из данных трекера —
+    net-0/+$70 «закрой руками», у-SL предупреждение, стоп бота, XRP памп-guard,
+    каскад-корреляция, вечерний чек 23:00 мск. PRIMARY (личка) — живые деньги."""
+    from services.alt_guard.loop import alt_guard_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "ALT_GUARD") if telegram_app else None
+    await alt_guard_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_weekly_self_report(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Weekly self-report (вс 18:00 UTC): cascade KPI + edge drift + risk-limit violations."""
     from services.reports.weekly_self_report import maybe_send_weekly
@@ -1258,6 +1268,7 @@ async def main(
     cascade_followup_signal_task = asyncio.create_task(_run_cascade_followup_signal(stop_event, telegram_app=app), name="cascade_followup_signal")
     cascade_followup_outcome_task = asyncio.create_task(_run_cascade_followup_outcome(stop_event), name="cascade_followup_outcome")
     liq_pre_cascade_task = asyncio.create_task(_run_liq_pre_cascade(stop_event, telegram_app=app), name="liq_pre_cascade")
+    alt_guard_task = asyncio.create_task(_run_alt_guard(stop_event, telegram_app=app), name="alt_guard")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
     regime_shadow_task = asyncio.create_task(_run_regime_shadow(stop_event), name="regime_shadow")
@@ -1305,7 +1316,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
