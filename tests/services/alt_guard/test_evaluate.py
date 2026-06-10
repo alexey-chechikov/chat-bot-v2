@@ -106,6 +106,37 @@ def test_evening_check_once_per_day():
     assert not any("НЕ оставляем" in a for a in alerts2)
 
 
+def test_regime_leg_against_markdown():
+    """WLD-урок: лонг-нога в MARKDOWN с мешком ≥40% SL → ранний пинг (до 80%)."""
+    # бот в лонг-ноге (+694), мешок −80 (46% от SL −175)
+    bots = {"4306550166": _slot("XRP", profit=14.0, cur=-66.0, position=694.0)}
+    params = {"4306550166": _params(tsl=-175)}
+    kw = _base(bots, params)
+    kw["regime_3state"] = "MARKDOWN"
+    alerts, state = evaluate(**kw)
+    assert any("ПРОТИВ режима" in a and "ЛОНГ-нога" in a for a in alerts)
+    # обычный slwarn (80%) при этом НЕ сработал — мешок только −80
+    assert not any("Решай: дождаться SL" in a for a in alerts)
+    # кулдаун
+    kw["state"] = state
+    alerts2, _ = evaluate(**kw)
+    assert not any("ПРОТИВ режима" in a for a in alerts2)
+
+
+def test_regime_leg_silent_when_aligned_or_range():
+    bots = {"4306550166": _slot("XRP", profit=14.0, cur=-66.0, position=-694.0)}
+    params = {"4306550166": _params(tsl=-175)}
+    kw = _base(bots, params)
+    kw["regime_3state"] = "MARKDOWN"  # шорт-нога ПО режиму → молчим
+    alerts, _ = evaluate(**kw)
+    assert not any("ПРОТИВ режима" in a for a in alerts)
+    kw2 = _base({"4306550166": _slot("XRP", profit=14.0, cur=-66.0, position=694.0)},
+                params)
+    kw2["regime_3state"] = "RANGE"  # рейндж → гейт не активен
+    alerts2, _ = evaluate(**kw2)
+    assert not any("ПРОТИВ режима" in a for a in alerts2)
+
+
 def test_managed_and_non_dynamic_ignored():
     bots = {
         "6287583200": _slot("SHORT-T2", profit=200.0, cur=200.0),  # managed

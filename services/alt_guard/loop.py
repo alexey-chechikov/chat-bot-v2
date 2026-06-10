@@ -29,17 +29,23 @@ STATE_PATH = ROOT / "state" / "alt_guard_state.json"
 DERIV_PATH = ROOT / "state" / "deriv_live.json"
 DERIV_HIST_PATH = ROOT / "state" / "deriv_live_history.jsonl"
 CASCADE_DEDUP_PATH = ROOT / "state" / "cascade_alert_dedup.json"
+REGIME_V2_PATH = ROOT / "state" / "regime_v2_state.json"  # BTCUSDT.4h.state_3state
 
 MSK = timezone(timedelta(hours=3))
 
 NET_CLOSE_USD = 70.0          # net-0/+$70 → закрыть руками
 SL_DEFAULT_USD = 175.0
 SL_WARN_FRAC = 0.8            # 80% от SL → предупреждение
+# 2026-06-10 WLD-урок: симметричный грид в MARKDOWN набивает ЛОНГ-мешок до SL
+# (WLD: +71 профит short-ногой → реверс в лонг → мешок −181 → tsl). Ранний пинг,
+# когда нога ПРОТИВ режима BTC 4h и мешок ≥ 40% SL — решать на −$70, не на −$143.
+REGIME_LEG_FRAC = 0.4
 FUNDING_PUMP_THRESH = -0.0003  # −0.03%/8ч; уточнить порог из research у Win
 PUMP_MOVE_1H_PCT = 3.0        # XRP +3%/час → памп уже идёт
 CASCADE_FRESH_MIN = 5.0
 
-COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0}
+COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
+              "regime_leg": 4.0}
 EVENING_HOUR_MSK = 23
 POLL_INTERVAL_SEC = 60
 
@@ -133,7 +139,8 @@ def _xrp_px_1h_ago(now: datetime, path: Path = DERIV_HIST_PATH,
 
 def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
              xrp_px_1h_ago: float | None, cascade_dedup: dict,
-             state: dict, now: datetime) -> tuple[list[str], dict]:
+             state: dict, now: datetime,
+             regime_3state: str | None = None) -> tuple[list[str], dict]:
     """Чистая логика: → (список пингов, обновлённый state). Никакого IO."""
     from services.morning_brief.card import _bag, _day_delta
 
@@ -166,6 +173,19 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             alerts.append(f"⚠️ ALT-GUARD {name}: мешок {bag:+,.0f}$ — {abs(bag)/sl*100:.0f}% "
                           f"от SL −${sl:.0f}. Решай: дождаться SL / закрыть раньше")
             _mark(state, f"{bid}:slwarn", now)
+
+        # нога против режима BTC (WLD-урок 2026-06-10): ранний пинг на 40% SL
+        pos = latest.get("position") or 0
+        against = ((regime_3state == "MARKDOWN" and pos > 0)
+                   or (regime_3state == "MARKUP" and pos < 0))
+        if (against and bag <= -REGIME_LEG_FRAC * sl
+                and _cooldown_ok(state, f"{bid}:regime_leg", now, COOLDOWN_H["regime_leg"])):
+            leg = "ЛОНГ" if pos > 0 else "ШОРТ"
+            alerts.append(f"🔻 ALT-GUARD {name}: {leg}-нога ПРОТИВ режима BTC "
+                          f"({regime_3state}) · мешок {bag:+,.0f}$ ({abs(bag)/sl*100:.0f}% SL). "
+                          f"WLD-урок: в тренде нога доберёт до SL — рассмотри закрытие "
+                          f"ноги/бота сейчас")
+            _mark(state, f"{bid}:regime_leg", now)
 
     # XRP памп-guard — только если XRP-грид жив
     xrp_alive = any((s["latest"].get("bot_name") or "").strip().upper().startswith("XRP")
@@ -236,12 +256,18 @@ def tick(send_fn, now: datetime | None = None) -> list[str]:
     params = tr.read_params()
     managed_ids = {m["bot_id"] for m in _load_managed()}
     state = _read_json(STATE_PATH, {})
+    regime_3state = None
+    try:
+        regime_3state = (_read_json(REGIME_V2_PATH, {})
+                         .get("BTCUSDT", {}).get("4h", {}).get("state_3state"))
+    except AttributeError:
+        pass
     alerts, state = evaluate(
         snap=snap, params=params, managed_ids=managed_ids,
         deriv=_read_json(DERIV_PATH, {}),
         xrp_px_1h_ago=_xrp_px_1h_ago(now),
         cascade_dedup=_read_json(CASCADE_DEDUP_PATH, {}),
-        state=state, now=now,
+        state=state, now=now, regime_3state=regime_3state,
     )
     for text in alerts:
         logger.warning("alt_guard.ping %s", text.splitlines()[0][:120])
