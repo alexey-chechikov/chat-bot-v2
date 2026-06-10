@@ -91,8 +91,10 @@ def test_cooldown_blocks_repeat_alert(tmp_path: Path) -> None:
     send.assert_not_called()
 
 
-def test_independent_cooldown_per_side(tmp_path: Path) -> None:
-    """LONG cluster alert не блокирует SHORT cluster alert."""
+def test_both_sides_same_tick_one_card(tmp_path: Path) -> None:
+    """2026-06-10 (Win-фидбек): обе стороны в одном тике → ОДНА TG-карточка
+    (сторона с бОльшим qty), обе — в журнал. План у сторон один (inverted
+    SHORT), две карточки = чистый дубль."""
     liq = tmp_path / "liq.csv"
     sp = tmp_path / "s.json"
     jp = tmp_path / "j.jsonl"
@@ -104,8 +106,28 @@ def test_independent_cooldown_per_side(tmp_path: Path) -> None:
     send = MagicMock()
     fired = check_and_alert(send_fn=send, now=now, state_path=sp, journal_path=jp, liq_csv=liq)
     sides = {f["side"] for f in fired}
-    assert sides == {"long", "short"}
-    assert send.call_count == 2
+    assert sides == {"long", "short"}  # журнал — обе стороны (статистика)
+    assert send.call_count <= 1  # TG — максимум одна карточка
+
+
+def test_global_cooldown_blocks_other_side(tmp_path: Path) -> None:
+    """Глобальный дебаунс: другая сторона через 10 мин после карточки —
+    только журнал, без TG (молчи 30 мин после любого алерта)."""
+    liq = tmp_path / "liq.csv"
+    sp = tmp_path / "s.json"
+    jp = tmp_path / "j.jsonl"
+    t1 = datetime(2026, 5, 13, 16, 30, tzinfo=timezone.utc)
+    _write_liqs(liq, [(t1 - timedelta(minutes=2), "short", 0.7)])
+    send = MagicMock()
+    check_and_alert(send_fn=send, now=t1, state_path=sp, journal_path=jp, liq_csv=liq)
+    first_sends = send.call_count
+
+    t2 = t1 + timedelta(minutes=10)
+    _write_liqs(liq, [(t2 - timedelta(minutes=2), "long", 0.8)])
+    fired2 = check_and_alert(send_fn=send, now=t2, state_path=sp, journal_path=jp, liq_csv=liq)
+    assert send.call_count == first_sends  # TG молчит
+    if first_sends:  # если первая карточка ушла — вторая сторона журналится
+        assert [f["side"] for f in fired2] == ["long"]
 
 
 def test_journal_appended(tmp_path: Path) -> None:

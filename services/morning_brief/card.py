@@ -31,6 +31,7 @@ RISK_FOOTER = ("— риск: SL±$175/бот · isolated · альты НЕ н�
                "net-0/+$70 · дневной лимит −$350 (2×SL) · кросс-боты НЕ балансируют")
 
 DUST_USD = 1.0            # «прочие активные»: пыль (|профит|,|мешок|,|день| < $1, поз 0) не показываем
+IGNORE_PATH = ROOT / "state" / "brief_card_ignore.json"  # закрытые руками, стата заморожена
 PREV_STATE = ROOT / "state" / "brief_card_state.json"
 PREV_MAX_AGE_H = 8.0      # Δ-блок только если прошлая карточка свежее 8ч
 
@@ -137,6 +138,10 @@ def collect(include_scan: bool = True) -> dict:
 
     out["managed"] = _load_managed()
     out["prev"] = _load_prev()
+    try:
+        out["ignore"] = set(json.loads(IGNORE_PATH.read_text(encoding="utf-8")).get("bot_ids", []))
+    except Exception:
+        out["ignore"] = set()
 
     out["scan"] = None
     if include_scan:
@@ -158,6 +163,9 @@ def build_card(data: dict) -> str:
     snap = data["snap"]
     params = data["params"]
     bots = snap.get("bots", {})
+    ignore = data.get("ignore") or set()
+    if ignore:
+        bots = {bid: slot for bid, slot in bots.items() if bid not in ignore}
     _normalize_units(bots, (r or {}).get("px"))
     alerts: list[str] = list(data["errors"])
     emoji = "☀️" if 7 <= now.hour < 12 else ("🌙" if now.hour >= 23 or now.hour < 7 else "🕐")

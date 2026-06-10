@@ -66,6 +66,8 @@ _EMITTER_CHANNEL: dict[str, str] = {
     "P15_REENTRY":        ROUTINE,    # повторное открытие слоя после harvest
     "P15_HARVEST":        ROUTINE,    # частичное закрытие 50%
     "LEVEL_BREAK":        ROUTINE,    # пробой уровня без other context
+    "LIQ_PRE_CASCADE":    ROUTINE,    # 2026-06-10: liq-cluster early-warning спамил
+                                      # основную ленту (Win-фидбек) — в тихий канал
     "PAPER_TRADE":        ROUTINE,    # confirmation paper-trade entry
     "alt_decorr":         ROUTINE,    # 2026-05-29 alt decorr-divergence — shadow until
                                       # live paper proves edge (backtest weak), then promote

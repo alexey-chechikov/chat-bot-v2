@@ -536,9 +536,12 @@ async def _run_liq_pre_cascade(stop_event: asyncio.Event, *, telegram_app=None) 
     'возможен каскад через 10-20 мин'. Cooldown 30 мин/сторона.
 
     2026-05-18: send_fn расширен до reply_markup (Phase 2 audit) — карточка
-    с offensive plan получает inline кнопки [✅ Placed] [⏭ Skip]."""
+    с offensive plan получает inline кнопки [✅ Placed] [⏭ Skip].
+    2026-06-10: канал ROUTINE (LIQ_PRE_CASCADE) — поток ранних предупреждений
+    уходит в тихий чат (ROUTINE_CHAT_IDS), основная лента остаётся чистой."""
     from services.pre_cascade_alert.liq_clustering import liq_pre_cascade_loop
-    send_fn = _build_rh_send_fn(telegram_app)
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "LIQ_PRE_CASCADE") if telegram_app else None
     await liq_pre_cascade_loop(stop_event=stop_event, send_fn=send_fn)
 
 

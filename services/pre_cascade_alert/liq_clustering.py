@@ -40,6 +40,11 @@ WINDOW_MINUTES = 5
 LIQ_CLUSTER_THRESHOLD_BTC = 0.5
 CASCADE_SUPPRESS_THRESHOLD_BTC = 5.0   # если >=5 BTC уже было — каскад уже идёт
 COOLDOWN_SEC = 1800                    # 30 min per (side)
+# 2026-06-10 (фидбек Win/оператора): в падающем рынке long/short стороны
+# чередуются и спамили 10-20 карточек за ночь, а план у ОБЕИХ сторон один
+# (inverted SHORT). Глобальный дебаунс: одна TG-карточка на кластер-событие,
+# вторая сторона того же тика и всё в течение 30 мин — только в журнал.
+GLOBAL_COOLDOWN_SEC = 1800
 POLL_INTERVAL_SEC = 60
 
 
@@ -157,17 +162,36 @@ def _read_last_btc_price() -> Optional[float]:
     return last_close
 
 
-# Entry plans для validated edge (n=20 short_side за 1 неделю live, 75% pct_up 4h):
-# - SHORT pre-cluster → LONG continuation play (validated)
-# - LONG pre-cluster → нет validated edge (long_4h drifted в 2026), defensive only
+# Entry plans для pre-cascade clusters.
+# Re-validation 2026-05-19 на n=63 SHORT fires + n=60 LONG fires
+# (state/liq_pre_cascade_fires.jsonl против market_live/market_1m.csv):
+#   SHORT pre-cluster → LONG @ 4h:  44.4% UP, mean +0.025%  → −EV after fees
+#   SHORT pre-cluster → LONG @ 24h: 36.0% UP, mean −0.468%  → INVERTED edge!
+#   LONG pre-cluster → LONG @ 4h:   46.7% UP, mean +0.028%  → −EV
+#   LONG pre-cluster → LONG @ 24h:  29.2% UP, mean −0.728%  → strong INVERTED
+# Старый hardcoded "75% n=20 1 неделя" — устарел/cherry-picked.
+# Сейчас живой edge — inverted SHORT с 24h hold.
 PRE_CASCADE_ENTRY_PLANS = {
     "short": {
-        "dir": "LONG",
-        "edge_note": "Validated n=20 (1 неделя live): 75% pct_up 4h, mean +0.70%",
-        "tp1_pct": +0.40,    # ~mean/2
-        "tp2_pct": +0.70,    # full mean expectation
-        "stop_pct": -0.35,   # tight stop
-        "exit_after_h": 4,
+        "dir": "SHORT",  # inverted from old "LONG continuation"
+        "edge_note": "Re-validated 2026-05-19 (n=63 live fires): @ 4h 44.4% UP (мёртв), "
+                     "@ 24h 36.0% UP = 64% DOWN, mean −0.468% / median −0.928%. "
+                     "Inverted SHORT с 24h hold — после fees ~+0.32% net/trade.",
+        "tp1_pct": -0.45,
+        "tp2_pct": -0.90,
+        "stop_pct": +0.50,
+        "exit_after_h": 24,
+        "size_usd": 2500,   # half-size до 30+ собственных fills
+    },
+    "long": {
+        "dir": "SHORT",  # inverted from "no validated edge"
+        "edge_note": "Re-validated 2026-05-19 (n=48 live fires): @ 24h 29.2% UP = "
+                     "70.8% DOWN, mean −0.728% / median −0.898%. Сильнейшая inversion.",
+        "tp1_pct": -0.45,
+        "tp2_pct": -0.90,
+        "stop_pct": +0.50,
+        "exit_after_h": 24,
+        "size_usd": 2500,
     },
 }
 
@@ -184,6 +208,8 @@ def _format_alert(side: str, qty_btc: float,
       - 'has_conflict': bool
     """
     direction_word = "LONG" if side == "long" else "SHORT"
+    now_utc = now or datetime.now(timezone.utc)
+    window_end = now_utc + timedelta(minutes=20)
     lines = [
         f"🔍 PRE-CASCADE liq cluster: {direction_word}",
         f"За последние {WINDOW_MINUTES} мин: {qty_btc:.2f} BTC ликвидировано (baseline ~0.01)",
@@ -201,7 +227,9 @@ def _format_alert(side: str, qty_btc: float,
     except Exception:
         logger.exception("liq_pre_cascade.score_failed")
 
-    lines.append(f"⚠ НЕ открывать новые {direction_word}-позиции 20 мин (возможен каскад)")
+    # 2026-06-10: окно и план ссылаются на ОДНУ границу времени — раньше
+    # «не открывать 20 мин» + «offensive entry» в одной карточке путали.
+    lines.append(f"⚠ Каскад-окно до {window_end.strftime('%H:%M')} UTC — внутри окна НЕ входить")
     lines.append("")
 
     # Validated offensive entry: SHORT pre-cluster → LONG continuation
@@ -217,7 +245,6 @@ def _format_alert(side: str, qty_btc: float,
         dedup_path = ROOT / "state" / "cascade_alert_dedup.json"
         if dedup_path.exists():
             dedup = json.loads(dedup_path.read_text(encoding="utf-8"))
-            now_utc = now or datetime.now(timezone.utc)
             opposite_prefix = "long_" if side == "short" else "short_"
             for cascade_type, ts_iso in dedup.items():
                 if not isinstance(ts_iso, str) or not cascade_type.startswith(opposite_prefix):
@@ -252,7 +279,7 @@ def _format_alert(side: str, qty_btc: float,
             lines.append(f"⚠ Offensive option — CONFLICT с {conflict_event}, SKIP")
             lines.append(f"  (оба сигнала за <60 мин = whipsaw, edge не работает)")
         else:
-            lines.append(f"💰 Offensive entry [{confidence}]:")
+            lines.append(f"💰 План — вход ПОСЛЕ {window_end.strftime('%H:%M')} UTC, maker-limit [{confidence}]:")
             lines.append(f"  {plan['dir']}  entry ~${last_price:,.0f}")
             lines.append(f"  Stop: ${stop:,.0f} ({plan['stop_pct']:+.2f}%)")
             lines.append(f"  TP1:  ${tp1:,.0f} (R:R 1:{rr1:.1f})")
@@ -312,13 +339,15 @@ def check_and_alert(
     state = _read_state(state_path)
     fired: list[dict] = []
 
+    # стороны, прошедшие per-side кулдаун
+    candidates: list[tuple[str, float]] = []
     for side, qty in (("long", long_btc), ("short", short_btc)):
         # Suppress если уже каскад
         if qty >= cascade_suppress:
             continue
         if qty < cluster_threshold:
             continue
-        # Cooldown
+        # Cooldown (per side)
         last_iso = state.get(f"last_alert_{side}")
         if last_iso:
             try:
@@ -327,14 +356,29 @@ def check_and_alert(
                     continue
             except ValueError:
                 pass
+        candidates.append((side, qty))
 
+    # глобальный дебаунс (2026-06-10): одна TG-карточка на кластер-событие.
+    # План у обеих сторон один (inverted SHORT) — шлём сторону с бОльшим qty,
+    # остальное только в журнал. Повтор в течение GLOBAL_COOLDOWN_SEC — журнал.
+    global_ok = True
+    last_any = state.get("last_alert_any")
+    if last_any:
+        try:
+            if (now - datetime.fromisoformat(last_any)).total_seconds() < GLOBAL_COOLDOWN_SEC:
+                global_ok = False
+        except ValueError:
+            pass
+    send_side = max(candidates, key=lambda x: x[1])[0] if candidates else None
+
+    for side, qty in candidates:
         text, plan_info = _format_alert(side, qty, long_btc=long_btc,
                                           short_btc=short_btc, now=now)
         signal_id = f"pc_{now.strftime('%Y%m%d_%H%M%S')}_{side}"
         # 2026-05-18: TG send ТОЛЬКО для actionable plans (defensive-only
         # и conflict cases — silent, только в journal). Оператор:
         # "сколько текста, и каждое надо анализировать на адекватность".
-        if plan_info.get("actionable"):
+        if plan_info.get("actionable") and global_ok and side == send_side:
             kb = _build_keyboard(signal_id)
             try:
                 try:
@@ -344,9 +388,17 @@ def check_and_alert(
             except Exception:
                 logger.exception("liq_pre_cascade.send_failed side=%s", side)
                 continue
+            state["last_alert_any"] = now.isoformat(timespec="seconds")
         else:
-            logger.info("liq_pre_cascade.silent_journal side=%s reason=%s",
-                        side, "conflict" if plan_info.get("has_conflict") else "defensive_only")
+            if plan_info.get("has_conflict"):
+                reason = "conflict"
+            elif not plan_info.get("actionable"):
+                reason = "defensive_only"
+            elif not global_ok:
+                reason = "global_cooldown"
+            else:
+                reason = "dup_side_same_tick"
+            logger.info("liq_pre_cascade.silent_journal side=%s reason=%s", side, reason)
 
         entry = {
             "signal_id": signal_id,

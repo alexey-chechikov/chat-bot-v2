@@ -163,6 +163,17 @@ def test_delta_block_vs_prev_card(live_dir: Path):
     assert "Δ4ч" in card.split("ПОРТФЕЛЬ")[1].splitlines()[1]
 
 
+def test_ignore_list_hides_closed_hedge(live_dir: Path):
+    """Оператор 2026-06-10: «хедж лонг удали — закрыт руками». brief_card_ignore.json
+    выкидывает бота из мешков/портфеля целиком."""
+    d = _data(live_dir)
+    d["ignore"] = {"5871471592"}
+    card = build_card(d)
+    assert "хедж лонг на шорте-T1" not in card
+    assert "МЕШКИ НА СТОПЕ" not in card
+    assert "стоп-мешки" not in card
+
+
 def test_day_limit_alert(live_dir: Path):
     d = _data(live_dir)
     # подменяем day0 T2 так, чтобы дневной net (ΔcurrentProfit) был −400
