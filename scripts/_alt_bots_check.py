@@ -45,12 +45,15 @@ for bid, slot in sorted(snap["bots"].items()):
     print(f"   border={border.get('bottom') or border.get('from')}..{border.get('top') or border.get('to')}"
           f" off(so)={raw.get('so')} ioo={raw.get('ioo')}")
     ttp = raw.get('ttp')
+    # SL у Dynamic-Auto (side=3) живёт в tsl (total stop loss, $);
+    # у обычных гридов — slp.tp / lsl. Проверяем все три поля.
+    tsl = raw.get('tsl')
     lsl = raw.get('lsl')
     slp_tp = slp.get('tp')
-    print(f"   TP(ttp)={ttp} ttpinc={raw.get('ttpinc')} · SL: slp.tp={slp_tp} lsl={lsl} slt={raw.get('slt')}")
+    print(f"   TP(ttp)={ttp} ttpinc={raw.get('ttpinc')} · SL: tsl={tsl} slp.tp={slp_tp} lsl={lsl}")
     flags = []
-    if not slp_tp and not lsl:
-        flags.append("🚨 SL НЕ ВИДЕН в params (slp.tp/lsl пусто) — проверь TP/SL ±$175 руками!")
+    if not tsl and not slp_tp and not lsl:
+        flags.append("🚨 SL НЕ ВИДЕН в params (tsl/slp.tp/lsl пусто) — проверь TP/SL ±$175 руками!")
     if q.get("qr") and float(q["qr"]) > 1.4:
         flags.append(f"⚠ mult {q['qr']} > 1.4 (ETH-blowup был при 1.9)")
     if ttp and abs(float(ttp)) > 200:
