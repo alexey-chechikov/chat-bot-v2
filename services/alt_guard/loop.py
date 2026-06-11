@@ -35,6 +35,10 @@ MSK = timezone(timedelta(hours=3))
 
 NET_CLOSE_USD = 70.0          # net-0/+$70 → закрыть руками
 SL_DEFAULT_USD = 175.0
+# 2026-06-11 SOL-урок: Dynamic-Auto при закрытии цикла уходит в статус 13 на
+# ~1 мин (поза 0) и возвращается в 2 — это НЕ остановка. Пинг «остановился»
+# только после N минут подряд не-активности + пинг «возобновился» после него.
+STOP_CONFIRM_MIN = 3.0
 SL_WARN_FRAC = 0.8            # 80% от SL → предупреждение
 # 2026-06-10 WLD-урок: симметричный грид в MARKDOWN набивает ЛОНГ-мешок до SL
 # (WLD: +71 профит short-ногой → реверс в лонг → мешок −181 → tsl). Ранний пинг,
@@ -145,12 +149,14 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
              regime_3state: str | None = None,
              drift: dict[str, tuple] | None = None) -> tuple[list[str], dict]:
     """Чистая логика: → (список пингов, обновлённый state). Никакого IO."""
+    from services.morning_brief import tracker_reader as tr_mod
     from services.morning_brief.card import _bag, _day_delta
 
     alerts: list[str] = []
     alts = _alt_bots(snap, params, managed_ids)
     prev_active = dict(state.get("prev_active") or {})
     new_active: dict[str, bool] = {}
+    inactive = dict(state.get("inactive") or {})  # {bid: {"since": iso, "pinged": bool}}
 
     for bid, slot, p in alts:
         latest = slot["latest"]
@@ -161,10 +167,27 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
         _realized, net = _day_delta(slot)
 
         if not active:
-            if prev_active.get(bid):
-                alerts.append(f"🛑 ALT-GUARD {name}: бот ОСТАНОВИЛСЯ (SL/стоп?) · "
-                              f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
+            # дебаунс: рестарт цикла (статус 13, ~1 мин) — не остановка
+            if prev_active.get(bid) or bid in inactive:
+                rec = inactive.get(bid) or {"since": now.isoformat(timespec="seconds"),
+                                            "pinged": False}
+                try:
+                    since = datetime.fromisoformat(rec["since"])
+                except ValueError:
+                    since = now
+                if (not rec["pinged"]
+                        and (now - since).total_seconds() >= STOP_CONFIRM_MIN * 60):
+                    label = tr_mod.STATUS_LABEL.get(latest["status"], f"статус {latest['status']}")
+                    alerts.append(f"🛑 ALT-GUARD {name}: бот остановился — {label} · "
+                                  f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
+                    rec["pinged"] = True
+                inactive[bid] = rec
             continue
+        # снова активен: если успели пингануть остановку — закрываем историю
+        rec = inactive.pop(bid, None)
+        if rec and rec.get("pinged"):
+            alerts.append(f"▶️ ALT-GUARD {name}: бот СНОВА АКТИВЕН · "
+                          f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
 
         if net is not None and net >= NET_CLOSE_USD and _cooldown_ok(state, f"{bid}:net", now, COOLDOWN_H["net"]):
             alerts.append(f"💰 ALT-GUARD {name}: net дня {net:+,.0f}$ ≥ +$70 — "
@@ -277,6 +300,7 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
         state["evening_date"] = now_msk.date().isoformat()
 
     state["prev_active"] = new_active
+    state["inactive"] = inactive
     return alerts, state
 
 

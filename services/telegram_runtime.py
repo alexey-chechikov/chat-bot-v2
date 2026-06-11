@@ -597,9 +597,30 @@ class SignalAlertWorker(threading.Thread):
         except Exception:
             details = {}
         ts_s = row.get("ts_utc", "")
+        # 2026-06-11 (оператор): время было UTC без пометки — выглядело как
+        # часовая задержка доставки. Показываем мск с явной меткой.
         ts_short = ts_s[11:19] if len(ts_s) >= 19 else ts_s
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+            msk = _dt.fromisoformat(ts_s) + _td(hours=3)
+            ts_short = f"{msk:%H:%M:%S} мск"
+        except (ValueError, TypeError):
+            pass
         detail_s = "  ".join(f"{k}={v}" for k, v in details.items())
         return f"{prefix}  [{ts_short}]  {detail_s}"
+
+    def _route_chats(self, signal_type: str) -> list[int]:
+        """ROUTINE-сигналы (LEVEL_BREAK и пр.) — в тихий чат (ROUTINE_CHAT_IDS),
+        остальное в primary. 2026-06-11: воркер слал напрямую в оба чата мимо
+        channel_router — LEVEL_BREAK продолжал засорять личку после разделения."""
+        try:
+            from services.telegram.alert_router import ROUTINE, channel_for
+            from services.telegram.channel_router import get_routine_chat_ids
+            if channel_for(signal_type) == ROUTINE:
+                return get_routine_chat_ids() or list(self.chat_ids)
+        except Exception:
+            logger.exception("signal_alert_worker.route_failed")
+        return list(self.chat_ids)
 
     def _batch_level_breaks(self, rows: list[dict]) -> list[dict]:
         """Объединяет множественные LEVEL_BREAK с одной direction в один синтетический row.
@@ -698,7 +719,7 @@ class SignalAlertWorker(threading.Thread):
                                 self._last_sent[f"LEVEL_BREAK|{int(lvl)}"] = now_t
                             self._save_last_sent()
                         text = self._format_signal(row)
-                        for chat_id in self.chat_ids:
+                        for chat_id in self._route_chats(row.get("signal_type", "")):
                             # Belt-and-suspenders: persistent file-based dedup
                             # protects against duplicate alerts caused by parallel
                             # workers / process restarts / race conditions.

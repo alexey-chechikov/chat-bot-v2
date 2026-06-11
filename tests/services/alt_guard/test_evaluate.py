@@ -52,16 +52,56 @@ def test_sl_warn_uses_tsl():
     assert any("от SL −$175" in a for a in alerts)
 
 
-def test_stopped_bot_pinged_once():
-    bots = {"5693279219": _slot("SOL", status=12, profit=5.0, cur=-160.0)}
+def test_stopped_bot_debounced_then_pinged_with_status():
+    """SOL-урок 2026-06-11: статус 13 на 1 мин (рестарт цикла) — НЕ пинговать.
+    Пинг только после 3 мин не-активности, с расшифровкой статуса."""
+    from datetime import timedelta
+    bots = {"5693279219": _slot("SOL", status=16, profit=5.0, cur=-160.0)}
     params = {"5693279219": _params()}
     kw = _base(bots, params)
     kw["state"] = {"prev_active": {"5693279219": True}}
-    alerts, state = evaluate(**kw)
-    assert any("ОСТАНОВИЛСЯ" in a for a in alerts)
-    kw["state"] = state  # второй тик — уже не активен в prev → молчим
-    alerts2, _ = evaluate(**kw)
-    assert not any("ОСТАНОВИЛСЯ" in a for a in alerts2)
+    # тик 1: только что не-активен → молчим (дебаунс)
+    alerts1, state = evaluate(**kw)
+    assert not any("остановился" in a for a in alerts1)
+    # тик 2: +4 мин всё ещё не-активен → пинг с расшифровкой статуса 16
+    kw["state"] = state
+    kw["now"] = NOW + timedelta(minutes=4)
+    alerts2, state2 = evaluate(**kw)
+    assert any("остановился — стоп (TP/SL)" in a for a in alerts2)
+    # тик 3: повтора нет
+    kw["state"] = state2
+    kw["now"] = NOW + timedelta(minutes=5)
+    alerts3, _ = evaluate(**kw)
+    assert not any("остановился" in a for a in alerts3)
+
+
+def test_cycle_restart_no_ping_and_resume_after_real_stop():
+    """Транзиент (1 мин) молчит; после реального стопа возврат в актив → «СНОВА АКТИВЕН»."""
+    from datetime import timedelta
+    params = {"5693279219": _params()}
+    # транзиент: не-активен 1 тик → снова активен, пинга не было → и «возобновился» не шлём
+    kw = _base({"5693279219": _slot("SOL", status=13)}, params)
+    kw["state"] = {"prev_active": {"5693279219": True}}
+    _a1, st = evaluate(**kw)
+    kw2 = _base({"5693279219": _slot("SOL", status=2)}, params)
+    kw2["state"] = st
+    kw2["now"] = NOW + timedelta(minutes=1)
+    alerts, st2 = evaluate(**kw2)
+    assert not any("СНОВА АКТИВЕН" in a for a in alerts)
+    # реальный стоп ≥3 мин (пинг был) → возврат в актив → «СНОВА АКТИВЕН»
+    kw3 = _base({"5693279219": _slot("SOL", status=16)}, params)
+    kw3["state"] = st2
+    kw3["now"] = NOW + timedelta(minutes=2)
+    _a3, st3 = evaluate(**kw3)
+    kw4 = dict(kw3, now=NOW + timedelta(minutes=6))
+    kw4["state"] = st3
+    a4, st4 = evaluate(**kw4)
+    assert any("остановился" in a for a in a4)
+    kw5 = _base({"5693279219": _slot("SOL", status=2)}, params)
+    kw5["state"] = st4
+    kw5["now"] = NOW + timedelta(minutes=7)
+    a5, _ = evaluate(**kw5)
+    assert any("СНОВА АКТИВЕН" in a for a in a5)
 
 
 def test_xrp_pump_guard_price_trigger():

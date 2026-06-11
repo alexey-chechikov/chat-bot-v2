@@ -17,13 +17,16 @@ LIVE_DIR = ROOT / "ginarea_live"
 MSK = timezone(timedelta(hours=3))
 
 # статусы GinArea (services/short_bots_guard/control.py; 16 — эмпирика 2026-06-10:
-# WLD остановлен срабатыванием tsl → статус 16, позиция закрыта)
+# WLD остановлен срабатыванием tsl → статус 16, позиция закрыта;
+# 13 — эмпирика 2026-06-11: SOL на 1 мин при закрытии цикла Dynamic-Auto, потом снова 2)
 STATUS_ACTIVE = 2
 STATUS_PAUSED = 3
 STATUS_FAILED = 10
 STATUS_STOPPED = 12
+STATUS_CYCLE_RESTART = 13
 STATUS_STOPPED_TPSL = 16
-STATUS_LABEL = {2: "активен", 3: "пауза", 10: "FAILED", 12: "выключен", 16: "стоп (TP/SL)"}
+STATUS_LABEL = {2: "активен", 3: "пауза", 10: "FAILED", 12: "выключен",
+                13: "рестарт цикла", 16: "стоп (TP/SL)"}
 
 # хвоста в 12MB хватает на >24ч снапшотов (~20 ботов × 60с × ~150 байт ≈ 4.5MB/сутки)
 SNAP_TAIL_BYTES = 12_000_000

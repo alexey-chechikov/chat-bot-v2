@@ -66,11 +66,16 @@ def build_send_fn(telegram_app: Any, emitter: str):
 
     from services.common.tg_send_with_retry import send_with_retry
 
+    # эмиттеры, чьи сообщения несут СВОИ смысловые эмодзи — общий severity-префикс
+    # только дублирует («🟠 🛑 ALT-GUARD…», фидбек оператора 2026-06-11)
+    _no_prefix = {"ALT_GUARD"}
+
     def _send(text: str, *, meta: dict | None = None,
                 reply_markup: Any = None) -> None:
         try:
-            sev = classify_severity(emitter, text, meta)
-            text = with_prefix(sev, text)
+            if emitter not in _no_prefix:
+                sev = classify_severity(emitter, text, meta)
+                text = with_prefix(sev, text)
         except Exception:
             logger.exception("channel_router.prefix_failed emitter=%s", emitter)
         send_with_retry(
