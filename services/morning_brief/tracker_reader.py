@@ -102,6 +102,34 @@ def read_snapshots(path: Path | None = None, now: datetime | None = None) -> dic
     return {"bots": bots, "stale_min": stale_min}
 
 
+def read_series(bot_ids: set[str], hours: float = 4.0,
+                path: Path | None = None, now: datetime | None = None) -> dict[str, list[dict]]:
+    """Хронологические ряды снапшотов по ботам за последние `hours` —
+    для drift-монитора (tools/_grid_drift_monitor.py): ts/position/profit/current_profit."""
+    path = path or (LIVE_DIR / "snapshots.csv")
+    now = now or datetime.now(timezone.utc)
+    if not path.exists():
+        return {}
+    cutoff = now - timedelta(hours=hours)
+    out: dict[str, list[dict]] = {bid: [] for bid in bot_ids}
+    for r in _parse_rows(_tail_lines(path, SNAP_TAIL_BYTES), SNAPSHOTS_HEADERS):
+        if r["bot_id"] not in out:
+            continue
+        try:
+            ts = datetime.fromisoformat(r["ts_utc"])
+        except ValueError:
+            continue
+        if ts < cutoff:
+            continue
+        out[r["bot_id"]].append({
+            "ts": ts,
+            "position": _f(r["position"]) or 0.0,
+            "profit": _f(r["profit"]) or 0.0,
+            "current_profit": _f(r["current_profit"]) or 0.0,
+        })
+    return out
+
+
 def read_params(path: Path | None = None) -> dict[str, dict]:
     """→ {bot_id: последняя params-строка} (border, total_sl/tp, instop...)."""
     path = path or (LIVE_DIR / "params.csv")

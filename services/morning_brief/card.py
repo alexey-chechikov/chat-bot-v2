@@ -342,7 +342,8 @@ def build_card(data: dict) -> str:
 
     # ── альт-кандидаты
     if scan:
-        good = [x for x in scan["rows"] if not x["danger"] and not x["thin"]][:MAX_CANDIDATES]
+        good = [x for x in scan["rows"] if not x["danger"] and not x["thin"]
+                and not x.get("pump")][:MAX_CANDIDATES]
         L.append("━ АЛЬТ-КАНДИДАТЫ (топ ✅, MegaHard 12%)")
         if good:
             for x in good:

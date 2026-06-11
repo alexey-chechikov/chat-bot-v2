@@ -45,7 +45,9 @@ PUMP_MOVE_1H_PCT = 3.0        # XRP +3%/час → памп уже идёт
 CASCADE_FRESH_MIN = 5.0
 
 COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
-              "regime_leg": 4.0}
+              "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 0.5}
+DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
+BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
 EVENING_HOUR_MSK = 23
 POLL_INTERVAL_SEC = 60
 
@@ -140,7 +142,8 @@ def _xrp_px_1h_ago(now: datetime, path: Path = DERIV_HIST_PATH,
 def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
              xrp_px_1h_ago: float | None, cascade_dedup: dict,
              state: dict, now: datetime,
-             regime_3state: str | None = None) -> tuple[list[str], dict]:
+             regime_3state: str | None = None,
+             drift: dict[str, tuple] | None = None) -> tuple[list[str], dict]:
     """Чистая логика: → (список пингов, обновлённый state). Никакого IO."""
     from services.morning_brief.card import _bag, _day_delta
 
@@ -173,6 +176,37 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             alerts.append(f"⚠️ ALT-GUARD {name}: мешок {bag:+,.0f}$ — {abs(bag)/sl*100:.0f}% "
                           f"от SL −${sl:.0f}. Решай: дождаться SL / закрыть раньше")
             _mark(state, f"{bid}:slwarn", now)
+
+        # drift-лестница Win (tools/_grid_drift_monitor.py, валидирована на 10.06):
+        # пингуем ПЕРЕХОДЫ вверх; Stage 3 повторяется каждые 30 мин, пока держится.
+        if drift and bid in drift:
+            stage, action, mx = drift[bid]
+            prev_stage = int((state.get("drift_stage") or {}).get(bid, 0))
+            state.setdefault("drift_stage", {})[bid] = stage
+            if stage >= 1 and (stage > prev_stage or stage == 3) \
+                    and _cooldown_ok(state, f"{bid}:drift{stage}", now, COOLDOWN_H[f"drift{min(stage,3)}"]):
+                icons = {1: "🟡", 2: "🟠", 3: "🔴"}
+                alerts.append(
+                    f"{icons[stage]} DRIFT Stage {stage} {name}: {action}\n"
+                    f"   мешок {mx['bag']:+,.0f}$ ({mx['bag_pct']:.0%} SL) · "
+                    f"поза-pin {mx['pos_pin']:.2f} · total {mx['total']:+,.0f}$"
+                    + ("\n   step/target ×2 меняются на живом боте БЕЗ рестарта "
+                       "(доказано 10.06)" if stage == 2 else "")
+                    + ("\n   WLD-урок: Stage 3 = закрыть СЕЙЧАС, не ждать −175 на дне "
+                       "(вчера: −78 vs −99)" if stage == 3 else ""))
+                _mark(state, f"{bid}:drift{stage}", now)
+            # worst-bag журнал (калибровка порогов, Win Q3)
+            wb = state.setdefault("worst_bag", {})
+            rec = wb.get(bid) or {"date": "", "worst_pct": 0.0}
+            today = now.astimezone(MSK).date().isoformat()
+            if rec.get("date") != today:
+                if rec.get("date"):
+                    state.setdefault("_bag_flush", []).append(
+                        {"date": rec["date"], "bot_id": bid, "name": name,
+                         "worst_bag_pct": rec["worst_pct"]})
+                rec = {"date": today, "worst_pct": 0.0}
+            rec["worst_pct"] = max(rec["worst_pct"], round(float(mx.get("bag_pct") or 0), 3))
+            wb[bid] = rec
 
         # нога против режима BTC (WLD-урок 2026-06-10): ранний пинг на 40% SL
         pos = latest.get("position") or 0
@@ -246,6 +280,38 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
     return alerts, state
 
 
+def _assess_drift(snap: dict, params: dict, managed_ids: set[str],
+                  now: datetime) -> dict[str, tuple]:
+    """Drift-монитор Win по живым альт-ботам: {bot_id: (stage, action, метрики)}."""
+    import sys as _sys
+    from services.morning_brief import tracker_reader as tr
+    tools_dir = str(ROOT / "tools")
+    if tools_dir not in _sys.path:
+        _sys.path.insert(0, tools_dir)
+    try:
+        import _grid_drift_monitor as gdm
+        import pandas as pd
+    except Exception:
+        logger.exception("alt_guard.drift_import_failed")
+        return {}
+    alt_ids = {bid for bid, slot, _p in _alt_bots(snap, params, managed_ids)
+               if slot["latest"]["status"] == 2}
+    if not alt_ids:
+        return {}
+    series = tr.read_series(alt_ids, hours=DRIFT_SERIES_HOURS, now=now)
+    out: dict[str, tuple] = {}
+    for bid, rows in series.items():
+        if len(rows) < 3:
+            continue
+        try:
+            df = pd.DataFrame(rows)
+            tsl = -_sl_usd(params.get(bid) or {})
+            out[bid] = gdm.assess(df, tsl=tsl)
+        except Exception:
+            logger.exception("alt_guard.drift_assess_failed bot=%s", bid)
+    return out
+
+
 def tick(send_fn, now: datetime | None = None) -> list[str]:
     """Один проход: чтение с диска → evaluate → отправка. Возвращает пинги."""
     from services.morning_brief import tracker_reader as tr
@@ -268,7 +334,15 @@ def tick(send_fn, now: datetime | None = None) -> list[str]:
         xrp_px_1h_ago=_xrp_px_1h_ago(now),
         cascade_dedup=_read_json(CASCADE_DEDUP_PATH, {}),
         state=state, now=now, regime_3state=regime_3state,
+        drift=_assess_drift(snap, params, managed_ids, now),
     )
+    # worst-bag журнал (калибровка порогов drift-лестницы, Win Q3)
+    for rec in state.pop("_bag_flush", []):
+        try:
+            with BAG_JOURNAL.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except OSError:
+            logger.exception("alt_guard.bag_journal_failed")
     for text in alerts:
         logger.warning("alt_guard.ping %s", text.splitlines()[0][:120])
         if send_fn is not None:
