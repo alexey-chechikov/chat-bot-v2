@@ -1,0 +1,80 @@
+//@version=5
+// Grid OPEN / HOLD / CLOSE v3 — Win-чистота + бектест-дефолты (Mac+Win, 2026-06-09)
+// База Win-v2 (стек жёлтая/красная + дебаунс, крупные редкие метки). Доработки по grid-$:
+//  • дефолт TEMA (в реалистичном чопе тот же харвест +36, мешок −193 vs EMA −282 = меньше).
+//  • vol-off СОВЕТНИК (оранж фон на крах-спайке; НЕ авто-рез — валидировано net−).
+//  • pb/fz (добор/выход НАПРАВЛЕННОЙ ноги) — тумблер, по умолчанию ВЫКЛ (чисто).
+indicator("Grid OPEN / HOLD / CLOSE v3", overlay=true, max_labels_count=100)
+
+useTema = input.bool(true,  "TEMA (меньше мешок) · выкл = EMA (глаже глазу)")
+hold    = input.int(5, "Дебаунс баров (больше = чище/реже)", minval=1)
+showVol = input.bool(true,  "vol-off советник (оранж фон на крах-спайке)")
+showAdd = input.bool(false, "pb/fz — добор/выход НАПРАВЛЕННОЙ ноги (для глаза, НЕ грид)")
+
+ma(len) =>
+    e1 = ta.ema(close, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    useTema ? 3 * e1 - 3 * e2 + e3 : ta.ema(close, len)
+green  = ma(50)
+yellow = ma(100)
+red    = ma(200)
+plot(green,  "быстрая", color.new(color.lime,   0), 1)
+plot(yellow, "жёлтая",  color.new(color.yellow, 0), 2)
+plot(red,    "красная", color.new(color.red,    0), 2)
+
+// ЗОНА: стек + цена закрепилась (как у Win) + дебаунс hold
+bull  = close > yellow and yellow > red
+bear  = close < yellow and yellow < red
+mixed = not bull and not bear
+var int br = 0
+var int sr = 0
+var int mr = 0
+br := bull  ? br + 1 : 0
+sr := bear  ? sr + 1 : 0
+mr := mixed ? mr + 1 : 0
+var int zone = 0
+if br >= hold
+    zone := 1
+else if sr >= hold
+    zone := -1
+else if mr >= hold
+    zone := 0
+
+openLong  = zone == 1  and zone[1] != 1
+openShort = zone == -1 and zone[1] != -1
+closeAny  = (zone[1] == 1 and zone != 1) or (zone[1] == -1 and zone != -1)
+
+// VOL-OFF советник (оценка человеку, НЕ авто-действие)
+atrp   = ta.atr(14) / close * 100.0
+volz   = (atrp - ta.sma(atrp, 100)) / ta.stdev(atrp, 100)
+voloff = volz >= 2.5
+
+// КРУПНЫЕ редкие метки (как у Win)
+plotshape(openLong  and barstate.isconfirmed, "ОТКР ЛОНГ", shape.labelup,   location.belowbar, color.new(color.lime,0), text="ОТКР ЛОНГ", textcolor=color.black, size=size.large)
+plotshape(openShort and barstate.isconfirmed, "ОТКР ШОРТ", shape.labeldown, location.abovebar, color.new(color.red,0),  text="ОТКР ШОРТ", textcolor=color.white, size=size.large)
+plotshape(closeAny  and barstate.isconfirmed, "ЗАКР", shape.xcross, location.abovebar, color.new(color.gray,0), text="ЗАКР", size=size.small)
+
+// ОПЦ pb/fz — направленная нога, по умолчанию выкл (чтобы не шумело)
+rsi   = ta.rsi(close, 14)
+distR = math.abs(close - red) / red * 100.0
+pbLong  = showAdd and zone == 1  and distR <= 3 and math.abs(rsi - 50) <= 10 and close <= yellow
+pbShort = showAdd and zone == -1 and distR <= 3 and math.abs(rsi - 50) <= 10 and close >= yellow
+var int weakL = 0
+var int weakS = 0
+weakL := (zone == 1  and close < green) ? weakL + 1 : 0
+weakS := (zone == -1 and close > green) ? weakS + 1 : 0
+fzLong  = showAdd and zone == 1  and weakL >= 2
+fzShort = showAdd and zone == -1 and weakS >= 2
+plotshape(pbLong,  "pb LONG",  shape.circle, location.belowbar, color.new(color.aqua,   0), size=size.tiny, text="pb")
+plotshape(pbShort, "pb SHORT", shape.circle, location.abovebar, color.new(color.fuchsia,0), size=size.tiny, text="pb")
+plotshape(fzLong  and not fzLong[1],  "fz LONG",  shape.square, location.abovebar, color.new(color.purple,0), size=size.tiny, text="fz")
+plotshape(fzShort and not fzShort[1], "fz SHORT", shape.square, location.belowbar, color.new(color.purple,0), size=size.tiny, text="fz")
+
+bgcolor(showVol and voloff ? color.new(color.orange, 82) : zone == 1 ? color.new(color.green, 90) : zone == -1 ? color.new(color.red, 90) : color.new(color.gray, 94))
+
+act  = (showVol and voloff) ? "⚫ VOL-OFF — оцени краш" : zone == 1 ? "🟢 ДЕРЖИ ЛОНГ" : zone == -1 ? "🔴 ДЕРЖИ ШОРТ" : "🟡 ЧОП — обе мелко"
+acol = (showVol and voloff) ? color.orange : zone == 1 ? color.green : zone == -1 ? color.red : color.gray
+var table t = table.new(position.top_right, 1, 1, border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, act, text_color=color.white, bgcolor=acol, text_size=size.huge)

@@ -30,17 +30,19 @@ def metrics(h, l, c):
     diff = np.abs(np.diff(c[-12:])); er = float(abs(c[-1]-c[-12])/diff.sum()) if diff.sum() > 0 else 0.0
     return dict(price=c[-1], atrp=atrp, rng24=rng24, t7=t7, t1=t1, er=er)
 
-SPAN = 12.0   # целевой диапазон жизни бота, % (под альты 6-12, берём 12)
-RISK = 175    # $ риск/бот = SL; TP равный (автор: SL=TP)
+SPAN0 = 12.0  # базовый охват для символа с волатильностью = BTC; масштабируем под ATR символа
+RISK = 175    # $ риск/бот = жёсткий SL-бэкстоп; ранний выход делает _grid_drift_monitor.py
 def adapt(price, atrp, btc_atrp, btc_notional):
     vr = atrp/btc_atrp if btc_atrp else 1.0
+    # ОХВАТ от волатильности: волатильнее символ -> шире коридор, чтобы нормальный ход остался ВНУТРИ.
+    # Урок WLD 2026-06-10: флэт-12% на 10%-мувере -> мешок пробил SL. span ∈ [8,24]%.
+    span = round(min(max(SPAN0*max(vr, 1.0)**0.5, 8.0), 24.0), 1)
     step = round(min(max(0.5*vr, 0.4), 1.5), 2)
     target = round(max(step+0.1, 0.55), 2)
     mult = 1.4 if vr < 2 else 1.3
-    ordcnt = int(round(SPAN/step))                  # ордеров чтобы сетка покрыла 12%
-    span = round(ordcnt*step, 1)                    # фактический охват %
-    # size из РИСКА: при ~SPAN/2 неблаг. движении полная поза теряет ~RISK
-    maxnotional = RISK/(SPAN/2/100)                 # $-экспозиция полной позы
+    ordcnt = int(round(span/step))                  # ордеров под РЕАЛЬНЫЙ охват (не флэт 12)
+    # size из РИСКА: полная поза теряет ~RISK при ~span/2 против -> волатильнее = ШИРЕ стоп% = МЕНЬШЕ поза
+    maxnotional = RISK/(span/2/100)                 # $-экспозиция полной позы
     sizenotional = maxnotional/5                     # size:max = 1:5 как в пресете
     size = sizenotional/price
     maxsz = maxnotional/price
@@ -68,26 +70,33 @@ def main():
         try:
             h, l, c = klines(sym); m = metrics(h, l, c); a = adapt(m["price"], m["atrp"], btc_atrp, btc_notional)
             liqrel = (i.get("turnover24h") or 0)/tmax
+            # ПАМП/ОБВАЛ = откат впереди = дрейф = враг грида (урок WLD: уехал -8.4% за день). ЖЁСТКИЙ отсев.
+            pump = abs(m["t1"]) > 12 or abs(m["t7"]) > 35
             danger = abs(m["t7"]) > 50 or abs(m["t1"]) > 20 or m["er"] > 0.55
             thin = liqrel < 0.05
-            score = m["rng24"]*np.log10(max((i.get("turnover24h") or 1), 10)) * (0.3 if danger else 1) * (0.4 if thin else 1)
-            rows.append((sym, m, a, liqrel, danger, thin, score))
+            # ранжируем к ПИЛЕ: пик размаха ~4% (хватает доить, не уезжает), штраф за >4% и за высокий ER (тренд)
+            range_fit = m["rng24"] if m["rng24"] <= 4 else 4*(4.0/m["rng24"])**1.5
+            chop = 1 - min(m["er"], 0.9)
+            score = range_fit*np.log10(max((i.get("turnover24h") or 1), 10))*chop \
+                    * (0 if pump else 1) * (0.3 if danger else 1) * (0.4 if thin else 1)
+            rows.append((sym, m, a, liqrel, danger, thin, pump, score))
             time.sleep(0.12)
         except Exception as e:
             pass
-    rows.sort(key=lambda r: -r[6])
+    rows.sort(key=lambda r: -r[7])
     print(f"{'альт':9}{'цена':>10}{'rng24':>6}{'ER':>5}{'ликв':>5} | "
           f"{'step':>5}{'орд':>4}{'охв%':>6}{'target':>7}{'mult':>5}{'size':>10}{'max':>11}{'off':>5}{'TP/SL$':>8}  ст")
-    for sym, m, a, liqrel, danger, thin, sc in rows:
-        st = "🚫" if danger else ("⚠" if thin else "✅")
+    for sym, m, a, liqrel, danger, thin, pump, sc in rows:
+        st = "🚫памп" if pump else ("🚫" if danger else ("⚠" if thin else "✅"))
         tpsl = f"+{a['tp']:.0f}/{a['sl']:.0f}"
         print(f"{sym:9}{m['price']:>10.4f}{m['rng24']:>6.1f}{m['er']:>5.2f}{liqrel:>5.2f} | "
               f"{a['step']:>5}{a['ordcnt']:>4}{a['span']:>6}{a['target']:>7}{a['mult']:>5}"
               f"{a['size']:>10.2f}{a['maxsz']:>11.2f}{-a['baseoff']:>5.1f}{tpsl:>8}  {st}")
-    print("\nНастройки Dynamic-Auto MegaHard под альт, под ДВИЖЕНИЕ 12%%: order_count=12%%/step (сетка кроет 12%%),")
-    print("size из риска (полная поза теряет ~$175 при 6%% против), step=0.5×воля, target>step, mult≤1.4,")
-    print("base-offset шире, TP=+$175 / SL=−$175 (равные, автор; пресет SL НЕ имел!). Закрывай руками на net-0/~$70+.")
-    print("ER>0.55=тренд (грид сольёт) · 7д>50%=памп-клюшка · ликв<0.05=тонкий стакан. Бери ✅ верх, НЕ бери 🚫.")
+    print("\nНастройки Dynamic-Auto MegaHard под альт: охват от ВОЛАТИЛЬНОСТИ символа (волатильнее = шире коридор,")
+    print("чтобы нормальный ход остался внутри), order_count=охват/step, size из риска (волатильнее = меньше поза),")
+    print("step=0.5×воля, target>step, mult≤1.4, SL=−$175 жёсткий бэкстоп. РАННИЙ выход = drift-монитор по мешку.")
+    print("🚫памп=уехал >12%/1д или >35%/7д (откат впереди — НЕ брать) · 🚫тренд/ER · ⚠тонкий · ✅пила. Бери ✅ верх.")
+    print("После запуска КАЖДЫЙ бот ведём _grid_drift_monitor.py: дрейф → расширить step/target ×2 → если упорно → закрыть.")
 
 if __name__ == "__main__":
     main()
