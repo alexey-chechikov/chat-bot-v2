@@ -8,6 +8,29 @@ project_alt_grid_live_run. Поля берём из tracker-снимков (snap
 import numpy as np, pandas as pd
 
 WIN_MIN = 20          # окно для ускорения мешка / постоянства знака позиции
+
+# --- ДЕКОРРЕЛЯЦИЯ vs BTC (ранний сигнал, ретро 10.06: WLD 15:38@мешок-48 vs bag-Stage3 16:14@-143,
+#     36 мин раньше, 0 ложняков SOL/XRP; см. ANSWERS_DRIFT_3Q_WIN_2026-06-12.md). КОМПЛЕМЕНТ к assess():
+#     ловит ИДИОСИНКРАЗИЮ (alt уехал, BTC стоит); bag-монитор ловит коррелированный дрейф. n=1 — порог калибровать.
+IDIO_WIN_MIN = 30     # окно excess-хода, мин
+IDIO_THRESH = -3.0    # excess ≤ −3% против стороны грида -> сигнал
+def idio_excess(alt_close_1m, btc_close_1m, win=IDIO_WIN_MIN):
+    """alt/btc: pd.Series close с DatetimeIndex (1m). Возвращает Series excess-хода %, alt минус BTC за win мин.
+    Сигнал: excess <= IDIO_THRESH (символ падает сильнее BTC — против лонг-ноги симметричного грида;
+    для чисто-шорт книги смотреть excess >= +|thresh|)."""
+    a = alt_close_1m.resample("1min").last().ffill()
+    b = btc_close_1m.resample("1min").last().ffill()
+    idx = a.index.intersection(b.index)
+    return (a.reindex(idx).pct_change(win) - b.reindex(idx).pct_change(win)) * 100
+
+def idio_alert(alt_close_1m, btc_close_1m, win=IDIO_WIN_MIN, thresh=IDIO_THRESH):
+    """(fired: bool, excess_now: float) по последней точке. Для alt_guard: 🟠 DECORR-пинг / поднять Stage."""
+    ex = idio_excess(alt_close_1m, btc_close_1m, win)
+    if not len(ex.dropna()):
+        return False, 0.0
+    cur = float(ex.dropna().iloc[-1])
+    return cur <= thresh, round(cur, 2)
+
 def assess(df, tsl=-175.0):
     """df: снимки ОДНОГО бота до 'сейчас', sorted by ts; cols: ts, position, profit, current_profit.
     Возвращает (stage 0..3, action, метрики)."""

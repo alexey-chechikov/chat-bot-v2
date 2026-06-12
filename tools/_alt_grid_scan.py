@@ -71,7 +71,8 @@ def main():
             h, l, c = klines(sym); m = metrics(h, l, c); a = adapt(m["price"], m["atrp"], btc_atrp, btc_notional)
             liqrel = (i.get("turnover24h") or 0)/tmax
             # ПАМП/ОБВАЛ = откат впереди = дрейф = враг грида (урок WLD: уехал -8.4% за день). ЖЁСТКИЙ отсев.
-            pump = abs(m["t1"]) > 12 or abs(m["t7"]) > 35
+            # rng24>10% тоже 🚫: V-ход прячет |t1| (WLD 11.06: размах 18% при малом смещении), а грид так же рвёт.
+            pump = abs(m["t1"]) > 12 or abs(m["t7"]) > 35 or m["rng24"] > 10
             danger = abs(m["t7"]) > 50 or abs(m["t1"]) > 20 or m["er"] > 0.55
             thin = liqrel < 0.05
             # ранжируем к ПИЛЕ: пик размаха ~4% (хватает доить, не уезжает), штраф за >4% и за высокий ER (тренд)
