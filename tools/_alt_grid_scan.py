@@ -90,7 +90,8 @@ def scan():
             h, l, c = klines(sym); m = metrics(h, l, c); a = adapt(m["price"], m["atrp"], btc_atrp, btc_notional)
             liqrel = (i.get("turnover24h") or 0)/tmax
             # ПАМП/ОБВАЛ = откат впереди = дрейф = враг грида (урок WLD: уехал -8.4% за день). ЖЁСТКИЙ отсев.
-            pump = abs(m["t1"]) > 12 or abs(m["t7"]) > 35
+            # 2026-06-12 (Win): + размах>10% — V-образный ход (WLD) давал малый |t1| и проскакивал ✅.
+            pump = abs(m["t1"]) > 12 or abs(m["t7"]) > 35 or m["rng24"] > 10
             danger = abs(m["t7"]) > 50 or abs(m["t1"]) > 20 or m["er"] > 0.55
             thin = liqrel < 0.05
             score = score_row(m, i.get("turnover24h"), pump=pump, danger=danger, thin=thin)

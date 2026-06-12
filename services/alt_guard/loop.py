@@ -49,9 +49,17 @@ PUMP_MOVE_1H_PCT = 3.0        # XRP +3%/час → памп уже идёт
 CASCADE_FRESH_MIN = 5.0
 
 COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
-              "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 0.5}
+              "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 0.5,
+              "idio": 2.0}
 DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
 BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
+# DECORR (Win ретро 11-12.06, биржевые 1m): «упал на 3% сильнее BTC за 30 мин» =
+# маркер дрейфера ЗА ЧАСЫ до bag-Stage3 (WLD: 11:16 vs 16:14), 0 ложняков SOL/XRP.
+# Комплемент: декорр ловит идиосинкразию, bag-монитор — коррелированный дрейф. n=1!
+BTC_1M_CSV = ROOT / "market_live" / "market_1m.csv"
+# Портфельный гейт дня (Win): асимметрия +25/−99 → нужен winrate>80%. Если ∑net
+# альтов за день ≤ порога — стоп на НОВЫЕ альт-боты до завтра (пинг раз в день).
+ALT_DAY_GATE_USD = -90.0
 EVENING_HOUR_MSK = 23
 POLL_INTERVAL_SEC = 60
 
@@ -147,7 +155,8 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
              xrp_px_1h_ago: float | None, cascade_dedup: dict,
              state: dict, now: datetime,
              regime_3state: str | None = None,
-             drift: dict[str, tuple] | None = None) -> tuple[list[str], dict]:
+             drift: dict[str, tuple] | None = None,
+             idio: dict[str, float] | None = None) -> tuple[list[str], dict]:
     """Чистая логика: → (список пингов, обновлённый state). Никакого IO."""
     from services.morning_brief import tracker_reader as tr_mod
     from services.morning_brief.card import _bag, _day_delta
@@ -231,6 +240,17 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             rec["worst_pct"] = max(rec["worst_pct"], round(float(mx.get("bag_pct") or 0), 3))
             wb[bid] = rec
 
+        # DECORR-пинг (Win, ретро: за часы до bag-Stage3): альт уехал от BTC ≥3%/30мин
+        if idio and bid in idio and _cooldown_ok(state, f"{bid}:idio", now, COOLDOWN_H["idio"]):
+            ex = idio[bid]
+            if abs(ex) >= 3.0:
+                leg = "ЛОНГ-нога" if ex < 0 else "ШОРТ-нога"
+                arrow = "вниз" if ex < 0 else "вверх"
+                alerts.append(f"🟠 DECORR {name}: ушёл {arrow} на {abs(ex):.1f}% сильнее BTC "
+                              f"за 30 мин — маркер дрейфера (ретро WLD: сигнал за 5ч до стопа). "
+                              f"Под ударом {leg} · мешок {bag:+,.0f}$. Подтяни SL / готовь закрытие")
+                _mark(state, f"{bid}:idio", now)
+
         # нога против режима BTC (WLD-урок 2026-06-10): ранний пинг на 40% SL
         pos = latest.get("position") or 0
         against = ((regime_3state == "MARKDOWN" and pos > 0)
@@ -280,6 +300,21 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                               f"КОРРЕЛИРУЮТ (диверс +10% в крахе). Глянь все {n} грида")
                 _mark(state, "cascade", now)
                 break
+
+    # портфельный гейт дня (Win): ∑net альтов ≤ −$90 → новые альты сегодня не открывать
+    now_msk0 = now.astimezone(MSK)
+    if alts and state.get("day_gate_date") != now_msk0.date().isoformat():
+        nets = []
+        for _bid, s, _p in alts:
+            _r, n = _day_delta(s)
+            if n is not None:
+                nets.append(n)
+        if nets and sum(nets) <= ALT_DAY_GATE_USD:
+            alerts.append(f"⛔ ALT-GUARD портфельный гейт: ∑net альтов за день "
+                          f"{sum(nets):+,.0f}$ ≤ {ALT_DAY_GATE_USD:+,.0f}$ — НОВЫЕ альт-боты "
+                          f"сегодня не открывать (асимметрия +25/−99: один дрейфер "
+                          f"съедает трёх рейнджеров)")
+            state["day_gate_date"] = now_msk0.date().isoformat()
 
     # вечерний чек 23:00 мск
     now_msk = now.astimezone(MSK)
@@ -336,6 +371,89 @@ def _assess_drift(snap: dict, params: dict, managed_ids: set[str],
     return out
 
 
+def _bot_symbol(name: str) -> str | None:
+    """Имя бота → BitMEX-символ: 'SOL' → SOLUSDT. Кастомные имена — пропуск."""
+    tok = "".join(ch for ch in (name or "").split()[0] if ch.isalpha()).upper() if name else ""
+    return f"{tok}USDT" if 2 <= len(tok) <= 6 else None
+
+
+def _btc_1m_series(count: int = 45):
+    """BTC 1m closes из локального коллектора (pd.Series c DatetimeIndex)."""
+    import pandas as pd
+    if not BTC_1M_CSV.exists():
+        return None
+    size = BTC_1M_CSV.stat().st_size
+    with BTC_1M_CSV.open("rb") as fh:
+        if size > 12_000:
+            fh.seek(size - 12_000)
+            fh.readline()
+        lines = fh.read().decode("utf-8", errors="replace").splitlines()
+    ts, px = [], []
+    for line in lines:
+        parts = line.split(",")
+        if len(parts) < 5 or not parts[0].startswith("20"):
+            continue
+        try:
+            ts.append(pd.Timestamp(parts[0]))
+            px.append(float(parts[4]))
+        except (ValueError, TypeError):
+            continue
+    if len(px) < 35:
+        return None
+    return pd.Series(px[-count:], index=pd.DatetimeIndex(ts[-count:]))
+
+
+def _alt_1m_series(sym: str, count: int = 45):
+    """Альт 1m closes с BitMEX (public, лёгкий запрос)."""
+    import json as _json
+    import urllib.request
+    import pandas as pd
+    url = ("https://www.bitmex.com/api/v1/trade/bucketed?binSize=1m&partial=false"
+           f"&symbol={sym}&count={count}&reverse=true")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    rows = _json.load(urllib.request.urlopen(req, timeout=15))[::-1]
+    ts = [pd.Timestamp(r["timestamp"]) for r in rows]
+    px = [float(r["close"]) for r in rows]
+    if len(px) < 35:
+        return None
+    return pd.Series(px, index=pd.DatetimeIndex(ts))
+
+
+def _assess_idio(snap: dict, params: dict, managed_ids: set[str]) -> dict[str, float]:
+    """DECORR: excess-ход альта vs BTC за 30 мин, % — {bot_id: excess_now}."""
+    import sys as _sys
+    tools_dir = str(ROOT / "tools")
+    if tools_dir not in _sys.path:
+        _sys.path.insert(0, tools_dir)
+    try:
+        import _grid_drift_monitor as gdm
+    except Exception:
+        logger.exception("alt_guard.idio_import_failed")
+        return {}
+    btc = _btc_1m_series()
+    if btc is None:
+        return {}
+    out: dict[str, float] = {}
+    for bid, slot, _p in _alt_bots(snap, params, managed_ids):
+        latest = slot["latest"]
+        if latest["status"] != 2:
+            continue
+        sym = _bot_symbol(latest.get("bot_name") or "")
+        if not sym:
+            continue
+        try:
+            alt = _alt_1m_series(sym)
+            if alt is None:
+                continue
+            ex = gdm.idio_excess(alt, btc)
+            ex = ex.dropna()
+            if len(ex):
+                out[bid] = round(float(ex.iloc[-1]), 2)
+        except Exception:
+            logger.exception("alt_guard.idio_failed sym=%s", sym)
+    return out
+
+
 def tick(send_fn, now: datetime | None = None) -> list[str]:
     """Один проход: чтение с диска → evaluate → отправка. Возвращает пинги."""
     from services.morning_brief import tracker_reader as tr
@@ -359,6 +477,7 @@ def tick(send_fn, now: datetime | None = None) -> list[str]:
         cascade_dedup=_read_json(CASCADE_DEDUP_PATH, {}),
         state=state, now=now, regime_3state=regime_3state,
         drift=_assess_drift(snap, params, managed_ids, now),
+        idio=_assess_idio(snap, params, managed_ids),
     )
     # worst-bag журнал (калибровка порогов drift-лестницы, Win Q3)
     for rec in state.pop("_bag_flush", []):

@@ -209,6 +209,44 @@ def test_drift_stage2_mentions_live_change():
     assert state["worst_bag"]["5617871752"]["worst_pct"] == 0.58
 
 
+def test_decorr_ping_both_directions():
+    """Win-ретро: excess ≤ −3% (лонг-нога) или ≥ +3% (шорт-нога) → 🟠 DECORR."""
+    params = {"5617871752": _params()}
+    kw = _base({"5617871752": _slot("WLD")}, params)
+    kw["idio"] = {"5617871752": -3.4}
+    alerts, state = evaluate(**kw)
+    assert any("DECORR" in a and "вниз" in a and "ЛОНГ-нога" in a for a in alerts)
+    # кулдаун: повтор молчит
+    kw["state"] = state
+    alerts2, _ = evaluate(**kw)
+    assert not any("DECORR" in a for a in alerts2)
+    # вверх — шорт-нога
+    kw3 = _base({"5693279219": _slot("SOL")}, {"5693279219": _params()})
+    kw3["idio"] = {"5693279219": 3.8}
+    alerts3, _ = evaluate(**kw3)
+    assert any("DECORR" in a and "вверх" in a and "ШОРТ-нога" in a for a in alerts3)
+    # слабый excess — тишина
+    kw4 = _base({"5693279219": _slot("SOL")}, {"5693279219": _params()})
+    kw4["idio"] = {"5693279219": -1.2}
+    alerts4, _ = evaluate(**kw4)
+    assert not any("DECORR" in a for a in alerts4)
+
+
+def test_portfolio_day_gate_once():
+    """∑net альтов ≤ −$90 → гейт «новые не открывать», раз в день."""
+    bots = {
+        "5617871752": _slot("WLD", profit=5.0, cur=-60.0),   # net −60
+        "5693279219": _slot("SOL", profit=5.0, cur=-40.0),   # net −40
+    }
+    params = {"5617871752": _params(), "5693279219": _params()}
+    kw = _base(bots, params)
+    alerts, state = evaluate(**kw)
+    assert any("портфельный гейт" in a and "не открывать" in a for a in alerts)
+    kw["state"] = state
+    alerts2, _ = evaluate(**kw)
+    assert not any("портфельный гейт" in a for a in alerts2)
+
+
 def test_managed_and_non_dynamic_ignored():
     bots = {
         "6287583200": _slot("SHORT-T2", profit=200.0, cur=200.0),  # managed
