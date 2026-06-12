@@ -19,18 +19,22 @@ passed = [r for r in recs if r.get("passed_h5")]
 print(f"Всего сигналов: {len(recs)}  ·  прошли H5: {len(passed)}  ·  skip: {len(recs)-len(passed)}\n")
 
 for r in recs[-20:]:
-    oc = r.get("outcomes", {})
-    oc_s = " ".join(f"{h}:{v:+.1f}%" for h, v in oc.items()) or "(ждём)"
-    tag = "✅H5" if r.get("passed_h5") else "✗" + (";".join(r.get("skip_reasons", []))[:30])
-    print(f"{r['bar_ts_utc'][:16]} {r['symbol']:8} {r['dir']:5} {tag:34} entry {r['entry']} → {oc_s}")
+    xc = r.get("outcome_cross")
+    xc_s = f"cross→{xc:+.1f}%" if xc is not None else "cross:откр"
+    tag = "✅H5" if r.get("passed_h5") else "✗" + (";".join(r.get("skip_reasons", []))[:28])
+    print(f"{r['bar_ts_utc'][:16]} {r['symbol']:8} {r['dir']:5} {tag:32} entry {r['entry']} → {xc_s}")
 
-# сводка по прошедшим H5 с готовым 24h-исходом
-done = [r for r in passed if "24h" in r.get("outcomes", {})]
-if done:
-    import statistics
-    rets = [r["outcomes"]["24h"] for r in done]
-    wr = 100 * sum(1 for x in rets if x > 0) / len(rets)
-    print(f"\nH5 с готовым 24h-исходом: n={len(done)} hit {wr:.0f}% mean {statistics.mean(rets):+.2f}%")
-    print("(бэктест-ожидание: трендследящий, win ~40-50%, профит на PF; n<30 = рано судить)")
-else:
-    print("\n24h-исходов по H5 ещё нет — копим.")
+# ГЛАВНАЯ метрика (ревью Вина): cross-to-cross = тот же бенчмарк, что +117пп/PF 2.5
+def _summ(rows, label):
+    xs = [r["outcome_cross"] for r in rows if r.get("outcome_cross") is not None]
+    if not xs:
+        print(f"\n{label}: закрытых cross-to-cross ещё нет — копим.")
+        return
+    wins = [x for x in xs if x > 0]
+    loss = [x for x in xs if x <= 0]
+    pf = (sum(wins) / abs(sum(loss))) if loss else float("inf")
+    print(f"\n{label}: n={len(xs)} net {sum(xs):+.1f}пп win {100*len(wins)/len(xs):.0f}% PF {pf:.2f}")
+
+_summ(passed, "H5 (cross-to-cross — СРАВНИВАТЬ с бэктестом +117пп/PF 2.5)")
+_summ(recs, "БАЗА все кроссы (бэктест +102пп/PF 1.73)")
+print("(n<20 закрытых = рано судить; кросс ~1.7/мес на символ → ~10 закрытых/мес на 3 символах)")

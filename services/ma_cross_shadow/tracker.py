@@ -16,9 +16,13 @@ JOURNAL = ROOT / "state" / "ma_cross_shadow.jsonl"
 STATE = ROOT / "state" / "ma_cross_shadow_state.json"
 
 SYMBOLS = ("BTCUSDT", "SOLUSDT", "XRPUSDT")
-BARS = 260                      # >210 для EMA200 + запас
+# 600 баров: seed-вес EMA200 ≈ 0.25% (при 260 было ~7.5% → флипал фильтр ② у линии,
+# ревью Вина 2026-06-12). Bybit limit 1000. 600×4ч ≈ 100 дней — хватает и cross-to-cross.
+BARS = 600
 POLL_INTERVAL_SEC = 1800        # 30 мин (4ч-бары не спешат)
-HORIZONS_BARS = {"6h": 1, "12h": 3, "24h": 6, "48h": 12}  # 4ч-бары → часы
+# 1 бар = 4ч (метка «6h» врала на 2ч — Вин). cross-to-cross = главный бенчмарк (см. detect).
+HORIZONS_BARS = {"4h": 1, "12h": 3, "24h": 6, "48h": 12}
+FEE_PCT = 0.10                  # %/реверс (как в бэктесте Win/Mac)
 BYBIT_KLINE = "https://api.bybit.com/v5/market/kline"
 
 
@@ -53,21 +57,46 @@ def _write_state(s: dict) -> None:
         logger.exception("ma_shadow.state_write_failed")
 
 
-def _append(entry: dict) -> None:
+def _read_journal() -> list[dict]:
+    if not JOURNAL.exists():
+        return []
+    out = []
+    for ln in JOURNAL.read_text(encoding="utf-8").splitlines():
+        try:
+            out.append(json.loads(ln))
+        except json.JSONDecodeError:
+            pass
+    return out
+
+
+def _write_journal(recs: list[dict]) -> None:
     try:
-        with JOURNAL.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with JOURNAL.open("w", encoding="utf-8") as f:
+            for r in recs:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
     except OSError:
         logger.exception("ma_shadow.journal_write_failed")
 
 
+def _close_prev_cross(recs: list[dict], symbol: str, new_close: float) -> None:
+    """Главный бенчмарк (ревью Вина): новый кросс закрывает предыдущий сигнал символа
+    полем outcome_cross = удержание до обратного кросса (как в бэктесте +117пп/PF 2.5)."""
+    for r in reversed(recs):
+        if r["symbol"] == symbol and "outcome_cross" not in r:
+            d = 1 if r["dir"] == "LONG" else -1
+            r["outcome_cross"] = round(d * (new_close / r["entry"] - 1) * 100 - FEE_PCT, 3)
+            return
+
+
 def detect(now: datetime | None = None) -> list[dict]:
     """Один проход: по каждому символу проверить последний закрытый 4ч-бар на кросс,
-    записать новый сигнал (дедуп по ts бара). Возвращает новые сигналы."""
+    записать новый сигнал (дедуп по ts бара) + закрыть предыдущий cross-to-cross."""
     now = now or datetime.now(timezone.utc)
     state = _read_state()
     seen = state.setdefault("last_bar_ts", {})
+    recs = _read_journal()
     fired = []
+    changed = False
     for sym in SYMBOLS:
         rows = _fetch_4h(sym)
         if not rows or len(rows) < 215:
@@ -82,6 +111,7 @@ def detect(now: datetime | None = None) -> list[dict]:
         sig = assess_latest(highs, lows, closes)
         if sig is None:
             continue
+        _close_prev_cross(recs, sym, sig["entry"])  # обратный кросс закрывает прошлый
         bar_iso = datetime.fromtimestamp(bar_ts / 1000, tz=timezone.utc).isoformat(timespec="seconds")
         entry = {
             "signal_id": f"mac_{sym}_{bar_ts}",
@@ -95,13 +125,17 @@ def detect(now: datetime | None = None) -> list[dict]:
             "ema14": sig["ema14"], "ema77": sig["ema77"], "ema200": sig["ema200"],
             "slope77": sig["slope77"], "prev_leg_bars": sig["prev_leg_bars"],
             "stretch_pct": sig["stretch_pct"],
-            "outcomes": {},          # дозаполнится forward-доходностью
+            "outcomes": {},          # forward 4/12/24/48ч
+            # outcome_cross добавится, когда придёт обратный кросс
         }
-        _append(entry)
+        recs.append(entry)
         fired.append(entry)
+        changed = True
         logger.info("ma_shadow.signal %s %s passed=%s entry=%s%s", sym, entry["dir"],
                     sig["passed"], sig["entry"],
                     "" if sig["passed"] else f" skip={sig['reasons']}")
+    if changed:
+        _write_journal(recs)
     _write_state(state)
     return fired
 
@@ -110,15 +144,9 @@ def fill_outcomes(now: datetime | None = None) -> int:
     """Дозаполнить forward-исходы по записанным сигналам, где прошёл горизонт.
     Переписывает журнал. Возвращает число обновлённых записей."""
     now = now or datetime.now(timezone.utc)
-    if not JOURNAL.exists():
+    recs = _read_journal()
+    if not recs:
         return 0
-    lines = JOURNAL.read_text(encoding="utf-8").splitlines()
-    recs = []
-    for ln in lines:
-        try:
-            recs.append(json.loads(ln))
-        except json.JSONDecodeError:
-            continue
     # текущие цены по символам (закрытие последнего бара)
     px_cache: dict[str, list[list[float]]] = {}
     updated = 0
@@ -150,9 +178,7 @@ def fill_outcomes(now: datetime | None = None) -> int:
                 r["outcomes"][h] = round(ret, 3)
                 updated += 1
     if updated:
-        with JOURNAL.open("w", encoding="utf-8") as f:
-            for r in recs:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        _write_journal(recs)
     return updated
 
 
