@@ -1,0 +1,75 @@
+//@version=5
+// MA CROSS H5 v1 (2026-06-12) — итог лаборатории tools/_ma_cross_lab*.py (2y BitMEX, BTC/ETH/SOL 4h).
+// База: EMA 14/77 на hl2 — ЕДИНСТВЕННАЯ комбинация из свипа 5 методов x 5 цен x 50 пар периодов,
+//   что в плюсе на ВСЕХ трёх символах и в ОБЕИХ половинах истории (BTC +134%, ETH +112%, SOL +71% SAR).
+// Фильтры входа (выведены на BTC, подтверждены OOS на ETH/SOL):
+//   1) НАКЛОН EMA77 по направлению кросса (против наклона: avg −2.4%)
+//   2) РЕЖИМ: цена на стороне EMA200 (против режима: avg ~0)
+//   3) АНТИ-WHIPSAW: если прошлая нога кросс-кросс <=4 бара — сигнал ПРОПУСТИТЬ (после ложного
+//      кросса следующий сигнал тоже плохой: avg −2.0% vs +2.3%)
+// Итог H5: BTC PF 4.13 / win 50% / DD 21% · ETH PF 2.61 +168% · SOL PF 1.81 +98% (2 года, fee 0.1%/реверс)
+// Выход = противоположный кросс 14x77 (ранний выход по быстрой EMA7 ПРОВЕРЕН — ВРЕДИТ, не добавлен).
+// Линий ТРИ: 14 / 77 / 200. Стек из 3 линий и объём-фильтр проверены — НЕ работают, не добавлены.
+indicator("MA Cross H5 v1 (EMA 14/77/200 hl2)", overlay=true, max_labels_count=500)
+
+src      = input.source(hl2, "Цена (валидировано: hl2)")
+lenF     = input.int(14,  "EMA fast", minval=2)
+lenS     = input.int(77,  "EMA slow", minval=2)
+lenR     = input.int(200, "EMA режим (4-я линия = фильтр)", minval=2)
+slopeN   = input.int(5,   "Наклон slow: баров", minval=1)
+whipN    = input.int(4,   "Whipsaw: прошлая нога <= баров -> пропуск", minval=1)
+showSkip = input.bool(true, "Показывать пропущенные сигналы (с причиной)")
+
+emaF = ta.ema(src, lenF)
+emaS = ta.ema(src, lenS)
+emaR = ta.ema(src, lenR)
+
+crossUp = ta.crossover(emaF, emaS)
+crossDn = ta.crossunder(emaF, emaS)
+anyCross = crossUp or crossDn
+
+slopeUp = emaS > emaS[slopeN]
+slopeDn = emaS < emaS[slopeN]
+regUp   = close > emaR
+regDn   = close < emaR
+prevLeg = nz(ta.barssince(anyCross)[1], 9999) + 1   // длина прошлой ноги на момент кросса
+whipOk  = prevLeg > whipN
+
+longSig  = crossUp and slopeUp and regUp and whipOk
+shortSig = crossDn and slopeDn and regDn and whipOk
+
+// причина пропуска (для обучения глазом: где кросс есть, а входа нет)
+reason(up) =>
+    r = ""
+    if up and not slopeUp or not up and not slopeDn
+        r := "наклон"
+    if up and not regUp or not up and not regDn
+        r := r == "" ? "режим" : r + "+режим"
+    if not whipOk
+        r := r == "" ? "whip" : r + "+whip"
+    r
+
+// виртуальная позиция: вход по сигналу, выход по противоположному кроссу (флэт если кросс без фильтров)
+var int pos = 0
+if longSig
+    pos := 1
+else if shortSig
+    pos := -1
+else if anyCross
+    pos := 0
+
+plot(emaF, "EMA fast", color.new(color.lime, 0), 1)
+plot(emaS, "EMA slow", color.new(color.yellow, 0), 2)
+plot(emaR, "EMA 200",  color.new(color.red, 0), 1)
+bgcolor(pos == 1 ? color.new(color.green, 90) : pos == -1 ? color.new(color.red, 90) : na)
+
+plotshape(longSig  and barstate.isconfirmed, "LONG",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size=size.normal, text="L")
+plotshape(shortSig and barstate.isconfirmed, "SHORT", shape.triangledown, location.abovebar, color.new(color.red, 0),  size=size.normal, text="S")
+if showSkip and anyCross and not longSig and not shortSig and barstate.isconfirmed
+    label.new(bar_index, crossUp ? low : high, "✗ " + reason(crossUp),
+              style=crossUp ? label.style_label_up : label.style_label_down,
+              color=color.new(color.gray, 60), textcolor=color.silver, size=size.small)
+
+alertcondition(longSig,  "H5 LONG",  "MA-Cross H5: LONG (кросс+наклон+режим+чисто)")
+alertcondition(shortSig, "H5 SHORT", "MA-Cross H5: SHORT")
+alertcondition(anyCross and not (longSig or shortSig), "H5 EXIT/SKIP", "Кросс без подтверждения: выход/пропуск")

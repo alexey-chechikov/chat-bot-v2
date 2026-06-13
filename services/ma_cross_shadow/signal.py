@@ -33,6 +33,39 @@ def compute(highs: list[float], lows: list[float], closes: list[float]) -> dict:
     return {"hl2": hl2, "e14": e14, "e77": e77, "e200": e200, "diff": diff}
 
 
+def _zigzag(close: list[float], pct: float) -> list[tuple[int, float, str]]:
+    """Пивоты ZigZag (idx, price, 'H'/'L'), разворот на pct% от экстремума."""
+    piv: list[tuple[int, float, str]] = []
+    hi_i = lo_i = 0
+    hi = lo = close[0]
+    trend = 0
+    for i in range(1, len(close)):
+        c = close[i]
+        if c > hi:
+            hi_i, hi = i, c
+        if c < lo:
+            lo_i, lo = i, c
+        if trend >= 0 and c <= hi * (1 - pct / 100):
+            piv.append((hi_i, hi, "H")); trend = -1; hi_i = lo_i = i; hi = lo = c
+        elif trend <= 0 and c >= lo * (1 + pct / 100):
+            piv.append((lo_i, lo, "L")); trend = 1; hi_i = lo_i = i; hi = lo = c
+    return piv
+
+
+def _is_impulse(close: list[float], zz_pct: float = 3.5) -> bool:
+    """EW-структура: последние свинги монотонно трендят (HH+HL вверх / LH+LL вниз) =
+    импульс (вход качественнее, валидировано на 4ч); перекрытие = коррекция."""
+    piv = _zigzag(close, zz_pct)
+    if len(piv) < 4:
+        return False
+    p4 = piv[-4:]
+    hs = [p[1] for p in p4 if p[2] == "H"]
+    ls = [p[1] for p in p4 if p[2] == "L"]
+    if len(hs) >= 2 and len(ls) >= 2:
+        return (hs[-1] > hs[-2] and ls[-1] > ls[-2]) or (hs[-1] < hs[-2] and ls[-1] < ls[-2])
+    return False
+
+
 def _last_cross_index(diff: list[float]) -> int | None:
     """Индекс последнего бара, где diff сменил знак (=кросс). None если нет."""
     for i in range(len(diff) - 1, 0, -1):
@@ -91,4 +124,5 @@ def assess_latest(highs: list[float], lows: list[float], closes: list[float]) ->
         "slope77": round(slope77, 4),
         "prev_leg_bars": prev_leg,
         "stretch_pct": round(stretch, 3),
+        "ew_impulse": _is_impulse(closes),   # EW: импульс = качественнее вход (4ч)
     }

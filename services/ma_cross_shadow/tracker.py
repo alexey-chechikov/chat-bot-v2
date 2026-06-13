@@ -88,9 +88,30 @@ def _close_prev_cross(recs: list[dict], symbol: str, new_close: float) -> None:
             return
 
 
-def detect(now: datetime | None = None) -> list[dict]:
+def _format_card(e: dict) -> str:
+    """TG-карточка по свежему кроссу (оператор видит сразу, не только в shadow)."""
+    sym = e["symbol"].replace("USDT", "")
+    if e["passed_h5"]:
+        head = f"🟢 H5 {e['dir']}" if e["dir"] == "LONG" else f"🔴 H5 {e['dir']}"
+        verdict = f"{head} · уклон книги → {'long-нога' if e['dir']=='LONG' else 'short-нога'}"
+    else:
+        verdict = f"⚪ КРОСС {e['dir']} — пропуск (нейтрал): {', '.join(e['skip_reasons'])}"
+    ew = "импульс ✅(вход качественнее)" if e.get("ew_impulse") else "коррекция ⚠(чоп, осторожно)"
+    same = "совпал" if e["ma100_lean"] == e["dir"] else "РАЗОШЁЛСЯ"
+    return (
+        f"📐 MA-CROSS {sym} 4ч\n"
+        f"{verdict}\n"
+        f"entry {e['entry']} · EMA14 {e['ema14']} / 77 {e['ema77']} / 200 {e['ema200']}\n"
+        f"EW: {ew} · растяжка {e['stretch_pct']}%\n"
+        f"старый MA100-свитч: {e['ma100_lean']} ({same})\n"
+        f"— форвард-сбор (не сделка); H5-уклон для грид-книги. /ma_cross — статус"
+    )
+
+
+def detect(now: datetime | None = None, send_fn=None) -> list[dict]:
     """Один проход: по каждому символу проверить последний закрытый 4ч-бар на кросс,
-    записать новый сигнал (дедуп по ts бара) + закрыть предыдущий cross-to-cross."""
+    записать новый сигнал (дедуп по ts бара) + закрыть предыдущий cross-to-cross.
+    send_fn — если задан, шлёт TG-карточку по каждому свежему кроссу."""
     now = now or datetime.now(timezone.utc)
     state = _read_state()
     seen = state.setdefault("last_bar_ts", {})
@@ -129,6 +150,7 @@ def detect(now: datetime | None = None) -> list[dict]:
             "ema14": sig["ema14"], "ema77": sig["ema77"], "ema200": sig["ema200"],
             "slope77": sig["slope77"], "prev_leg_bars": sig["prev_leg_bars"],
             "stretch_pct": sig["stretch_pct"],
+            "ew_impulse": sig.get("ew_impulse", False),
             "ma100_lean": ma100_lean,  # параллельный текущий свитч (head-to-head)
             "outcomes": {},          # forward 4/12/24/48ч
             # outcome_cross добавится, когда придёт обратный кросс
@@ -139,6 +161,11 @@ def detect(now: datetime | None = None) -> list[dict]:
         logger.info("ma_shadow.signal %s %s passed=%s entry=%s%s", sym, entry["dir"],
                     sig["passed"], sig["entry"],
                     "" if sig["passed"] else f" skip={sig['reasons']}")
+        if send_fn is not None:
+            try:
+                send_fn(_format_card(entry))
+            except Exception:
+                logger.exception("ma_shadow.tg_send_failed")
     if changed:
         _write_journal(recs)
     _write_state(state)
@@ -187,13 +214,14 @@ def fill_outcomes(now: datetime | None = None) -> int:
     return updated
 
 
-async def ma_cross_shadow_loop(stop_event, *, interval_sec: int = POLL_INTERVAL_SEC) -> None:
+async def ma_cross_shadow_loop(stop_event, *, send_fn=None,
+                               interval_sec: int = POLL_INTERVAL_SEC) -> None:
     import asyncio
-    logger.info("ma_cross_shadow.start interval=%ds symbols=%s (тихий форвард-сбор, без TG)",
-                interval_sec, list(SYMBOLS))
+    logger.info("ma_cross_shadow.start interval=%ds symbols=%s tg=%s",
+                interval_sec, list(SYMBOLS), "ON" if send_fn else "off")
     while not stop_event.is_set():
         try:
-            detect()
+            detect(send_fn=send_fn)
             fill_outcomes()
         except Exception:
             logger.exception("ma_cross_shadow.tick_failed")

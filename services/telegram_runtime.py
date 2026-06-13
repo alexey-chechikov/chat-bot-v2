@@ -2668,6 +2668,23 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
+        # ── /ma_cross — статус форвард-сбора MA-cross H5 (2026-06-13).
+        # Текущий уклон по каждому символу + накопленные cross-to-cross исходы.
+        @self.bot.message_handler(commands=['ma_cross', 'macross'])
+        def handle_ma_cross(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.ma_cross_shadow.report import build_status_text
+                text = build_status_text()
+            except Exception as exc:
+                logger.exception('handle_ma_cross.failed')
+                self.bot.send_message(chat_id, f'❌ /ma_cross failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text)
+
         # ── /card — 4ч-карточка-брифинг по запросу (2026-06-10).
         # Та же карточка, что шлёт LaunchAgent com.bot7.morning-brief по
         # расписанию (BTC-режим + боты из трекера + альт-кандидаты + риск).

@@ -555,13 +555,15 @@ async def _run_alt_guard(stop_event: asyncio.Event, *, telegram_app=None) -> Non
     await alt_guard_loop(stop_event=stop_event, send_fn=send_fn)
 
 
-async def _run_ma_cross_shadow(stop_event: asyncio.Event) -> None:
-    """MA-cross shadow (2026-06-12): тихий форвард-сбор сигналов EMA14/77 hl2 4ч
-    + фильтры H5 (валидировано Win BitMEX + Mac Binance). Без TG, без ордеров —
-    копит живые сигналы + forward-исходы в state/ma_cross_shadow.jsonl. Через ~2
-    недели решаем встройку как режим-переключатель грид-книги."""
+async def _run_ma_cross_shadow(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """MA-cross shadow (2026-06-12): форвард-сбор сигналов EMA14/77 hl2 4ч + фильтры
+    H5 (валидировано Win BitMEX + Mac Binance). Копит в state/ma_cross_shadow.jsonl
+    И шлёт TG-карточку по каждому кроссу (оператор видит сразу — ~5/мес, не шум).
+    Без ордеров. Решение о встройке как режим-переключатель грид-книги — на ревью."""
     from services.ma_cross_shadow.tracker import ma_cross_shadow_loop
-    await ma_cross_shadow_loop(stop_event=stop_event)
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "MA_CROSS") if telegram_app else None
+    await ma_cross_shadow_loop(stop_event=stop_event, send_fn=send_fn)
 
 
 async def _run_weekly_self_report(stop_event: asyncio.Event, *, telegram_app=None) -> None:
@@ -1278,7 +1280,7 @@ async def main(
     cascade_followup_outcome_task = asyncio.create_task(_run_cascade_followup_outcome(stop_event), name="cascade_followup_outcome")
     liq_pre_cascade_task = asyncio.create_task(_run_liq_pre_cascade(stop_event, telegram_app=app), name="liq_pre_cascade")
     alt_guard_task = asyncio.create_task(_run_alt_guard(stop_event, telegram_app=app), name="alt_guard")
-    ma_cross_shadow_task = asyncio.create_task(_run_ma_cross_shadow(stop_event), name="ma_cross_shadow")
+    ma_cross_shadow_task = asyncio.create_task(_run_ma_cross_shadow(stop_event, telegram_app=app), name="ma_cross_shadow")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
     regime_shadow_task = asyncio.create_task(_run_regime_shadow(stop_event), name="regime_shadow")
