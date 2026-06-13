@@ -111,6 +111,10 @@ def detect(now: datetime | None = None) -> list[dict]:
         sig = assess_latest(highs, lows, closes)
         if sig is None:
             continue
+        # параллельный MA100-уклон (текущий грубый свитч) для head-to-head на ревью 26.06:
+        # знак (close − SMA100) на баре кросса. Win/Mac: H5-уклон бьёт его (DD↓, флипов 5×↓).
+        sma100 = sum(closes[-100:]) / 100
+        ma100_lean = "LONG" if closes[-1] > sma100 else "SHORT"
         _close_prev_cross(recs, sym, sig["entry"])  # обратный кросс закрывает прошлый
         bar_iso = datetime.fromtimestamp(bar_ts / 1000, tz=timezone.utc).isoformat(timespec="seconds")
         entry = {
@@ -125,6 +129,7 @@ def detect(now: datetime | None = None) -> list[dict]:
             "ema14": sig["ema14"], "ema77": sig["ema77"], "ema200": sig["ema200"],
             "slope77": sig["slope77"], "prev_leg_bars": sig["prev_leg_bars"],
             "stretch_pct": sig["stretch_pct"],
+            "ma100_lean": ma100_lean,  # параллельный текущий свитч (head-to-head)
             "outcomes": {},          # forward 4/12/24/48ч
             # outcome_cross добавится, когда придёт обратный кросс
         }
