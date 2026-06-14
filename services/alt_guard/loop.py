@@ -53,6 +53,12 @@ COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
               "idio": 2.0}
 DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
 BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
+# Задача 2 Вина [просадка]: ПРЕДОХРАНИТЕЛЬ СЕРИИ. 2 типизированных STOP-EVENT в окне
+# → ПАУЗА на новые альты до RESTART-условия (режим успокоился). Не пере-вооружаться
+# во враждебный режим. RESTART = BTC 4h вернулся в RANGE (regime_v2) — прокси «успокоения».
+STOP_SERIES_N = 2             # стопов подряд для срабатывания
+STOP_SERIES_WINDOW_H = 24.0   # в каком окне считать «подряд»
+STOP_LABELS = {12: "выключен", 16: "стоп TP/SL", 10: "FAILED"}
 # DECORR (Win ретро 11-12.06, биржевые 1m): «упал на 3% сильнее BTC за 30 мин» =
 # маркер дрейфера ЗА ЧАСЫ до bag-Stage3 (WLD: 11:16 vs 16:14), 0 ложняков SOL/XRP.
 # Комплемент: декорр ловит идиосинкразию, bag-монитор — коррелированный дрейф. n=1!
@@ -77,6 +83,13 @@ def _save_state(state: dict) -> None:
                               encoding="utf-8")
     except OSError:
         logger.exception("alt_guard.state_save_failed")
+
+
+def _parse_ts(s) -> datetime | None:
+    try:
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
 
 
 def _cooldown_ok(state: dict, key: str, now: datetime, hours: float) -> bool:
@@ -186,10 +199,18 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                     since = now
                 if (not rec["pinged"]
                         and (now - since).total_seconds() >= STOP_CONFIRM_MIN * 60):
-                    label = tr_mod.STATUS_LABEL.get(latest["status"], f"статус {latest['status']}")
-                    alerts.append(f"🛑 ALT-GUARD {name}: бот остановился — {label} · "
+                    st = latest["status"]
+                    label = tr_mod.STATUS_LABEL.get(st, f"статус {st}")
+                    # типизированный STOP-EVENT (задача 2.1 Вина): тип/причина/цена/pnl
+                    etype = "STOP-TPSL" if st == 16 else ("STOP-FAIL" if st == 10 else "STOP-OFF")
+                    alerts.append(f"🛑 ALT-GUARD {name}: [{etype}] бот остановился — {label} · "
                                   f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
                     rec["pinged"] = True
+                    # регистрируем стоп для предохранителя серии (только убыточные/TP-SL)
+                    if st in (16, 10) or (latest.get("profit") or 0) < 0:
+                        state.setdefault("stop_events", []).append(
+                            {"ts": now.isoformat(timespec="seconds"), "bot": name,
+                             "type": etype, "profit": latest.get("profit")})
                 inactive[bid] = rec
             continue
         # снова активен: если успели пингануть остановку — закрываем историю
@@ -333,6 +354,25 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                           "(тренд ночью = слив):\n" + "\n".join(f"  • {r}" for r in rows) +
                           "\nЗакрываешь / оставляешь осознанно?")
         state["evening_date"] = now_msk.date().isoformat()
+
+    # ── ПРЕДОХРАНИТЕЛЬ СЕРИИ (задача 2 Вина): 2 стопа в окне → ПАУЗА до RESTART
+    events = state.get("stop_events", [])
+    cutoff = now - timedelta(hours=STOP_SERIES_WINDOW_H)
+    events = [e for e in events if _parse_ts(e.get("ts")) and _parse_ts(e["ts"]) >= cutoff]
+    state["stop_events"] = events
+    paused = bool(state.get("series_pause"))
+    if not paused and len(events) >= STOP_SERIES_N:
+        names = ", ".join(f"{e['bot']}({e['type']})" for e in events[-STOP_SERIES_N:])
+        alerts.append(f"⏸️ ALT-GUARD ПРЕДОХРАНИТЕЛЬ: {len(events)} стопа в {STOP_SERIES_WINDOW_H:.0f}ч "
+                      f"({names}) — ПАУЗА на новые альты. Не пере-вооружаться во враждебный режим; "
+                      f"жди RESTART (BTC 4h вернётся в RANGE). Текущие боты под обычным присмотром.")
+        state["series_pause"] = True
+        paused = True
+    if paused and regime_3state == "RANGE":
+        alerts.append("▶️ ALT-GUARD: режим успокоился (BTC 4h RANGE) — пауза предохранителя СНЯТА, "
+                      "новые альты снова можно (по сканеру + час).")
+        state["series_pause"] = False
+        state["stop_events"] = []
 
     state["prev_active"] = new_active
     state["inactive"] = inactive
