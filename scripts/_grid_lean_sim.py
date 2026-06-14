@@ -75,11 +75,25 @@ def h5_lean_1m(df, tf="4h"):
     return s.reindex(df.index, method="ffill").fillna(0.0).to_numpy()
 
 
-def book(close, allow_long, allow_short, close_on_disallow, **kw):
-    """Полная книга: лонг-нога + шорт-нога. → (net, max_bag_сумм)."""
-    lo = gs.sim(close, side="long", allow=allow_long, close_on_disallow=close_on_disallow, **kw)
-    sh = gs.sim(close, side="short", allow=allow_short, close_on_disallow=close_on_disallow, **kw)
+def book(close, allow_long, allow_short, close_on_disallow,
+         close_long=None, close_short=None, **kw):
+    """Полная книга: лонг-нога + шорт-нога. → (net, max_bag_сумм).
+    close_long/short — маска принудительного закрытия ноги (для гибрида растяжки)."""
+    lo = gs.sim(close, side="long", allow=allow_long, close_on_disallow=close_on_disallow,
+                close_mask=close_long, **kw)
+    sh = gs.sim(close, side="short", allow=allow_short, close_on_disallow=close_on_disallow,
+                close_mask=close_short, **kw)
     return lo["profit"] + sh["profit"], lo["max_bag"] + sh["max_bag"]
+
+
+def stretch_1m(df, tf="4h"):
+    """Растяжка |close−EMA77|/close на 4ч (конвикшн-уклон Вина), причинно на 1m."""
+    o = df.resample(tf).agg({"high": "max", "low": "min", "close": "last"}).dropna()
+    hl2 = (o["high"] + o["low"]) / 2
+    e77 = ema(hl2, 77)
+    st = (o["close"] - e77).abs() / o["close"] * 100
+    s = pd.Series(st.to_numpy(), index=o.index + pd.Timedelta(tf))
+    return s.reindex(df.index, method="ffill").fillna(0.0).to_numpy()
 
 
 def main():
@@ -102,8 +116,17 @@ def main():
         res["MA100"] = book(close, ma100_allow_1m(df, "long"), ma100_allow_1m(df, "short"), close_on_disallow=True)
         res["H5"] = book(close, h5_long, h5_short, close_on_disallow=True)
         res["H5cap"] = book(close, h5_long, h5_short, close_on_disallow=False)
+        # ГИБРИД Вина: направление от TEMA, растяжка модулирует СИЛУ капа — force-close
+        # неправой ноги ТОЛЬКО на высокой растяжке (сильный ход = режем), иначе лишь не доливаем.
+        st = stretch_1m(df)
+        thr = float(np.nanmedian(st[st > 0])) if (st > 0).any() else 1.0
+        hi = st >= thr
+        close_long = (~al) & hi      # TEMA говорит «лонг-нога неправая» И конвикшн высокий
+        close_short = (~ash) & hi
+        res["TEMA+растяжка"] = book(close, al, ash, close_on_disallow=False,
+                                    close_long=close_long, close_short=close_short)
         base_net, base_bag = res["TEMA"]
-        for mode in ("TEMA", "MA100", "H5", "H5cap"):
+        for mode in ("TEMA", "MA100", "H5", "H5cap", "TEMA+растяжка"):
             net, bag = res[mode]
             dn = "" if mode == "TEMA" else f"{net-base_net:+.0f}"
             dbag = "" if mode == "TEMA" else f"{bag-base_bag:+.0f}"
