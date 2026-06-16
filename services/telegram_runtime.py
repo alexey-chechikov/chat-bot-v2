@@ -2668,6 +2668,33 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
+        # ── /levels — карта уровней плотности для скальпинга (2026-06-16).
+        # POC/VAH/VAL/HVN + вчера H/L + круглые + границы ботов + liq-кластеры,
+        # ранжированы по дистанции, конфлюенс помечен 🧱. `/levels SOL` — другой символ.
+        @self.bot.message_handler(commands=['levels', 'lvl'])
+        def handle_levels(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            parts = str(message.text or '').strip().split()
+            sym = parts[1].upper() if len(parts) > 1 else "BTC"
+            if not sym.endswith("USDT"):
+                sym += "USDT"
+            self.bot.send_message(chat_id, f"📊 Собираю карту плотности {sym}…")
+
+            def _build_and_send() -> None:
+                try:
+                    from services.scalp_levels.levels import build_card
+                    text = build_card(sym)
+                except Exception as exc:
+                    logger.exception('handle_levels.failed')
+                    self.bot.send_message(chat_id, f'❌ /levels failed: {exc}')
+                    return
+                self.bot.send_message(chat_id, text)
+
+            threading.Thread(target=_build_and_send, name='levels-builder', daemon=True).start()
+
         # ── /ma_cross — статус форвард-сбора MA-cross H5 (2026-06-13).
         # Текущий уклон по каждому символу + накопленные cross-to-cross исходы.
         @self.bot.message_handler(commands=['ma_cross', 'macross'])
