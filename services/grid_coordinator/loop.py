@@ -266,13 +266,14 @@ def _format_card(direction: str, score: int, details: dict) -> str:
         # is re-framed to continuation but flagged low-conviction. Paper-emit
         # flipped SHORT->LONG to collect correctly-signed live outcomes.
         title = f"ВЕРХ — ИМПУЛЬС ВВЕРХ ({score}/6 сигналов)"
-        # P(выше через 4ч) по score из бэктеста (n мал — окно медвежье): 3≈58%, 4≈75%, 5≈100%(n=3)
-        p_up = {3: "58%", 4: "75%", 5: "≈100% (n=3)"}.get(score, "60%")
+        # 2026-06-15 (ревью Вина): НЕ квотируем точный % на крошечной выборке — «≈100% (n=3)»
+        # вводило в заблуждение, и сигнал строится на rsi/mfi_high = ПЕРЕКУПЛЕННОСТЬ (бот
+        # увереннее у вершины). Up-импульс = слабый перевес, не вероятность; честный текст.
         action = (
-            f"⬆️ Импульс вверх ПРОДОЛЖАЕТСЯ (не разворот; СЛАБЫЙ сигнал — окно бэктеста "
-            f"было медвежьим). Истор. P(выше через 4ч) ≈ {p_up}.\n"
-            "→ Дай LONG-сеткам работать / SHORT-сетки под риском. На score≥5 — "
-            "потенциальный LONG-сетап (mirror: stop −0.5%, tp +0.75%, ~4ч)."
+            f"⬆️ Слабый перевес вверх ({score}/6, n мал — НЕ статистика; окно бэктеста медвежье). "
+            f"Сигнал на rsi/mfi_high = ПЕРЕКУПЛЕННОСТЬ → не гнаться за входом наверху.\n"
+            "→ SHORT-сетки под риском (подтяни/закрой). LONG-вход — только с реклеймом "
+            "структуры (BTC>EMA200·4ч), НЕ по этому сигналу."
         )
         sigs = details.get("up_signals", {})
     else:
@@ -372,7 +373,10 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
                     # `_check_cooldown` already permits a fresh fire.
                     continue
                 on_cd = not _check_cooldown(direction, dedup, now)
-                if on_cd and score <= last_score:
+                # 2026-06-15 (ревью Вина): up-импульс СЛАБЫЙ — НЕ эскалируем на росте
+                # score в перекупленность (давал 5× спам в вершину 3→4→5). Эскалация
+                # на cooldown'е только для down (реальный эдж: WR 78% PF 10.7).
+                if on_cd and (direction == "up" or score <= last_score):
                     continue
                 text = _format_card(direction, score, details)
                 logger.info("grid_coordinator.%s_EXHAUSTION score=%d (prev=%d)",

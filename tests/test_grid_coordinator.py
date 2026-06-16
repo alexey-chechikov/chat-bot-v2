@@ -79,11 +79,14 @@ def test_format_card_upside():
                        "volume_no_confirm_at_high": False, "oi_rising_funding_high": False},
     }
     card = gc._format_card("up", 3, details)
-    # 2026-05-29: up re-framed as upside-continuation (not reversal/fade).
+    # 2026-06-15 (ревью Вина): up-импульс честно переформулирован — слабый перевес,
+    # НЕ вероятность, явная пометка перекупленности; фейковый «≈100% (n=3)» убран.
     assert "ИМПУЛЬС ВВЕРХ" in card
     assert "3/6" in card
-    assert "LONG" in card  # advice now points to LONG continuation
-    assert "ПРОДОЛЖАЕТСЯ" in card
+    assert "ПЕРЕКУПЛЕННОСТЬ" in card
+    assert "НЕ статистика" in card
+    assert "≈100%" not in card and "P(выше" not in card  # фейковая вероятность убрана
+    assert "LONG-вход" in card  # совет: вход только с реклеймом структуры
     assert "rsi_high_falling" in card
     assert "78.0" in card
 

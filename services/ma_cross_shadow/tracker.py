@@ -89,22 +89,33 @@ def _close_prev_cross(recs: list[dict], symbol: str, new_close: float) -> None:
 
 
 def _format_card(e: dict) -> str:
-    """TG-карточка по свежему кроссу (оператор видит сразу, не только в shadow)."""
+    """TG-карточка по свежему кроссу (оператор видит сразу, не только в shadow).
+
+    2026-06-15 (ревью Вина): H5 — directional-АЛЁРТ, НЕ уклон грид-книги. Сим Мака
+    доказал: H5 как gate раздувает мешок ×6, грид-гейт остаётся TEMA. EW-импульс
+    переносится ТОЛЬКО на BTC (на альтах инверсия/шум) — на не-BTC помечаем."""
     sym = e["symbol"].replace("USDT", "")
+    is_btc = e["symbol"] == "BTCUSDT"
     if e["passed_h5"]:
         head = f"🟢 H5 {e['dir']}" if e["dir"] == "LONG" else f"🔴 H5 {e['dir']}"
-        verdict = f"{head} · уклон книги → {'long-нога' if e['dir']=='LONG' else 'short-нога'}"
+        verdict = f"{head} · directional-сигнал (НЕ уклон книги — gate=TEMA)"
     else:
         verdict = f"⚪ КРОСС {e['dir']} — пропуск (нейтрал): {', '.join(e['skip_reasons'])}"
-    ew = "импульс ✅(вход качественнее)" if e.get("ew_impulse") else "коррекция ⚠(чоп, осторожно)"
+    # EW-строка только на BTC; на альтах — с явной пометкой «не переносится»
+    if is_btc:
+        ew_line = ("импульс ✅(вход качественнее)" if e.get("ew_impulse")
+                   else "коррекция ⚠(чоп, осторожно)")
+        ew_line = f"EW: {ew_line} · растяжка {e['stretch_pct']}%\n"
+    else:
+        ew_line = f"EW: BTC-only (на альтах шум, не учитывать) · растяжка {e['stretch_pct']}%\n"
     same = "совпал" if e["ma100_lean"] == e["dir"] else "РАЗОШЁЛСЯ"
     return (
         f"📐 MA-CROSS {sym} 4ч\n"
         f"{verdict}\n"
         f"entry {e['entry']} · EMA14 {e['ema14']} / 77 {e['ema77']} / 200 {e['ema200']}\n"
-        f"EW: {ew} · растяжка {e['stretch_pct']}%\n"
+        f"{ew_line}"
         f"старый MA100-свитч: {e['ma100_lean']} ({same})\n"
-        f"— форвард-сбор (не сделка); H5-уклон для грид-книги. /ma_cross — статус"
+        f"— форвард-сбор (не сделка); directional-алёрт, НЕ грид-гейт. /ma_cross — статус"
     )
 
 

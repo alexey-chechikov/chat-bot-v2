@@ -35,14 +35,15 @@ def build_status_text() -> str:
     by_sym: dict[str, dict] = {}
     for r in recs:
         by_sym[r["symbol"]] = r
-    L.append("─ ТЕКУЩИЙ УКЛОН:")
+    L.append("─ ТЕКУЩИЙ directional-СИГНАЛ (НЕ уклон книги — gate=TEMA):")
     for sym, r in by_sym.items():
         s = sym.replace("USDT", "")
         if r["passed_h5"]:
             lean = f"{r['dir']} (H5✅)"
         else:
             lean = f"НЕЙТРАЛ ({r['dir']}-кросс не прошёл)"
-        ew = "имп" if r.get("ew_impulse") else "корр"
+        # EW только на BTC (на альтах не переносится — Win)
+        ew = (("имп" if r.get("ew_impulse") else "корр") if sym == "BTCUSDT" else "—(BTC-only)")
         L.append(f"   {s}: {lean} · MA100:{r['ma100_lean']} · EW:{ew}")
     # cross-to-cross итоги
     passed = [r["outcome_cross"] for r in recs if r.get("passed_h5") and r.get("outcome_cross") is not None]

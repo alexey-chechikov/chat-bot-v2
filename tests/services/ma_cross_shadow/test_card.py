@@ -16,9 +16,12 @@ def _entry(**kw):
 def test_card_passed_long():
     c = _format_card(_entry())
     assert "MA-CROSS BTC" in c
-    assert "H5 LONG" in c and "long-нога" in c
-    assert "импульс" in c
-    assert "совпал" in c  # ma100 совпал
+    assert "H5 LONG" in c
+    # ревью Вина: directional-сигнал, НЕ уклон книги; gate=TEMA
+    assert "directional" in c and "НЕ уклон книги" in c and "gate=TEMA" in c
+    assert "long-нога" not in c
+    assert "импульс" in c          # BTC → EW показывается
+    assert "совпал" in c
 
 
 def test_card_skip_shows_reason():
@@ -28,9 +31,16 @@ def test_card_skip_shows_reason():
     assert "РАЗОШЁЛСЯ" in c  # ma100 LONG vs кросс SHORT
 
 
-def test_card_correction_warns():
-    c = _format_card(_entry(ew_impulse=False))
+def test_card_correction_warns_btc_only():
+    c = _format_card(_entry(ew_impulse=False))  # BTC
     assert "коррекция" in c
+
+
+def test_card_ew_btc_only_on_alts():
+    # ревью Вина: EW переносится только на BTC; на SOL/XRP — пометка, не ⚠
+    c = _format_card(_entry(symbol="SOLUSDT", ew_impulse=False))
+    assert "BTC-only" in c
+    assert "коррекция" not in c
 
 
 def test_is_impulse_monotonic_up():
