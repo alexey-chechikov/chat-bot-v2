@@ -178,35 +178,54 @@ def test_regime_leg_silent_when_aligned_or_range():
 
 
 def test_drift_ladder_pings_on_transitions():
-    """Лестница Win: пинг на переходе вверх; Stage 3 повторяется (кулдаун 30 мин)."""
+    """StageAlerter-дедуп (Win f337990): пинг на переходе вверх; та же стадия молчит."""
     bots = {"4306550166": _slot("XRP", profit=10.0, cur=-120.0)}
     params = {"4306550166": _params()}
-    mx = {"bag_pct": 0.82, "pos_pin": 1.0, "bag": -143.0, "total": -78.0, "bag_accel": -12.0}
+    mx = {"bag_pct": 0.82, "pos_pin": 1.0, "bag": -143.0, "total": -78.0,
+          "bag_accel": -12.0, "pinned_neg_min": 185}
     kw = _base(bots, params)
-    kw["drift"] = {"4306550166": (3, "ЗАКРЫТЬ бота — дрейф подтверждён", mx)}
+    kw["drift"] = {"4306550166": (3, "ЗАКРЫТЬ бота — стойкий дрифтер", mx)}
     alerts, state = evaluate(**kw)
     assert any("DRIFT Stage 3" in a and "ЗАКРЫТЬ" in a and "82% SL" in a for a in alerts)
-    # тот же Stage 3 сразу — кулдаун молчит
+    assert any("пригвождён<0 185м" in a for a in alerts)  # новое поле
+    # та же Stage 3 сразу — дедуп молчит (напоминание раз в час)
     kw["state"] = state
     alerts2, state2 = evaluate(**kw)
     assert not any("DRIFT" in a for a in alerts2)
-    # Stage 1 после Stage 3 (откат вниз) — не пингуем (только переходы вверх)
-    kw["state"] = state2
-    kw["drift"] = {"4306550166": (1, "WARN", dict(mx, bag_pct=0.45))}
-    alerts3, _ = evaluate(**kw)
-    assert not any("DRIFT" in a for a in alerts3)
 
 
-def test_drift_stage2_mentions_live_change():
+def test_drift_stage3_hourly_remind():
+    """Stage-3 (actionable) напоминается раз в час, не чаще."""
+    from datetime import timedelta
+    bots = {"4306550166": _slot("XRP", profit=10.0, cur=-120.0)}
+    params = {"4306550166": _params()}
+    mx = {"bag_pct": 0.82, "pos_pin": 1.0, "bag": -143.0, "total": -78.0,
+          "bag_accel": -12.0, "pinned_neg_min": 185}
+    kw = _base(bots, params)
+    kw["drift"] = {"4306550166": (3, "ЗАКРЫТЬ", mx)}
+    _a, state = evaluate(**kw)
+    # +65 мин той же Stage 3 → напоминание
+    kw["state"] = state
+    kw["now"] = NOW + timedelta(minutes=65)
+    a2, _ = evaluate(**kw)
+    assert any("DRIFT Stage 3" in a for a in a2)
+
+
+def test_drift_recover_to_healthy_pings_once():
+    """Спад ≥2→0 = «дрифт снят» (один раз)."""
     bots = {"5617871752": _slot("WLD", profit=50.0, cur=-52.0)}
     params = {"5617871752": _params()}
-    mx = {"bag_pct": 0.58, "pos_pin": 1.0, "bag": -102.0, "total": -68.0, "bag_accel": -9.0}
+    mx2 = {"bag_pct": 0.58, "pos_pin": 1.0, "bag": -102.0, "total": -68.0,
+           "bag_accel": -9.0, "pinned_neg_min": 30}
     kw = _base(bots, params)
-    kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target ×2", mx)}
-    alerts, state = evaluate(**kw)
-    assert any("Stage 2" in a and "БЕЗ рестарта" in a for a in alerts)
-    # worst-bag копится для калибровки
-    assert state["worst_bag"]["5617871752"]["worst_pct"] == 0.58
+    kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target ×2", mx2)}
+    a1, state = evaluate(**kw)
+    assert any("Stage 2" in a and "БЕЗ рестарта" in a for a in a1)
+    # восстановился в healthy
+    kw["state"] = state
+    kw["drift"] = {"5617871752": (0, "healthy", dict(mx2, bag_pct=0.1, total=20.0))}
+    a2, _ = evaluate(**kw)
+    assert any("DRIFT снят" in a for a in a2)
 
 
 def test_decorr_ping_both_directions():

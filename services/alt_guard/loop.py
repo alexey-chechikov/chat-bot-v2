@@ -208,9 +208,13 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                     rec["pinged"] = True
                     # регистрируем стоп для предохранителя серии (только убыточные/TP-SL)
                     if st in (16, 10) or (latest.get("profit") or 0) < 0:
+                        # reason: был ли бот стойким дрифтером перед стопом (Win f337990)
+                        last_drift = (state.get("drift_last") or {}).get(bid, {})
+                        reason = ("persistent_drift" if int(last_drift.get("stage", 0)) >= 3
+                                  else "sl_or_off")
                         state.setdefault("stop_events", []).append(
                             {"ts": now.isoformat(timespec="seconds"), "bot": name,
-                             "type": etype, "profit": latest.get("profit")})
+                             "type": etype, "profit": latest.get("profit"), "reason": reason})
                 inactive[bid] = rec
             continue
         # снова активен: если успели пингануть остановку — закрываем историю
@@ -234,20 +238,38 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
         # пингуем ПЕРЕХОДЫ вверх; Stage 3 повторяется каждые 30 мин, пока держится.
         if drift and bid in drift:
             stage, action, mx = drift[bid]
-            prev_stage = int((state.get("drift_stage") or {}).get(bid, 0))
-            state.setdefault("drift_stage", {})[bid] = stage
-            if stage >= 1 and (stage > prev_stage or stage == 3) \
-                    and _cooldown_ok(state, f"{bid}:drift{stage}", now, COOLDOWN_H[f"drift{min(stage,3)}"]):
+            # StageAlerter-дедуп (Win f337990): эмитим ТОЛЬКО на смену стадии вверх;
+            # Stage-3 напоминаем раз в час; спад ≥2→0 = «дрифт снят». Состояние per bot
+            # в persist-стейте (процесс рестартится). Убивает спам Stage-2 (было 6× за 14ч).
+            dl = state.setdefault("drift_last", {})
+            rec = dl.get(bid)
+            prev_stage = int(rec["stage"]) if rec else 0
+            emit = False
+            if rec is None:
+                emit = stage >= 1
+            elif stage > prev_stage:
+                emit = True
+            elif stage >= 3:
+                last_emit = _parse_ts((rec or {}).get("emit_ts"))
+                emit = bool(last_emit and (now - last_emit).total_seconds() >= 3600)
+            if emit:
                 icons = {1: "🟡", 2: "🟠", 3: "🔴"}
                 alerts.append(
                     f"{icons[stage]} DRIFT Stage {stage} {name}: {action}\n"
                     f"   мешок {mx['bag']:+,.0f}$ ({mx['bag_pct']:.0%} SL) · "
                     f"поза-pin {mx['pos_pin']:.2f} · total {mx['total']:+,.0f}$"
+                    f" · пригвождён<0 {mx.get('pinned_neg_min', 0):.0f}м"
                     + ("\n   step/target ×2 меняются на живом боте БЕЗ рестарта "
                        "(доказано 10.06)" if stage == 2 else "")
-                    + ("\n   WLD-урок: Stage 3 = закрыть СЕЙЧАС, не ждать −175 на дне "
-                       "(вчера: −78 vs −99)" if stage == 3 else ""))
-                _mark(state, f"{bid}:drift{stage}", now)
+                    + ("\n   Stage 3 = закрыть СЕЙЧАС, не ждать −175 на дне "
+                       "(дискриминатор: знак total + длительность, не глубина мешка)" if stage == 3 else ""))
+                dl[bid] = {"stage": stage, "emit_ts": now.isoformat(timespec="seconds")}
+            elif stage != prev_stage:
+                # стадия сменилась, но не эмитим (спад) — обновляем без emit_ts-сброса
+                dl[bid] = {"stage": stage, "emit_ts": (rec or {}).get("emit_ts", now.isoformat(timespec="seconds"))}
+                if prev_stage >= 2 and stage == 0:
+                    alerts.append(f"▶️ DRIFT снят {name}: вернулся в healthy "
+                                  f"(мешок {mx['bag']:+,.0f}$, total {mx['total']:+,.0f}$)")
             # worst-bag журнал (калибровка порогов, Win Q3)
             wb = state.setdefault("worst_bag", {})
             rec = wb.get(bid) or {"date": "", "worst_pct": 0.0}
