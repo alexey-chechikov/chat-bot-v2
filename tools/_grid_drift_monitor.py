@@ -12,7 +12,12 @@ WIN_MIN = 20          # окно для ускорения мешка / пост
 # крикнул «закрыть» на MegaHard (total +141, рейнджер → восстановился до +247), и НЕ дотянул до
 # Stage-3 на XRP (total −50, pin 1.00 14ч = настоящий дрифтер). Дискриминатор = ЗНАК total + ДЛИТЕЛЬНОСТЬ
 # пригвождённости: рейнджер = total>0 (харвест перекрывает мешок); дрифтер = total<0 + пригвождён долго.
-DRIFT_HOLD_MIN = 120  # мин непрерывной серии (поза пригвождена И total<0) = подтверждённый дрифтер
+DRIFT_HOLD_MIN = 120  # мин непрерывной серии (поза пригвождена И total<пола) = подтверждённый дрифтер
+# Калибровка 2026-06-17 (_strong_move_classifier: тренд от отскока заранее НЕ отличить, 915 событий,
+# P=48% монетка). Значит close = РИСК-стоп по МАГНИТУДЕ убытка, не предсказание тренда. Порог total:
+# рейнджеры SOL/XRP проседали до total −44/−58 и восстанавливались; бледер WLD −110. → пол ниже band'а
+# рейнджеров. total<0 (мой первый фикс) был СЛИШКОМ слаб (XRP −50 восстановился до −7). n=4, Mac калибрует.
+TOTAL_DRIFT_FLOOR = -90   # total ниже этого + пригвождён долго = режем (риск, не тренд-прогноз)
 
 # --- ДЕКОРРЕЛЯЦИЯ vs BTC (ранний сигнал, ретро 10.06: WLD 15:38@мешок-48 vs bag-Stage3 16:14@-143,
 #     36 мин раньше, 0 ложняков SOL/XRP; см. ANSWERS_DRIFT_3Q_WIN_2026-06-12.md). КОМПЛЕМЕНТ к assess():
@@ -73,12 +78,13 @@ def assess(df, tsl=-175.0):
     explosion = bag_pct >= 0.75 and pos_pin >= 0.80 and deepening
     if total > 0:
         explosion = bag_pct >= 0.95 and pos_pin >= 0.80 and deepening
-    # Path B — СТОЙКИЙ ДРИФТЕР: total<0 + пригвождён + держится так долго (XRP 16.06: total −50, pin 1.00 14ч),
-    # ДАЖЕ при среднем мешке (грид не доит — режем, не ждём 75% SL).
-    persistent_drift = total < 0 and pos_pin >= 0.80 and pinned_neg >= DRIFT_HOLD_MIN and bag_pct >= 0.50
+    # Path B — СТОЙКИЙ ДРИФТЕР: total ниже ПОЛА (значимо в минусе, не просто <0) + пригвождён + держится долго.
+    # Урок: тренд заранее не отличить (_strong_move_classifier) → это РИСК-стоп по магнитуде, не тренд-прогноз.
+    # XRP 16.06 total −50 НЕ режем (восстановился до −7); WLD-тип ниже −90 + пригвождён = режем.
+    persistent_drift = total < TOTAL_DRIFT_FLOOR and pos_pin >= 0.80 and pinned_neg >= DRIFT_HOLD_MIN and bag_pct >= 0.50
     if explosion or persistent_drift:
-        why = (f"стойкий дрифтер: total<0 + пригвождён {pinned_neg:.0f}м" if persistent_drift
-               else "взрыв мешка")
+        why = (f"стойкий дрифтер: total {total:.0f}<{TOTAL_DRIFT_FLOOR} + пригвождён {pinned_neg:.0f}м"
+               if persistent_drift else "взрыв мешка")
         stage, action = 3, f"ЗАКРЫТЬ бота — {why} (не ждать −175 на дне)"
     elif bag_pct >= 0.55 and pos_pin >= 0.70 and deepening:
         stage, action = 2, "РАСШИРИТЬ step/target ×2 — дать коридор + крупнее доход на отскоке"
@@ -142,10 +148,11 @@ def _synth(name, bag_pct, total, pinned_min, pin=1.0, tsl=-175.0):
           f"pin {mx['pos_pin']:.2f} {mx['pinned_neg_min']}м → Stage {st}: {act[:46]}")
 
 if __name__ == "__main__":
-    print("=== Регресс-тест дискриминатора на кейсах 16.06 (из TG) ===")
-    print("ОЖИДАНИЕ: MegaHard (рейнджер, total+) = НЕ Stage-3; XRP (дрифтер, total−, долго) = Stage-3")
-    _synth("MegaHard", bag_pct=0.79, total=+141, pinned_min=30)     # рейнджер — должен ДЕРЖАТЬ
-    _synth("XRP",      bag_pct=0.62, total=-50,  pinned_min=180)    # дрифтер — должен ЗАКРЫТЬ
+    print("=== Регресс-тест дискриминатора (калибровка 17.06: тренд не предсказать → риск-стоп по total) ===")
+    print("ОЖИДАНИЕ: MegaHard (total+, рейнджер)=держать; XRP −50 (восстановился!)=держать; WLD-тип −110=закрыть")
+    _synth("MegaHard", bag_pct=0.79, total=+141, pinned_min=30)     # рейнджер total+ — ДЕРЖАТЬ
+    _synth("XRP-recov", bag_pct=0.62, total=-50, pinned_min=240)    # восстановился (−50→−7) — НЕ резать (был мой ложняк)
+    _synth("WLD-bleed", bag_pct=0.78, total=-110, pinned_min=180)   # настоящий бледер ниже пола −90 — ЗАКРЫТЬ
     print("\n=== Регресс на данных 10.06 (WLD дрифтер→Stage3, SOL/XRP рейнджеры целы) ===")
     D = "docs/CONTEXT/data/alt_run_2026-06-10/"
     sn = pd.read_csv(D + "snapshots.csv")
