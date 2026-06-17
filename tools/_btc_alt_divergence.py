@@ -123,8 +123,43 @@ def daily_test():
         print(f"{L:>5}→{H:<4}{mom.sum()*100:>13.1f}{mom[mom.index<half].sum()*100:>7.1f}"
               f"{mom[mom.index>=half].sum()*100:>7.1f}{sh:>8.2f}{(-mom-0*FEE).sum()*100:>13.1f}")
 
+def regime_split():
+    """OOS для Мака: моментум расхождения по РЕЖИМАМ (альт-сезон vs BTC-доминанс; BTC-вверх vs вниз).
+    Мак нашёл +3.1%/24ч на 120д (=альт-сезон). Вопрос: переживёт ли вне альт-сезона / в краху?"""
+    FEE = 0.0010
+    syms = top_alts(20); btc = klines("XBTUSDT", "1d", "1D", 700)
+    closes = {"BTC": btc}
+    for s in syms:
+        try:
+            k = klines(s, "1d", "1D", 700)
+            if k is not None and k.notna().sum() > 120: closes[s] = k
+        except Exception: pass
+        time.sleep(0.2)
+    px = pd.DataFrame(closes); px = px[px["BTC"].notna()]
+    alts = [c for c in px.columns if c != "BTC"]
+    lr = np.log(px).diff(); excess = lr[alts].subtract(lr["BTC"], axis=0)
+    btc_sma = px["BTC"].rolling(50).mean()
+    btc_up = px["BTC"] > btc_sma                                   # BTC-тренд вверх/вниз
+    altseason = excess.mean(axis=1).rolling(30).sum() > 0          # альты в среднем бьют BTC = альт-сезон
+    print(f"\n==== OOS по РЕЖИМАМ (дневки {len(px)}д, {len(alts)} альтов) ====")
+    print(f"альт-сезон дней: {int(altseason.sum())}/{len(px)} · BTC-вверх: {int(btc_up.sum())}/{len(px)}")
+    for L, H in [(2, 2), (3, 3)]:
+        exc_L = excess.rolling(L).sum(); fwd = excess.rolling(H).sum().shift(-H)
+        q = exc_L.rank(axis=1, pct=True)
+        ls = (fwd[q >= 0.8].mean(axis=1) - fwd[q <= 0.2].mean(axis=1))   # моментум-спред (лонг-лидер/шорт-аутсайдер)
+        ls = (ls - 2 * FEE).reindex(px.index)
+        idx = px.index[::H]
+        print(f"\n  L→H={L}→{H}д (моментум-спред, net fee, per-режим среднее за ребаланс):")
+        for label, mask in [("альт-сезон", altseason), ("BTC-доминанс", ~altseason),
+                            ("BTC↑", btc_up), ("BTC↓", ~btc_up)]:
+            sub = ls.loc[idx][mask.reindex(idx).fillna(False)].dropna()
+            if len(sub) >= 4:
+                wr = (sub > 0).mean() * 100
+                print(f"    {label:14} n={len(sub):>3}  ср/ребал {sub.mean()*100:>+5.2f}%  "
+                      f"сумма {sub.sum()*100:>+6.1f}%  win {wr:>3.0f}%")
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "daily":
-        daily_test()
-    else:
-        main()
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    if arg == "daily": daily_test()
+    elif arg == "regime": regime_split()
+    else: main()
