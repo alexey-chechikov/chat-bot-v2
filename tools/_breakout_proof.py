@@ -77,19 +77,21 @@ def main():
     wins = sum(1 for t in trs if t["reason"] in ("TP", "gapTP"))
     print(f"  ИТОГ окна: {wins}/{len(trs)} в плюс, нетто ${tot:+.1f}  (видно: пробои разворачиваются → серия SL)")
 
-    # --- ГЛАВНОЕ: gross vs net на всех 2 годах ---
-    print("\n=== ГЛАВНОЕ ДОКАЗАТЕЛЬСТВО: gross (без комиссии) vs net (с тейкером) — вся 2-летняя выборка ===")
+    # --- ГЛАВНОЕ: gross vs net при РАЗНОЙ комиссии (включая реальную оператора) ---
+    print("\n=== ГЛАВНОЕ ДОКАЗАТЕЛЬСТВО: gross (без комиссии) и net при разной комиссии — вся 2-летняя выборка ===")
     allt = trades_detailed(d, lo_s, sh_s)
-    gross = sum(t["net"] + NOTION * TAKER / 100 * 2 for t in allt)   # вернуть комиссию = gross
-    fees = len(allt) * NOTION * TAKER / 100 * 2
-    slipcost = len(allt) * NOTION * SLIP / 100 * 2
-    net = sum(t["net"] for t in allt)
-    print(f"  сделок: {len(allt)}")
-    print(f"  GROSS (БЕЗ комиссии)        : ${gross:>+9.1f}   ({gross/len(allt):+.2f}$/сделку = {gross/len(allt)/NOTION*100:+.3f}%)")
-    print(f"  − комиссия тейкер (0.075%×2): ${-fees:>+9.1f}")
-    print(f"  = NET                       : ${net:>+9.1f}")
-    print(f"\n  ВЫВОД: gross ≈ {gross/len(allt)/NOTION*100:+.3f}%/сделку = МОНЕТКА (нет направленного эджа).")
-    print(f"  Комиссия −${fees:.0f} И ЕСТЬ весь убыток. Платишь тейкеру ~$1.9 за каждый бросок монетки → −${-net:.0f} за 2 года.")
+    n = len(allt)
+    gross = sum(t["net"] + NOTION * TAKER / 100 * 2 for t in allt)   # вернуть тейкер ТЗ = чистый gross (после slip)
+    print(f"  сделок: {n}")
+    print(f"  GROSS (после slip, БЕЗ комиссии): ${gross:>+9.0f}   ({gross/n/NOTION*100:+.3f}%/сделку = МОНЕТКА, эджа НЕТ)\n")
+    print(f"  {'комиссия/сторона':>26}{'$/сделку round':>16}{'комиссия 2г':>14}{'NET 2г':>12}")
+    for side_fee, tag in [(0.075, "ТЗ-допущение (опт.)"), (0.32, "ТВОЯ с ребейтом"), (0.35, "ТВОЯ без ребейта")]:
+        fee_rt = NOTION * side_fee / 100 * 2
+        fees = n * fee_rt; net = gross - fees
+        print(f"  {tag+f' {side_fee}%':>26}{fee_rt:>15.2f}$ {-fees:>13.0f}${net:>+11.0f}")
+    print(f"\n  ВЫВОД: gross = монетка ({gross/n/NOTION*100:+.3f}%/сделку). На ТВОЕЙ комиссии 0.32%/сторона = "
+          f"${NOTION*0.32/100*2:.1f}/сделку → −${n*NOTION*0.32/100*2 - gross:.0f} за 2 года.")
+    print(f"  Чем выше твоя комиссия, тем БОЛЬШЕ убыток с той же монетки. Эджа нет — есть только налог на каждый бросок.")
 
 if __name__ == "__main__":
     main()
