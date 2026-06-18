@@ -158,8 +158,115 @@ def regime_split():
                 print(f"    {label:14} n={len(sub):>3}  ср/ребал {sub.mean()*100:>+5.2f}%  "
                       f"сумма {sub.sum()*100:>+6.1f}%  win {wr:>3.0f}%")
 
+def regime_switch():
+    """ЭДЖ-ХАНТ: режим медленный (недели) → опознаём каузально и ПЕРЕКЛЮЧАЕМ сигнал.
+    Альт-сезон → моментум (диверг продолжается); BTC-доминанс → РЕВЕРСИЯ (диверг возвращается).
+    Сравниваем: всегда-момент / всегда-реверс / ПЕРЕКЛЮЧ / момент+флэт-в-доминансе. Каузально, half-split."""
+    FEE = 0.0010
+    syms = top_alts(20); btc = klines("XBTUSDT", "1d", "1D", 700)
+    closes = {"BTC": btc}
+    for s in syms:
+        try:
+            k = klines(s, "1d", "1D", 700)
+            if k is not None and k.notna().sum() > 120: closes[s] = k
+        except Exception: pass
+        time.sleep(0.2)
+    px = pd.DataFrame(closes); px = px[px["BTC"].notna()]
+    alts = [c for c in px.columns if c != "BTC"]
+    lr = np.log(px).diff(); excess = lr[alts].subtract(lr["BTC"], axis=0)
+    # КАУЗАЛЬНЫЙ ярлык режима: трейлинг-30д средний excess альтов (>0 = альт-сезон), сдвиг на 1 (только прошлое)
+    altseason = (excess.mean(axis=1).rolling(30).sum().shift(1) > 0)
+    half = px.index[len(px) // 2]
+    def rep(name, s):
+        s = s.dropna()
+        sh = s.mean() / s.std() * np.sqrt(len(s)) if s.std() > 0 else 0
+        print(f"    {name:24} сум {s.sum()*100:>+7.1f}%  h1 {s[s.index<half].sum()*100:>+6.1f}  "
+              f"h2 {s[s.index>=half].sum()*100:>+6.1f}  win {(s>0).mean()*100:>3.0f}%  Sharpe {sh:>5.2f}")
+    print(f"\n==== ЭДЖ-ХАНТ: режим-переключатель (дневки {len(px)}д, {len(alts)} альтов) ====")
+    for L, H in [(1, 1), (2, 2), (3, 3)]:
+        exc_L = excess.rolling(L).sum(); fwd = excess.rolling(H).sum().shift(-H)
+        q = exc_L.rank(axis=1, pct=True)
+        mom = (fwd[q >= 0.8].mean(axis=1) - fwd[q <= 0.2].mean(axis=1)) - 2 * FEE   # моментум-спред
+        idx = px.index[::H]; m = mom.reindex(idx); reg = altseason.reindex(idx).fillna(True)
+        print(f"\n  L→H={L}→{H}д:")
+        rep("всегда МОМЕНТУМ", m)
+        rep("всегда РЕВЕРСИЯ", -m)
+        rep("ПЕРЕКЛЮЧ (мом↔рев)", m.where(reg, -m))
+        rep("мом + флэт в доминансе", m.where(reg, 0.0))
+
+def reversion_test():
+    """Жёсткая проверка short-term reversal: исполнение со СДВИГОМ на бар (убрать close-to-close подгон)
+    + СВИП реалистичной комиссии. Если выживает с задержкой и при тейкер-косте — эдж; если умирает — артефакт."""
+    syms = top_alts(20); btc = klines("XBTUSDT", "1d", "1D", 700)
+    closes = {"BTC": btc}
+    for s in syms:
+        try:
+            k = klines(s, "1d", "1D", 700)
+            if k is not None and k.notna().sum() > 120: closes[s] = k
+        except Exception: pass
+        time.sleep(0.2)
+    px = pd.DataFrame(closes); px = px[px["BTC"].notna()]
+    alts = [c for c in px.columns if c != "BTC"]
+    lr = np.log(px).diff(); excess = lr[alts].subtract(lr["BTC"], axis=0)
+    half = px.index[len(px) // 2]
+    exc_L = excess                                       # L=1д сигнал (excess за день)
+    q = exc_L.rank(axis=1, pct=True)
+    # РЕВЕРСИЯ: лонг нижний дециль (отставшие) / шорт верхний (обогнавшие)
+    immediate = (excess.shift(-1)[q <= 0.2].mean(axis=1) - excess.shift(-1)[q >= 0.8].mean(axis=1))  # вход close_t
+    delayed = (excess.shift(-2)[q <= 0.2].mean(axis=1) - excess.shift(-2)[q >= 0.8].mean(axis=1))     # вход close_{t+1}
+    print(f"\n==== SHORT-TERM REVERSAL: исполнение + комиссия-свип (дневки {len(px)}д, {len(alts)} альтов) ====")
+    print("РЕВЕРСИЯ 1д: лонг отставших / шорт обогнавших BTC, ребаланс ежедневно\n")
+    for nm, s in [("НЕМЕДЛЕННО (вход close_t — подгон)", immediate),
+                  ("СО СДВИГОМ на бар (вход close_t+1 — реально)", delayed)]:
+        s = s.dropna()
+        print(f"  {nm}:")
+        print(f"    {'комиссия/ребаланс':>22}{'сум net%':>10}{'h1':>8}{'h2':>8}{'Sharpe':>8}")
+        for c in (0.0, 0.0005, 0.0010, 0.0020, 0.0040):
+            net = s - 2 * c                              # 2 ноги
+            sh = net.mean() / net.std() * np.sqrt(len(net)) if net.std() > 0 else 0
+            tag = {0.0: "0 (gross)", 0.0005: "5bp/ногу(мейк)", 0.0010: "10bp", 0.0020: "20bp(тейк)", 0.0040: "40bp(альт-слип)"}[c]
+            print(f"    {tag:>22}{net.sum()*100:>9.0f}%{net[net.index<half].sum()*100:>8.0f}"
+                  f"{net[net.index>=half].sum()*100:>8.0f}{sh:>8.2f}")
+    print("\n  Ключ: если СО СДВИГОМ при 20-40bp выживает в ОБЕИХ половинах — эдж реален; если рушится — микроструктура.")
+
+def tf4h_test():
+    """Стресс находки Мака на ЕГО таймфрейме: 4ч моментум 24/48ч, реальное исполнение (сдвиг бар) + fee-свип."""
+    syms = top_alts(20); btc = klines("XBTUSDT", "1h", "4h", 300)
+    closes = {"BTC": btc}
+    for s in syms:
+        try:
+            k = klines(s, "1h", "4h", 300)
+            if k is not None and k.notna().sum() > 600: closes[s] = k
+        except Exception: pass
+        time.sleep(0.3)
+    px = pd.DataFrame(closes); px = px[px["BTC"].notna()]
+    alts = [c for c in px.columns if c != "BTC"]
+    lr = np.log(px).diff(); excess = lr[alts].subtract(lr["BTC"], axis=0)
+    half = px.index[len(px) // 2]
+    L = 6                                                # 1д lookback (как Мак)
+    exc_L = excess.rolling(L).sum(); q = exc_L.rank(axis=1, pct=True)
+    print(f"\n==== 4ч МОМЕНТУМ (находка Мака) — реальное исполнение + fee-свип ({len(px)} баров 4ч, {len(alts)} альтов) ====")
+    print("МОМЕНТУМ: лонг обогнавших BTC / шорт отставших, лукбэк 1д\n")
+    for H, hh in [(6, "24ч"), (12, "48ч")]:
+        fwd_imm = excess.rolling(H).sum().shift(-H)      # вход close_t (подгон)
+        fwd_del = excess.rolling(H).sum().shift(-H - 1)  # вход close_{t+1} (реально)
+        idx = px.index[::H]
+        for nm, fwd in [("немедленно (подгон)", fwd_imm), ("СО СДВИГОМ (реально)", fwd_del)]:
+            sp = (fwd[q >= 0.8].mean(axis=1) - fwd[q <= 0.2].mean(axis=1)).reindex(idx).dropna()
+            line = f"  H={hh:>3} {nm:22}"
+            for c in (0.0, 0.0010, 0.0020):
+                net = sp - 2 * c
+                tag = {0.0: "gross", 0.0010: "10bp", 0.0020: "20bp"}[c]
+                h1 = net[net.index < half].sum() * 100; h2 = net[net.index >= half].sum() * 100
+                line += f"  {tag}:{net.sum()*100:>+5.0f}%(h1{h1:>+4.0f}/h2{h2:>+4.0f})"
+            print(line)
+    print("\n  Если СО СДВИГОМ обе половины + при 10-20bp — эдж; если рушится с задержкой — как дневка, артефакт.")
+
 if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if arg == "daily": daily_test()
     elif arg == "regime": regime_split()
+    elif arg == "switch": regime_switch()
+    elif arg == "reversion": reversion_test()
+    elif arg == "tf4h": tf4h_test()
     else: main()
