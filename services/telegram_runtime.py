@@ -2668,6 +2668,22 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
+        # ── /alt_momentum — статус форвард-сбора alt-momentum (2026-06-17).
+        @self.bot.message_handler(commands=['alt_momentum', 'altmom'])
+        def handle_alt_momentum(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.alt_momentum_shadow.report import build_status_text
+                text = build_status_text()
+            except Exception as exc:
+                logger.exception('handle_alt_momentum.failed')
+                self.bot.send_message(chat_id, f'❌ /alt_momentum failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text)
+
         # ── /levels — карта уровней плотности для скальпинга (2026-06-16).
         # POC/VAH/VAL/HVN + вчера H/L + круглые + границы ботов + liq-кластеры,
         # ранжированы по дистанции, конфлюенс помечен 🧱. `/levels SOL` — другой символ.
