@@ -50,7 +50,7 @@ CASCADE_FRESH_MIN = 5.0
 
 COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
               "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 0.5,
-              "idio": 2.0}
+              "idio": 2.0, "exitfast": 2.0}
 DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
 BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
 # Задача 2 Вина [просадка]: ПРЕДОХРАНИТЕЛЬ СЕРИИ. 2 типизированных STOP-EVENT в окне
@@ -169,7 +169,8 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
              state: dict, now: datetime,
              regime_3state: str | None = None,
              drift: dict[str, tuple] | None = None,
-             idio: dict[str, float] | None = None) -> tuple[list[str], dict]:
+             idio: dict[str, float] | None = None,
+             exitfast: dict[str, tuple] | None = None) -> tuple[list[str], dict]:
     """Чистая логика: → (список пингов, обновлённый state). Никакого IO."""
     from services.morning_brief import tracker_reader as tr_mod
     from services.morning_brief.card import _bag, _day_delta
@@ -219,9 +220,19 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             continue
         # снова активен: если успели пингануть остановку — закрываем историю
         rec = inactive.pop(bid, None)
-        if rec and rec.get("pinged"):
-            alerts.append(f"▶️ ALT-GUARD {name}: бот СНОВА АКТИВЕН · "
-                          f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
+        rwp = state.setdefault("resumed_with_pos", {})
+        if rec is not None:
+            # бот был выключен → снова активен. Если поза висит под водой = РЕЗЬЮМ-с-позой
+            # (опасно: догон сетки в движении). Помечаем на окно для EXIT-FAST-детектора.
+            if latest.get("position") and bag < 0:
+                rwp[bid] = now.isoformat(timespec="seconds")
+            if rec.get("pinged"):
+                alerts.append(f"▶️ ALT-GUARD {name}: бот СНОВА АКТИВЕН · "
+                              f"профит {latest.get('profit'):+,.0f}$ · мешок {bag:+,.0f}$")
+        # чистим протухший resume-флаг (>30 мин)
+        rts = _parse_ts(rwp.get(bid))
+        if rts and (now - rts).total_seconds() > 1800:
+            rwp.pop(bid, None)
 
         if net is not None and net >= NET_CLOSE_USD and _cooldown_ok(state, f"{bid}:net", now, COOLDOWN_H["net"]):
             alerts.append(f"💰 ALT-GUARD {name}: net дня {net:+,.0f}$ ≥ +$70 — "
@@ -293,6 +304,31 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                               f"за 30 мин — маркер дрейфера (ретро WLD: сигнал за 5ч до стопа). "
                               f"Под ударом {leg} · мешок {bag:+,.0f}$. Подтяни SL / готовь закрытие")
                 _mark(state, f"{bid}:idio", now)
+
+        # EXIT-FAST против стороны позы (Win SOL-резьюм-урок): подтверждённый взрывной
+        # ход (Donchian+ATR+объём, 0 ложных в ренже) ПРОТИВ висящей позы = kill-switch.
+        # Поза шорт (<0) + пробой ВВЕРХ, или лонг (>0) + пробой ВНИЗ.
+        pos_ef = latest.get("position") or 0
+        if (exitfast and bid in exitfast and pos_ef and bag < 0
+                and _cooldown_ok(state, f"{bid}:exitfast", now, COOLDOWN_H["exitfast"])):
+            fired, ef_dir = exitfast[bid]
+            against = (pos_ef < 0 and ef_dir > 0) or (pos_ef > 0 and ef_dir < 0)
+            if fired and against:
+                # резьюм-вариант: бот недавно был выключен с висящей позой
+                just_resumed = bool((state.get("resumed_with_pos") or {}).get(bid))
+                arrow = "ВВЕРХ" if ef_dir > 0 else "ВНИЗ"
+                leg = "ШОРТ" if pos_ef < 0 else "ЛОНГ"
+                if just_resumed:
+                    alerts.append(
+                        f"🚨 EXIT-FAST {name}: взрывной ход {arrow} ПРОТИВ {leg}-позы на РЕЗЬЮМЕ "
+                        f"(мешок {bag:+,.0f}$). Урок SOL −350: резюм догоняет сетку в движении. "
+                        f"ЗАКРОЙ позу (фикс ~безубыток) + открой НОВЫЙ бот, НЕ резюмируй.")
+                else:
+                    alerts.append(
+                        f"🚨 EXIT-FAST {name}: подтверждённый взрывной ход {arrow} ПРОТИВ {leg}-ноги "
+                        f"(мешок {bag:+,.0f}$, Donchian+ATR+объём, 0 ложных в ренже). "
+                        f"Kill-switch: закрой ногу СЕЙЧАС, не жди −175 на дне.")
+                _mark(state, f"{bid}:exitfast", now)
 
         # нога против режима BTC (WLD-урок 2026-06-10): ранний пинг на 40% SL
         pos = latest.get("position") or 0
@@ -439,6 +475,37 @@ def _bot_symbol(name: str) -> str | None:
     return f"{tok}USDT" if 2 <= len(tok) <= 6 else None
 
 
+def _assess_exitfast(snap: dict, params: dict, managed_ids: set[str]) -> dict[str, tuple]:
+    """EXIT-FAST по активным альт-ботам с позой: {bot_id: (fired, direction)}.
+    1ч-свечи Bybit (нужен объём). Считаем только где есть висящая поза + мешок<0."""
+    import json as _json
+    import urllib.request
+    from services.alt_guard.exit_fast import exit_fast
+    out: dict[str, tuple] = {}
+    for bid, slot, _p in _alt_bots(snap, params, managed_ids):
+        latest = slot["latest"]
+        if latest["status"] != 2 or not latest.get("position"):
+            continue
+        bag = (latest.get("current_profit") or 0) - (latest.get("profit") or 0)
+        if bag >= 0:
+            continue
+        sym = _bot_symbol(latest.get("bot_name") or "")
+        if not sym:
+            continue
+        try:
+            url = (f"https://api.bybit.com/v5/market/kline?category=linear&symbol={sym}"
+                   "&interval=60&limit=40")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            lst = _json.load(urllib.request.urlopen(req, timeout=12)).get("result", {}).get("list", [])
+            kl = sorted(lst, key=lambda x: int(x[0]))
+            highs = [float(x[2]) for x in kl]; lows = [float(x[3]) for x in kl]
+            closes = [float(x[4]) for x in kl]; vols = [float(x[5]) for x in kl]
+            out[bid] = exit_fast(highs, lows, closes, vols)
+        except Exception:
+            logger.exception("alt_guard.exitfast_failed sym=%s", sym)
+    return out
+
+
 def _btc_1m_series(count: int = 45):
     """BTC 1m closes из локального коллектора (pd.Series c DatetimeIndex)."""
     import pandas as pd
@@ -540,6 +607,7 @@ def tick(send_fn, now: datetime | None = None) -> list[str]:
         state=state, now=now, regime_3state=regime_3state,
         drift=_assess_drift(snap, params, managed_ids, now),
         idio=_assess_idio(snap, params, managed_ids),
+        exitfast=_assess_exitfast(snap, params, managed_ids),
     )
     # worst-bag журнал (калибровка порогов drift-лестницы, Win Q3)
     for rec in state.pop("_bag_flush", []):
