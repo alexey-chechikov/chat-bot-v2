@@ -64,6 +64,7 @@ _EMITTER_CHANNEL: dict[str, str] = {
     "P15_CLOSE":          PRIMARY,    # завершение цикла P-15
     "ALT_GUARD":          PRIMARY,    # 2026-06-10: сторож живых альт-гридов (net-0/SL/памп)
     "MA_CROSS":           PRIMARY,    # 2026-06-13: H5-кросс сигналы (~5/мес, оператор видит)
+    "SCALP_LIQ":          PRIMARY,    # 2026-06-19: liq-свип для скальпинга (actionable, личка)
     # ROUTINE (low-signal noise, separate chat by default)
     "P15_REENTRY":        ROUTINE,    # повторное открытие слоя после harvest
     "P15_HARVEST":        ROUTINE,    # частичное закрытие 50%
