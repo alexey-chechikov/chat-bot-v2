@@ -153,19 +153,26 @@ async def watchlist_loop(stop_event: asyncio.Event, *, send_fn=None, interval_se
                         f"  Rule ID: {rule.id}"
                     )
                     # If this rule is tagged with a known play label, enrich with trade plan
+                    is_skip = False
                     if rule.label:
                         try:
                             extra = format_play(rule.label, value,
                                                  rule_symbol=rule.symbol)
                             if extra:
                                 text = text + "\n" + extra
+                                # 2026-06-19: карточка-SKIP (план зарезан анти-эджем) в TG
+                                # НЕ шлём — оператор это видел десятки раз, чистый шум.
+                                # В play_journal остаётся (forward-stats). Только GO идёт в TG.
+                                is_skip = "🔴 SKIP" in extra
                         except Exception:
                             logger.exception("watchlist.play_template_failed rule=%s", rule.id)
                     logger.info("watchlist.fired rule=%s value=%.4f label=%s dir_key=%s "
                                 "supp_label=%s supp_dir=%s",
                                 rule.id, value, rule.label, dir_key,
                                 suppressed_label, suppressed_dir)
-                    if suppressed_label:
+                    if is_skip:
+                        _log_suppressed(rule.id, rule.label or "", "skip_card_not_actionable", now)
+                    elif suppressed_label:
                         _log_suppressed(rule.id, rule.label or "",
                                         f"label_cooldown_{LABEL_COOLDOWN_SEC//60}min", now)
                     elif suppressed_dir:
