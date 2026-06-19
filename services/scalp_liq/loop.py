@@ -14,11 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 LIQ_CSV = ROOT / "market_live" / "liquidations.csv"
 DERIV = ROOT / "state" / "deriv_live.json"
 STATE = ROOT / "state" / "scalp_liq_state.json"
+JOURNAL = ROOT / "state" / "scalp_liq_journal.jsonl"   # исходы свипов — проверяемый эдж
+MARKET_1M = ROOT / "market_live" / "market_1m.csv"
 
 WINDOW_MIN = 3          # окно кластера
 THRESHOLD_BTC = 1.5     # ∑ ликвидаций одной стороны за окно = свип (выше grid-порога 0.5)
 COOLDOWN_SEC = 900      # 15 мин на сторону
 POLL_INTERVAL_SEC = 90
+HORIZONS_MIN = {"15м": 15, "30м": 30, "60м": 60}   # отбой через сколько мерим
 
 
 def _read_recent(now: datetime) -> list[tuple[str, float, float]]:
@@ -117,6 +120,73 @@ def _write_state(s):
         pass
 
 
+def _btc_price_now() -> float | None:
+    """Последний close BTC из локального коллектора."""
+    if not MARKET_1M.exists():
+        return None
+    try:
+        size = MARKET_1M.stat().st_size
+        with MARKET_1M.open("rb") as fh:
+            if size > 4000:
+                fh.seek(size - 4000); fh.readline()
+            lines = fh.read().decode("utf-8", errors="replace").splitlines()
+        for line in reversed(lines):
+            p = line.split(",")
+            if len(p) >= 5 and p[0].startswith("20"):
+                return float(p[4])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _journal_append(rec: dict) -> None:
+    try:
+        with JOURNAL.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        logger.exception("scalp_liq.journal_failed")
+
+
+def fill_outcomes(now: datetime | None = None) -> int:
+    """Дозаполнить исход свипа: отбила ли цена в ожидаемую сторону через 15/30/60м.
+    long-liq (свип поддержки) → ждём ВВЕРХ; short-liq → ВНИЗ. Знак = в пользу свипа."""
+    now = now or datetime.now(timezone.utc)
+    if not JOURNAL.exists():
+        return 0
+    recs = []
+    for ln in JOURNAL.read_text(encoding="utf-8").splitlines():
+        try:
+            recs.append(json.loads(ln))
+        except json.JSONDecodeError:
+            pass
+    px_now = _btc_price_now()
+    if px_now is None:
+        return 0
+    updated = 0
+    for r in recs:
+        need = [h for h in HORIZONS_MIN if h not in (r.get("outcomes") or {})]
+        if not need:
+            continue
+        try:
+            ts = datetime.fromisoformat(r["ts"])
+        except (ValueError, KeyError):
+            continue
+        age = (now - ts).total_seconds() / 60.0
+        d = 1 if r["side"] == "long" else -1   # ожидаемое направление отбоя
+        for h, hm in HORIZONS_MIN.items():
+            if h in (r.get("outcomes") or {}):
+                continue
+            if age >= hm:
+                ret = d * (px_now / r["price"] - 1) * 100
+                r.setdefault("outcomes", {})[h] = round(ret, 3)
+                updated += 1
+    if updated:
+        with JOURNAL.open("w", encoding="utf-8") as f:
+            for r in recs:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return updated
+
+
 def detect(send_fn, now: datetime | None = None) -> list[str]:
     now = now or datetime.now(timezone.utc)
     liqs = _read_recent(now)
@@ -146,6 +216,10 @@ def detect(send_fn, now: datetime | None = None) -> list[str]:
             except Exception:
                 logger.exception("scalp_liq.send_failed")
         state[f"last_{side}"] = now.isoformat(timespec="seconds")
+        _journal_append({"id": f"sl_{int(now.timestamp())}_{side}",
+                         "ts": now.isoformat(timespec="seconds"), "side": side,
+                         "qty": round(qsum, 3), "price": round(vwap, 1),
+                         "ctx": ctx, "outcomes": {}})
         fired.append(text)
     _write_state(state)
     return fired
@@ -158,6 +232,7 @@ async def scalp_liq_loop(stop_event, *, send_fn=None, interval_sec=POLL_INTERVAL
     while not stop_event.is_set():
         try:
             detect(send_fn)
+            fill_outcomes()
         except Exception:
             logger.exception("scalp_liq.tick_failed")
         try:

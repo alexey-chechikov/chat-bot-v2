@@ -27,6 +27,23 @@ def test_build_card_short_sweep_resistance():
     assert "набор→тренд" in card       # OI +0.6 > 0.3
 
 
+def test_fill_outcomes_bounce_direction(monkeypatch, tmp_path):
+    import json
+    from datetime import datetime, timezone, timedelta
+    jp = tmp_path / "j.jsonl"
+    now = datetime(2026, 6, 19, 16, 0, tzinfo=timezone.utc)
+    # long-liq свип @63000 (ждём ВВЕРХ), записан 70 мин назад
+    rec = {"id": "x", "ts": (now - timedelta(minutes=70)).isoformat(), "side": "long",
+           "qty": 2.0, "price": 63000.0, "ctx": {}, "outcomes": {}}
+    jp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sl, "JOURNAL", jp)
+    monkeypatch.setattr(sl, "_btc_price_now", lambda: 63630.0)  # +1.0% ВВЕРХ = в пользу свипа
+    n = sl.fill_outcomes(now)
+    assert n == 3  # 15/30/60м заполнены
+    out = json.loads(jp.read_text().splitlines()[0])["outcomes"]
+    assert out["60м"] > 0.9   # long-liq + цена выросла = положительный исход
+
+
 def test_detect_threshold_and_cooldown(monkeypatch):
     sent = []
     now = __import__("datetime").datetime(2026, 6, 19, 16, 0, tzinfo=__import__("datetime").timezone.utc)

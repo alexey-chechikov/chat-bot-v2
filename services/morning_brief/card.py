@@ -16,6 +16,8 @@ from services.morning_brief import tracker_reader as tr
 
 ROOT = Path(__file__).resolve().parents[2]
 MSK = timezone(timedelta(hours=3))
+DERIV_PATH = ROOT / "state" / "deriv_live.json"
+FUNDING_EXTREME = 0.0005  # |funding 8ч| ≥ 0.05% = толпа в одну сторону (контекст, не сигнал)
 
 SL_USD = 175.0            # обязательный SL на бота
 SL_WARN_USD = 140.0       # 80% от SL — алерт "у SL"
@@ -86,6 +88,35 @@ def _normalize_units(bots: dict, px: float | None) -> None:
                         row[f] = row[f] * px
                 row["_unit_xbt"] = True
             row["_usd_normalized"] = True
+
+
+def _deriv_context() -> str:
+    """Строка-контекст из деривативов (НЕ сигнал, фон): funding-экстрим + OI-дивергенция.
+    OI вверх при росте цены = реальный набор; OI вниз при росте = шорт-сквиз (хрупко)."""
+    import re
+    try:
+        raw = DERIV_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(r'"BTCUSDT"\s*:\s*\{(.*?)\}', raw, re.DOTALL)
+    blob = m.group(1) if m else raw
+
+    def f(key):
+        mm = re.search(rf'"{key}"\s*:\s*(-?[0-9.eE+-]+)', blob)
+        try:
+            return float(mm.group(1)) if mm else None
+        except (ValueError, AttributeError):
+            return None
+    fund = f("funding_rate_8h"); oi = f("oi_change_1h_pct"); tk = f("taker_buy_pct")
+    bits = []
+    if fund is not None and abs(fund) >= FUNDING_EXTREME:
+        side = "лонги платят (толпа в лонг)" if fund > 0 else "шорты платят (толпа в шорт)"
+        bits.append(f"⚠️funding {fund*100:+.3f}% — {side}, разворот-риск")
+    if oi is not None:
+        bits.append(f"OI 1ч {oi:+.2f}%")
+    if tk is not None and (tk >= 58 or tk <= 42):
+        bits.append(f"taker {tk:.0f}% ({'покупатели' if tk >= 58 else 'продавцы'} давят)")
+    return "  " + " · ".join(bits) if bits else ""
 
 
 def _load_managed() -> list[dict]:
@@ -193,6 +224,9 @@ def build_card(data: dict) -> str:
             dpx = f" (Δ{age_lbl} {(r['px'] / prev['px'] - 1) * 100:+.1f}%)"
         L.append("━ РЫНОК")
         L.append(f"BTC {r['px']:,.0f}{dpx} · красная {r['t200']:,.0f} ({r['above']:+.2f}%) · {r['zone']} · {vol}")
+        deriv_line = _deriv_context()
+        if deriv_line:
+            L.append(deriv_line)
         if r["voloff"]:
             alerts.append("VOL-OFF спайк (ATR-z≥2.5) — оцени краш руками, авто-рез НЕ делаем")
     else:
