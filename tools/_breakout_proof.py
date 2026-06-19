@@ -82,7 +82,13 @@ def main():
     allt = trades_detailed(d, lo_s, sh_s)
     n = len(allt)
     gross = sum(t["net"] + NOTION * TAKER / 100 * 2 for t in allt)   # вернуть тейкер ТЗ = чистый gross (после slip)
-    print(f"  сделок: {n}")
+    # ПРЯМОЙ ответ на гипотезу: компенсируют ли редкие +3% (TP) многочисленные −1.5% (SL)?
+    from collections import Counter
+    rc = Counter(t["reason"] for t in allt)
+    tp = rc["TP"] + rc["gapTP"]; sl = rc["SL"] + rc["gapSL"]
+    wr = tp / n * 100
+    print(f"  сделок: {n}  ·  TP(+3%): {tp} ({tp/n*100:.1f}%)  ·  SL(−1.5%): {sl} ({sl/n*100:.1f}%)  ·  прочее: {n-tp-sl}")
+    print(f"  win-rate {wr:.1f}%  vs  безубыток ДО расходов 33.3% → {'НИЖЕ порога даже БЕЗ комиссии' if wr < 33.3 else 'выше порога'}")
     print(f"  GROSS (после slip, БЕЗ комиссии): ${gross:>+9.0f}   ({gross/n/NOTION*100:+.3f}%/сделку = МОНЕТКА, эджа НЕТ)\n")
     print(f"  {'комиссия/сторона':>26}{'$/сделку round':>16}{'комиссия 2г':>14}{'NET 2г':>12}")
     for side_fee, tag in [(0.075, "ТЗ-допущение (опт.)"), (0.32, "ТВОЯ с ребейтом"), (0.35, "ТВОЯ без ребейта")]:
