@@ -53,15 +53,28 @@ def test_dispatch_preserves_paused_manual(tmp_path):
 
 def test_dispatch_generates_alerts_for_changes(tmp_path):
     store = _store(tmp_path)
+    # 2026-06-19: PAUSE без активных ботов теперь подавляется → нужен живой бот,
+    # чтобы карточка-действие имела что приостанавливать (реальный actionable кейс).
+    store.add_bot(Bot(key="btc_long_1", category="btc_long", label="L1",
+                      strategy_type="GRID_L1", stage="LIVE", state="RUNNING"))
     result = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
     assert result.alerts
 
 
 def test_dispatch_alert_kind_action_required_for_pause(tmp_path):
     store = _store(tmp_path)
+    store.add_bot(Bot(key="btc_long_1", category="btc_long", label="L1",
+                      strategy_type="GRID_L1", stage="LIVE", state="RUNNING"))
     result = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
     alert = next(item for item in result.alerts if item.category_key == "btc_long")
     assert alert.kind == "ACTION_REQUIRED"
+
+
+def test_dispatch_empty_pause_suppressed(tmp_path):
+    """Холостой PAUSE без активных ботов → НЕ шлём карточку (оператор: чистый шум)."""
+    store = _store(tmp_path)  # пустой — нет ботов в btc_long
+    result = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
+    assert not any(a.category_key == "btc_long" for a in result.alerts)
 
 
 def test_dispatch_alert_kind_regime_change_for_run(tmp_path):
@@ -108,6 +121,46 @@ def test_dispatch_noop_when_killswitch_active(tmp_path, monkeypatch):
     store = _store(tmp_path)
     result = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
     assert result.changed == []
+
+
+def test_dispatch_emits_regime_shift_alert(tmp_path, monkeypatch):
+    monkeypatch.setattr(KillswitchStore, "_instance", KillswitchStore(tmp_path / "state" / "killswitch_state.json"))
+    monkeypatch.setattr(CalibrationLog, "_instance", None)
+    CalibrationLog.instance(tmp_path / "state" / "calibration")
+    store = _store(tmp_path)
+    result = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
+    shift_alerts = [a for a in result.alerts if a.kind == "REGIME_SHIFT"]
+    assert len(shift_alerts) == 1
+    text = shift_alerts[0].text
+    assert "СМЕНА РЕЖИМА" in text
+    assert "TREND_DOWN" in text or "ТРЕНД ВНИЗ" in text
+
+
+def test_dispatch_no_regime_shift_alert_when_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setattr(KillswitchStore, "_instance", KillswitchStore(tmp_path / "state" / "killswitch_state.json"))
+    monkeypatch.setattr(CalibrationLog, "_instance", None)
+    CalibrationLog.instance(tmp_path / "state" / "calibration")
+    store = _store(tmp_path)
+    dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
+    result2 = dispatch_orchestrator_decisions(store, _regime("TREND_DOWN"))
+    assert not any(a.kind == "REGIME_SHIFT" for a in result2.alerts)
+
+
+def test_dispatch_regime_shift_alert_warns_on_high_vol(tmp_path, monkeypatch):
+    monkeypatch.setattr(KillswitchStore, "_instance", KillswitchStore(tmp_path / "state" / "killswitch_state.json"))
+    monkeypatch.setattr(CalibrationLog, "_instance", None)
+    CalibrationLog.instance(tmp_path / "state" / "calibration")
+    store = _store(tmp_path)
+    regime = {
+        "primary": "TREND_DOWN",
+        "modifiers": [],
+        "bias_score": 12,
+        "metrics": {"adx_1h": 28, "atr_pct_1h": 2.1},
+    }
+    result = dispatch_orchestrator_decisions(store, regime)
+    shift_alerts = [a for a in result.alerts if a.kind == "REGIME_SHIFT"]
+    assert shift_alerts and "HIGH vol" in shift_alerts[0].text
+    assert "R3" in shift_alerts[0].text
 
 
 def test_dispatch_logs_calibration_events(tmp_path, monkeypatch):

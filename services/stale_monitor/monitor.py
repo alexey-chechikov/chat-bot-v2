@@ -44,9 +44,10 @@ CRITICAL_SOURCES = {
     },
     "liquidations_stream": {
         "path": "market_live/liquidations.csv",
-        "max_age_min": 30,  # 2026-05-25: lowered 60→30 per teammate review;
-                              # 60min was too lenient — first 30min of silence
-                              # already counts as concerning for active hours.
+        "max_age_min": 45,  # 2026-06-19: 30 флапал (STALE 36м → RECOVERED) в спокойном
+                              # рынке — ликвидации РЕДКИЕ (нет позиций к ликвидации = нет
+                              # строк), это не сбой WS. 45 терпит тихие окна, ловит реальную
+                              # смерть стрима (часы). Было 30 (флап-шум оператору 19.06).
         "label": "Liquidation stream (Bybit+Binance WS)",
     },
     "setup_detector_heartbeat": {

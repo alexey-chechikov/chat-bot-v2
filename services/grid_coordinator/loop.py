@@ -367,11 +367,31 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
             for direction, score in (("up", up), ("down", down)):
                 last_score = int(dedup.get(f"{direction}_score") or 0)
                 if score < 3:
+                    # 2026-06-19 (запрос оператора «понимание что падение остановилось»):
+                    # если импульс БЫЛ сильным (≥5) и СХЛОПНУЛСЯ (<3) — пинг «выдохся».
+                    # Не прогноз разворота (стена), а реактивное подтверждение, что
+                    # импульс закончился = момент, где отскок начался. Один раз на спад.
+                    if last_score >= 5 and not dedup.get(f"{direction}_exhausted_for", 0) == last_score:
+                        word = "ВНИЗ (падение остановилось)" if direction == "down" else "ВВЕРХ (рост остановился)"
+                        px = details.get("btc_close") or details.get("price")
+                        msg = (f"🔄 ИМПУЛЬС {word} — выдохся (score {last_score}/6→{score}/6).\n"
+                               f"BTC ${px:,.0f}. Реактивное подтверждение, НЕ прогноз: импульс закончился, "
+                               f"начался откат. Для гридов: пауза-на-контр-ноге можно снять."
+                               if px else
+                               f"🔄 ИМПУЛЬС {word} — выдохся (score {last_score}/6→{score}/6).")
+                        if send_fn:
+                            try:
+                                send_fn(msg)
+                            except Exception:
+                                logger.exception("grid_coordinator.exhausted_send_failed")
+                        dedup[f"{direction}_exhausted_for"] = last_score
+                        _save_dedup(dedup)
                     # 2026-05-29: do NOT reset last_score on a sub-threshold dip —
                     # that let a boundary oscillation bypass cooldown (see intraday
                     # loop flicker fix). Escalation baseline persists; after cooldown
                     # `_check_cooldown` already permits a fresh fire.
                     continue
+                dedup[f"{direction}_exhausted_for"] = 0  # импульс снова активен → сброс
                 on_cd = not _check_cooldown(direction, dedup, now)
                 # 2026-06-15 (ревью Вина): up-импульс СЛАБЫЙ — НЕ эскалируем на росте
                 # score в перекупленность (давал 5× спам в вершину 3→4→5). Эскалация
