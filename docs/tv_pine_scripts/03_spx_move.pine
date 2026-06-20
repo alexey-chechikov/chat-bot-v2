@@ -1,0 +1,37 @@
+// @version=5
+// SPX Real-time Move Alert — резкие движения S&P 500 → давление на BTC
+// Устанавливай на ES1! (S&P 500 Futures) или SPX, таймфрейм 15m
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+indicator("SPX Move Alert [bot7]", overlay=false)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+drop_threshold = input.float(-0.5, "Порог падения % (отрицательный)",  maxval=-0.1)
+pump_threshold = input.float(0.5,  "Порог роста %",                    minval=0.1)
+
+// ── 15m изменение цены ───────────────────────────────────────────────────────
+chg_pct = (close - close[1]) / close[1] * 100
+
+// ── Сигналы ──────────────────────────────────────────────────────────────────
+spx_drop = chg_pct <= drop_threshold
+spx_pump = chg_pct >= pump_threshold
+
+// Не дублируем: только при смене состояния
+spx_drop_new = spx_drop and not spx_drop[1]
+spx_pump_new = spx_pump and not spx_pump[1]
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+plot(chg_pct, "SPX 15m chg%", color = chg_pct < 0 ? color.red : color.green)
+hline(drop_threshold, "Drop threshold", color.red,   linestyle=hline.style_dashed)
+hline(pump_threshold, "Pump threshold", color.green, linestyle=hline.style_dashed)
+hline(0, "Zero", color.gray)
+plotshape(spx_drop_new, "SPX Drop", shape.triangledown, location.top,    color.red,   size=size.small)
+plotshape(spx_pump_new, "SPX Pump", shape.triangleup,   location.bottom, color.green, size=size.small)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+chg_rounded = math.round(chg_pct * 100) / 100
+
+if spx_drop_new
+    alert('{"signal_type":"spx_drop","spx_price":' + str.tostring(close, "#.##") + ',"change_pct":' + str.tostring(chg_rounded) + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if spx_pump_new
+    alert('{"signal_type":"spx_pump","spx_price":' + str.tostring(close, "#.##") + ',"change_pct":' + str.tostring(chg_rounded) + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

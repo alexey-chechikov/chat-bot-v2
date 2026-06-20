@@ -133,12 +133,11 @@ def _build_report(now: datetime) -> str:
                      f"({rh['placed']} placed, {rh['skipped']} skipped, "
                      f"{rh['pending']} pending)")
 
-    # TB pauses
+    # TB pauses — neutral wording. "тихий день" вводил в заблуждение:
+    # 0 TB auto-pauses ≠ "ничего не происходило" (могли быть regime shifts /
+    # action changes — для них см. DAILY REPORT, отдельная карточка).
     tb_pauses = _count_tb_pauses_yesterday(yesterday)
-    if tb_pauses > 0:
-        lines.append(f"⏸ TB auto-pauses: {tb_pauses}")
-    else:
-        lines.append(f"⏸ TB auto-pauses: 0 (тихий день)")
+    lines.append(f"⏸ TB auto-pauses: {tb_pauses}")
 
     lines.append("")
     lines.append("Команды: /ab_status /twap_status /tv_status /bots")

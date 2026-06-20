@@ -1,0 +1,54 @@
+// @version=5
+// Weekly Range Boundary — цена у границы недельного диапазона
+// Устанавливай на BTCUSDT, таймфрейм 15m
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+//
+// Range Hunter точка входа: цена у нижней/верхней 8% недельного диапазона + объём
+indicator("Weekly Range Boundary [bot7]", overlay=true)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+edge_pct   = input.float(8.0, "Зона границы (% от недельного диапазона)", minval=3.0, maxval=20.0)
+vol_filter = input.float(1.5, "Мин. объём для алерта (множитель от avg)")
+
+// ── Недельный high/low (через request.security) ───────────────────────────────
+weekly_high = request.security(syminfo.tickerid, "W", high[1],  lookahead=barmerge.lookahead_on)
+weekly_low  = request.security(syminfo.tickerid, "W", low[1],   lookahead=barmerge.lookahead_on)
+weekly_range = weekly_high - weekly_low
+
+// ── Зоны границ ──────────────────────────────────────────────────────────────
+zone_pct     = edge_pct / 100.0
+lower_zone   = weekly_low  + weekly_range * zone_pct   // нижние X%
+upper_zone   = weekly_high - weekly_range * zone_pct   // верхние X%
+
+// Где цена относительно границы
+pct_from_low  = (close - weekly_low)  / weekly_range * 100
+pct_from_high = (weekly_high - close) / weekly_range * 100
+
+// ── Объём ────────────────────────────────────────────────────────────────────
+vol_avg = ta.sma(volume, 20)
+vol_ok  = volume >= vol_avg * vol_filter
+
+// ── Сигналы ──────────────────────────────────────────────────────────────────
+at_lower_boundary = close <= lower_zone and vol_ok
+at_upper_boundary = close >= upper_zone and vol_ok
+
+at_lower_new = at_lower_boundary and not at_lower_boundary[1]
+at_upper_new = at_upper_boundary and not at_upper_boundary[1]
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+plot(weekly_high, "Weekly High",  color.red,   linewidth=2)
+plot(weekly_low,  "Weekly Low",   color.green, linewidth=2)
+plot(upper_zone,  "Upper zone",   color.new(color.red,   60), linewidth=1, style=plot.style_stepline)
+plot(lower_zone,  "Lower zone",   color.new(color.green, 60), linewidth=1, style=plot.style_stepline)
+bgcolor(at_lower_boundary ? color.new(color.green, 85) : at_upper_boundary ? color.new(color.red, 85) : na)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+pct_low_r  = math.round(pct_from_low  * 10) / 10
+pct_high_r = math.round(pct_from_high * 10) / 10
+vol_ratio  = math.round(volume / vol_avg * 10) / 10
+
+if at_lower_new
+    alert('{"signal_type":"range_boundary","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"boundary_side":"lower","pct_from_edge":' + str.tostring(pct_low_r) + ',"weekly_low":' + str.tostring(weekly_low, "#.##") + ',"weekly_high":' + str.tostring(weekly_high, "#.##") + ',"vol_ratio":' + str.tostring(vol_ratio) + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if at_upper_new
+    alert('{"signal_type":"range_boundary","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"boundary_side":"upper","pct_from_edge":' + str.tostring(pct_high_r) + ',"weekly_low":' + str.tostring(weekly_low, "#.##") + ',"weekly_high":' + str.tostring(weekly_high, "#.##") + ',"vol_ratio":' + str.tostring(vol_ratio) + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

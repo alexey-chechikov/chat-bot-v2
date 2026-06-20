@@ -1,0 +1,41 @@
+// @version=5
+// Break of Structure (BOS) — структурный разворот, ранний сигнал каскада
+// Устанавливай на BTCUSDT, таймфрейм 60m (1 час)
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+indicator("BOS Structure [bot7]", overlay=true)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+swing_len = input.int(10, "Swing lookback (баров для определения HH/LL)")
+
+// ── Swing high / low ─────────────────────────────────────────────────────────
+swing_high = ta.pivothigh(high, swing_len, swing_len)
+swing_low  = ta.pivotlow(low,  swing_len, swing_len)
+
+// Последний подтверждённый swing high/low
+var float last_sh = na
+var float last_sl = na
+
+if not na(swing_high)
+    last_sh := swing_high
+if not na(swing_low)
+    last_sl := swing_low
+
+// ── BOS: пробой последнего свинг-уровня ─────────────────────────────────────
+bos_bullish = not na(last_sh) and close > last_sh and close[1] <= last_sh  // закрылись выше SH
+bos_bearish = not na(last_sl) and close < last_sl and close[1] >= last_sl  // закрылись ниже SL
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+plot(last_sh, "Last Swing High", color.red,   linewidth=1, style=plot.style_stepline)
+plot(last_sl, "Last Swing Low",  color.green, linewidth=1, style=plot.style_stepline)
+plotshape(bos_bullish, "BOS ▲", shape.labelup,   location.belowbar, color.green, text="BOS↑", size=size.small)
+plotshape(bos_bearish, "BOS ▼", shape.labeldown, location.abovebar, color.red,   text="BOS↓", size=size.small)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+broken_sh = math.round(last_sh * 10) / 10
+broken_sl = math.round(last_sl * 10) / 10
+
+if bos_bullish
+    alert('{"signal_type":"bos_bullish","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"broken_level":' + str.tostring(broken_sh, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if bos_bearish
+    alert('{"signal_type":"bos_bearish","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"broken_level":' + str.tostring(broken_sl, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

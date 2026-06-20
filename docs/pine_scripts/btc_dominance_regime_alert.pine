@@ -9,10 +9,14 @@
 // Apply on chart of `CRYPTOCAP:BTC.D` (TradingView BTC dominance symbol).
 // Timeframe: 1h recommended (BTC.D moves slowly, no need for 1m noise).
 //
+// ВАЖНО: это OSCILLATOR (значения ±%), НЕ накладка на цену. Применять
+// строго на символе CRYPTOCAP:BTC.D — на ценовом графике (BTCUSDT и т.п.)
+// он посчитает % движения ЦЕНЫ, а не доминации = мусор.
+//
 // Alert fires when BTC.D moved ≥ threshold % over last N hours.
 // Webhook payload mirrors cvd_divergence format for unified ingestion.
 //
-indicator("bot7 BTC.D regime monitor", overlay=true)
+indicator("bot7 BTC.D regime monitor", overlay=false)
 
 lookback_bars  = input.int(6, "Lookback bars", minval=1, maxval=48,
     tooltip="On 1h chart: 6 = last 6 hours")

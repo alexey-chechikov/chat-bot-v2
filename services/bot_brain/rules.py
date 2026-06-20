@@ -415,14 +415,25 @@ def r3_vol_high_resize(snapshot: dict) -> list[Proposal]:
       - bot healthy (unrealized >= -1% — not bleeding)
       - testbed only (TB) — risk-bounded on $100 deposit
 
-    Caveats: sim has no slippage/funding/outages. If live shows HIGH vol
-    underperforming, revert to commit before c2420d4 OR operator runs
-    /bot TB resize 0.66 to undo a × 1.5 step.
+    HARDENED 2026-05-19: per services.bot_brain.r3_state — hard cap (cumulative
+    factor ≤3.0 from baseline q.maxQ) + per-bot cooldown (4h) + auto-rebaseline
+    when operator manually resets bot params. Prevents the 2026-05-18 incident
+    where 18 consecutive R3 fires разогнали TB.maxQ ×288× за 19h.
     """
+    from services.bot_brain.r3_state import r3_check_and_record
     out: list[Proposal] = []
     mkt = snapshot.get("market", {}).get("BTCUSDT", {}) or {}
     if mkt.get("vol_regime") != "high":
         return out
+    ts_raw = snapshot.get("ts")
+    now = None
+    if isinstance(ts_raw, str):
+        try:
+            now = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        except ValueError:
+            now = None
+    if now is None:
+        now = datetime.now(timezone.utc)
     for bot in snapshot.get("bots", []):
         if not bot.get("testbed"):
             continue  # TB only — risk-bounded
@@ -433,12 +444,16 @@ def r3_vol_high_resize(snapshot: dict) -> list[Proposal]:
         unr_pct = (cp / bal) * 100.0
         if unr_pct < -1.0:
             continue  # bot already in drawdown — don't add
+        allowed, why = r3_check_and_record(bot["bot_id"], now=now)
+        if not allowed:
+            logger.info("r3.skipped bot=%s reason=%s", bot["bot_id"], why)
+            continue
         out.append(Proposal(
             rule_id="R3_vol_high_resize_UP",
             bot_id=bot["bot_id"], tier=bot["tier"],
             action="resize", params={"factor": 1.5},
             reason=f"vol=HIGH + unrealized {unr_pct:+.1f}% > -1% → capitalize × 1.5 "
-                   f"(per Phase 3.6 v2: HIGH vol = best cell)",
+                   f"(per Phase 3.6 v2; guard: {why})",
             confidence=0.6,
             testbed_only=True,
         ))

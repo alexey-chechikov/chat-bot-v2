@@ -5,8 +5,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from services.range_hunter.journal import (
+    JOURNAL_PATH,
     append_signal,
+    journal_path_for,
     mark_user_action,
+    parse_signal_id,
     pending_signals,
     read_all,
     signal_id_from_ts,
@@ -114,6 +117,49 @@ def test_update_record(tmp_path: Path) -> None:
     rows = read_all(path=p)
     assert rows[0]["exit_reason"] == "pair_win"
     assert rows[0]["pnl_usd"] == 24.0
+
+
+def test_parse_signal_id_round_trip() -> None:
+    ts = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+    for symbol, variant in [
+        ("BTCUSDT", "1m"),
+        ("BTCUSDT", "5m"),
+        ("ETHUSDT", "1m"),
+        ("ETHUSDT", "5m"),
+        ("XRPUSDT", "1m"),
+    ]:
+        sid = signal_id_from_ts(ts, symbol=symbol, variant=variant)
+        assert parse_signal_id(sid) == (symbol, variant)
+
+
+def test_parse_signal_id_malformed_defaults_to_btc() -> None:
+    assert parse_signal_id("garbage") == ("BTCUSDT", "1m")
+    assert parse_signal_id("rh_only") == ("BTCUSDT", "1m")
+
+
+def test_mark_user_action_auto_routes_by_signal_id(tmp_path: Path, monkeypatch) -> None:
+    """Without explicit path, mark_user_action must route to per-symbol journal."""
+    import services.range_hunter.journal as journal_mod
+    monkeypatch.setattr(journal_mod, "JOURNAL_PATH", tmp_path / "rh_btc.jsonl")
+
+    ts = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+    eth_sid = signal_id_from_ts(ts, symbol="ETHUSDT", variant="1m")
+    eth_path = journal_path_for("ETHUSDT", "1m")
+    eth_path.parent.mkdir(parents=True, exist_ok=True)
+    rec = _make_record(ts, signal_id=eth_sid)
+    rec["contract"] = "ETHUSDT"
+    append_signal(rec, path=eth_path)
+
+    later = ts + timedelta(seconds=30)
+    ok = mark_user_action(eth_sid, "placed", now=later)
+    assert ok, "auto-routed call should find the ETH record"
+    rows = read_all(path=eth_path)
+    assert rows[0]["user_action"] == "placed"
+    assert rows[0]["decision_latency_sec"] == 30.0
+
+    btc_path = tmp_path / "rh_btc.jsonl"
+    assert not btc_path.exists() or read_all(path=btc_path) == [], \
+        "BTC journal must remain untouched by an ETH callback"
 
 
 def test_summarize_basic(tmp_path: Path) -> None:

@@ -1,12 +1,12 @@
 {
   "btc_long": {
-    "ts": "2026-05-14T17:24:37.015592+00:00",
-    "from_action": "PAUSE",
-    "to_action": "RUN"
+    "ts": "2026-06-20T08:27:42.577648+00:00",
+    "from_action": "RUN",
+    "to_action": "PAUSE"
   },
   "btc_short": {
-    "ts": "2026-05-14T21:41:41.155257+00:00",
-    "from_action": "RUN",
-    "to_action": "REDUCE"
+    "ts": "2026-06-16T06:34:35.029632+00:00",
+    "from_action": "REDUCE",
+    "to_action": "RUN"
   }
 }

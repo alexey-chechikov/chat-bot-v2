@@ -1,0 +1,60 @@
+// @version=5
+// Squeeze Breakout — зарождение импульса (BB внутри KC → пробой)
+// Устанавливай на BTCUSDT, таймфрейм 15m
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+indicator("Squeeze Breakout [bot7]", overlay=false)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+bb_len    = input.int(20,  "BB период")
+bb_mult   = input.float(2.0, "BB множитель")
+kc_len    = input.int(20,  "KC период")
+kc_mult   = input.float(1.5, "KC множитель (ATR)")
+min_bars  = input.int(4,   "Мин. баров сжатия для алерта")
+
+// ── Bollinger Bands ──────────────────────────────────────────────────────────
+bb_basis  = ta.sma(close, bb_len)
+bb_dev    = ta.stdev(close, bb_len)
+bb_upper  = bb_basis + bb_mult * bb_dev
+bb_lower  = bb_basis - bb_mult * bb_dev
+
+// ── Keltner Channels ─────────────────────────────────────────────────────────
+kc_basis  = ta.ema(close, kc_len)
+kc_range  = ta.atr(kc_len) * kc_mult
+kc_upper  = kc_basis + kc_range
+kc_lower  = kc_basis - kc_range
+
+// ── Squeeze: BB внутри KC ────────────────────────────────────────────────────
+in_squeeze = bb_upper < kc_upper and bb_lower > kc_lower
+
+// Считаем сколько баров подряд в сжатии
+var int squeeze_bars = 0
+if in_squeeze
+    squeeze_bars := squeeze_bars + 1
+else
+    squeeze_bars := 0
+
+// Пробой — первый бар выхода из сжатия (было достаточно баров сжатия)
+prev_in_squeeze = in_squeeze[1]
+breakout        = not in_squeeze and prev_in_squeeze and squeeze_bars[1] >= min_bars
+
+// Направление пробоя по импульсу (моментум)
+momentum        = ta.linreg(close - (kc_upper + kc_lower) / 2, kc_len, 0)
+breakout_up     = breakout and momentum >= 0
+breakout_down   = breakout and momentum < 0
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+squeeze_color = in_squeeze ? color.new(color.orange, 70) : color.new(color.gray, 90)
+bgcolor(squeeze_color)
+plot(squeeze_bars, "Баров в сжатии", color.orange)
+hline(min_bars, "Мин. для алерта", color.red, linestyle=hline.style_dashed)
+plotshape(breakout_up,   "Пробой ▲", shape.triangleup,   location.bottom, color.green, size=size.normal)
+plotshape(breakout_down, "Пробой ▼", shape.triangledown, location.top,    color.red,   size=size.normal)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+bars_was = squeeze_bars[1]
+
+if breakout_up
+    alert('{"signal_type":"squeeze_breakout_up","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","squeeze_bars":' + str.tostring(bars_was) + ',"momentum":' + str.tostring(math.round(momentum * 100) / 100) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if breakout_down
+    alert('{"signal_type":"squeeze_breakout_down","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","squeeze_bars":' + str.tostring(bars_was) + ',"momentum":' + str.tostring(math.round(momentum * 100) / 100) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

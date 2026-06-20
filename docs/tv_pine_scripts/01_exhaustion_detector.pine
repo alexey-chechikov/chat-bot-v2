@@ -1,0 +1,61 @@
+// @version=5
+// Exhaustion Detector — истощение движения (топ/боттом)
+// Устанавливай на BTCUSDT, таймфрейм 15m
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+indicator("Exhaustion Detector [bot7]", overlay=false)
+
+// ── Inputs ──────────────────────────────────────────────────────────────────
+vol_mult    = input.float(2.2, "Объём: множитель для climax",   minval=1.5)
+rsi_len     = input.int(14,   "RSI период")
+rsi_ob      = input.float(68, "RSI перекупленность (топ)")
+rsi_os      = input.float(32, "RSI перепроданность (боттом)")
+lb          = input.int(10,   "Lookback для дивергенций")
+
+// ── Volume climax ────────────────────────────────────────────────────────────
+vol_avg    = ta.sma(volume, 20)
+vol_climax = volume > vol_avg * vol_mult
+vol_ratio  = math.round(volume / vol_avg * 10) / 10   // для payload
+
+// ── RSI ──────────────────────────────────────────────────────────────────────
+rsi = ta.rsi(close, rsi_len)
+
+// Медвежья RSI-дивергенция: цена новый max, RSI не обновляет max
+rsi_bear_div = high >= ta.highest(high, lb)[1] and rsi < ta.highest(rsi, lb)[1] and rsi > rsi_ob
+
+// Бычья RSI-дивергенция: цена новый min, RSI не обновляет min
+rsi_bull_div = low  <= ta.lowest(low,  lb)[1] and rsi > ta.lowest(rsi,  lb)[1] and rsi < rsi_os
+
+// ── OBV-дивергенция (CVD proxy) ──────────────────────────────────────────────
+obv = ta.obv
+obv_bear_div = high >= ta.highest(high, lb)[1] and obv < ta.highest(obv, lb)[1]
+obv_bull_div = low  <= ta.lowest(low,  lb)[1] and obv > ta.lowest(obv,  lb)[1]
+
+// ── Stoch RSI — дополнительная перекупленность/перепроданность ───────────────
+[k, d] = ta.stoch(rsi, rsi, rsi, 3)
+stoch_ob = k > 80
+stoch_os = k < 20
+
+// ── Истощение TOP (шорт-разворот) ────────────────────────────────────────────
+s_top = (vol_climax ? 1 : 0) + (rsi_bear_div ? 1 : 0) + (obv_bear_div ? 1 : 0) + (stoch_ob ? 1 : 0)
+exhaustion_top = s_top >= 2 and not exhaustion_top[1]   // первый бар с сигналом
+
+// ── Истощение BOTTOM (лонг-разворот) ─────────────────────────────────────────
+s_bot = (vol_climax ? 1 : 0) + (rsi_bull_div ? 1 : 0) + (obv_bull_div ? 1 : 0) + (stoch_os ? 1 : 0)
+exhaustion_bot = s_bot >= 2 and not exhaustion_bot[1]
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+plotshape(exhaustion_top, "Истощение ↑", shape.triangledown, location.top,    color.red,   size=size.small)
+plotshape(exhaustion_bot, "Истощение ↓", shape.triangleup,   location.bottom, color.green, size=size.small)
+plot(vol_ratio, "Vol ratio", color=color.gray, display=display.pane)
+hline(vol_mult, "Climax threshold", color.orange, linestyle=hline.style_dashed)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+// Детали: какие индикаторы подтвердили
+top_details = (vol_climax ? "vol_climax" : "") + (rsi_bear_div ? ",rsi_div" : "") + (obv_bear_div ? ",obv_div" : "") + (stoch_ob ? ",stoch_ob" : "")
+bot_details = (vol_climax ? "vol_climax" : "") + (rsi_bull_div ? ",rsi_div" : "") + (obv_bull_div ? ",obv_div" : "") + (stoch_os ? ",stoch_os" : "")
+
+if exhaustion_top
+    alert('{"signal_type":"exhaustion_top","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","strength":' + str.tostring(s_top) + ',"vol_ratio":' + str.tostring(vol_ratio, "#.#") + ',"rsi":' + str.tostring(math.round(rsi * 10) / 10) + ',"details":"' + top_details + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if exhaustion_bot
+    alert('{"signal_type":"exhaustion_bottom","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"timeframe":"' + str.tostring(timeframe.period) + '","strength":' + str.tostring(s_bot) + ',"vol_ratio":' + str.tostring(vol_ratio, "#.#") + ',"rsi":' + str.tostring(math.round(rsi * 10) / 10) + ',"details":"' + bot_details + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

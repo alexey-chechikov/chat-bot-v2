@@ -133,7 +133,10 @@ def test_build_card_full(live_dir: Path):
     # кандидаты: только ✅ (WLD danger → не попадает)
     assert "HYPEUSDT" in card
     assert "WLDUSDT" not in card
-    assert "step 0.6" in card and "орд 20" in card and "TP/SL ±$175" in card
+    assert "step 0.6" in card and "орд 20" in card
+    # launch-чеклист: SL обязателен с 1-го ордера + запрет резюма (урок SOL)
+    assert "tsl = −175 ОБЯЗАТЕЛЬНО" in card
+    assert "НЕ резюмировать выключенный" in card
     # риск-футер
     assert "SL±$175/бот" in card
     # плохой час подсвечен

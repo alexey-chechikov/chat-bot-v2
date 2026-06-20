@@ -15,6 +15,11 @@ class Levels:
     above: list[float] = field(default_factory=list)
     below: list[float] = field(default_factory=list)
     current_price: float = 0.0
+    # 2026-05-19: source-tag per level (swing|round|border). Один уровень может
+    # совпадать из нескольких источников (например round 76000 = bot border).
+    # Используется в triggers._check_level_break для фильтрации intraday swings
+    # из TG-форварда.
+    sources: dict[float, list[str]] = field(default_factory=dict)
 
 
 def _read_highs_lows(path: Path) -> tuple[list[float], list[float]]:
@@ -88,20 +93,28 @@ def _read_bot_borders(params_csv: Path) -> list[float]:
 
 
 def get_levels(current_price: float, params_csv: Path | None = None, count: int = 5) -> Levels:
-    all_levels: set[float] = set()
+    sources_map: dict[float, set[str]] = {}
+
+    def _tag(lvl: float, src: str) -> None:
+        sources_map.setdefault(round(float(lvl), 0), set()).add(src)
 
     for path in (OHLCV_15M_CSV, OHLCV_1H_CSV):
         highs, lows = _read_highs_lows(path)
-        all_levels.update(_swing_highs(highs, LEVEL_LOOKBACK))
-        all_levels.update(_swing_lows(lows, LEVEL_LOOKBACK))
+        for lvl in _swing_highs(highs, LEVEL_LOOKBACK):
+            _tag(lvl, "swing")
+        for lvl in _swing_lows(lows, LEVEL_LOOKBACK):
+            _tag(lvl, "swing")
 
     round_above, round_below = _round_levels(current_price)
-    all_levels.update(round_above)
-    all_levels.update(round_below)
+    for lvl in round_above + round_below:
+        _tag(lvl, "round")
 
     if params_csv is not None:
-        all_levels.update(_read_bot_borders(params_csv))
+        for lvl in _read_bot_borders(params_csv):
+            _tag(lvl, "border")
 
+    all_levels = set(sources_map.keys())
     above = sorted(l for l in all_levels if l > current_price)[:count]
     below = sorted((l for l in all_levels if l < current_price), reverse=True)[:count]
-    return Levels(above=above, below=below, current_price=current_price)
+    sources = {lvl: sorted(srcs) for lvl, srcs in sources_map.items()}
+    return Levels(above=above, below=below, current_price=current_price, sources=sources)

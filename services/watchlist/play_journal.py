@@ -80,6 +80,32 @@ def _write_all(rows: list[dict], path: Path = JOURNAL_PATH) -> None:
         logger.exception("play_journal.write_failed")
 
 
+def _recent_journal_tail(path: Path, n_records: int = 5) -> list[dict]:
+    """Return last n_records parsed JSON lines from journal (cheap tail read)."""
+    if not path.exists():
+        return []
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 8192))
+            tail = f.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in reversed(tail.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if len(out) >= n_records:
+            break
+    return out
+
+
 def append_play_fire(*, label: str, rule_id: str, rule_field: str,
                      rule_op: str, rule_threshold: float, trigger_value: float,
                      play_meta: dict, price_at_fire: float,
@@ -88,13 +114,30 @@ def append_play_fire(*, label: str, rule_id: str, rule_field: str,
     """Append play fire запись. Returns fire_id.
 
     play_meta: dict from play_templates.PLAYS[label] (dir/tp1_pct/tp2_pct/stop_pct).
+
+    Dedup: если последние 5 записей содержат entry с тем же (label,
+    ts_fire-minute, price_at_fire) — пропускаем write и возвращаем существующий
+    fire_id. Защита от 3 одновременных fires (e5f6/eth/xrp own taker rules
+    шлют один и тот же event в одну секунду — раньше писалось 3 раза).
     """
     if now is None:
         now = datetime.now(timezone.utc)
     fire_id = f"play_{now.strftime('%Y%m%d_%H%M%S')}_{label}"
+    ts_fire_iso = now.isoformat(timespec="seconds")
+    ts_minute = ts_fire_iso[:16]  # YYYY-MM-DDTHH:MM
+
+    # Dedup pass — skip if same logical event already journaled
+    for last in _recent_journal_tail(path):
+        if (last.get("label") == label
+                and (last.get("ts_fire") or "")[:16] == ts_minute
+                and abs(float(last.get("price_at_fire") or 0) - float(price_at_fire)) < 0.01):
+            logger.info("play_journal.dedup_skip label=%s ts_minute=%s rule=%s prev_fire=%s",
+                        label, ts_minute, rule_id, last.get("fire_id"))
+            return last.get("fire_id") or fire_id
+
     record = {
         "fire_id": fire_id,
-        "ts_fire": now.isoformat(timespec="seconds"),
+        "ts_fire": ts_fire_iso,
         "label": label,
         "rule_id": rule_id,
         "rule_field": rule_field,

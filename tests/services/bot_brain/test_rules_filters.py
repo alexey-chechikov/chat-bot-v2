@@ -225,9 +225,13 @@ def test_thresholds_match_operator_policy():
 
 # ─── R3 inverted (Phase 3.6 v2) — vol HIGH = scale up on TB ──────────────────
 
-def test_r3_fires_for_TB_in_high_vol_when_healthy():
+def test_r3_fires_for_TB_in_high_vol_when_healthy(tmp_path, monkeypatch):
     """Vol HIGH + bot healthy (no loss) + testbed → suggest resize × 1.5."""
+    import services.bot_brain.r3_state as r3_state_mod
     from services.bot_brain.rules import r3_vol_high_resize
+    monkeypatch.setattr(r3_state_mod, "STATE_PATH", tmp_path / "r3.json")
+    monkeypatch.setattr(r3_state_mod, "read_current_maxQ",
+                         lambda bot_id, **kw: 0.003)
     bot = {"bot_id": "test", "tier": "TB", "side": "short", "testbed": True,
            "paused_by_guard": False, "current_profit_usd": 5.0, "balance": 100.0}
     mkt = {"vol_regime": "high", "price_change_15m_pct": 0.0}

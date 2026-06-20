@@ -237,8 +237,15 @@ class CalibrationLog:
             category_key = event.get("category_key")
             if category_key:
                 summary["categories_changed"].add(category_key)
-            for bot_key in list(event.get("affected_bots") or []):
+            affected_bots_raw = list(event.get("affected_bots") or [])
+            for bot_key in affected_bots_raw:
                 summary["bots_touched"].add(bot_key)
+            # Fallback: ACTION_CHANGE без явного affected_bots — но category_key
+            # вроде "btc_long" сам по себе бот в модели оператора. Иначе на
+            # выходе "Ботов затронуто: 0" при наличии ACTION CHANGES — отчёт
+            # сам себе противоречит.
+            if event_type == "ACTION_CHANGE" and not affected_bots_raw and category_key:
+                summary["bots_touched"].add(category_key)
             if event_type == "ACTION_CHANGE":
                 summary["action_changes"].append(event)
             elif event_type == "MANUAL_COMMAND":

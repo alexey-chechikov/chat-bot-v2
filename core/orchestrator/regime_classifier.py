@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -8,12 +9,20 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from utils.safe_io import atomic_write_json, safe_read_json
 
+logger = logging.getLogger(__name__)
+
 PRIMARY_RANGE = "RANGE"
 PRIMARY_TREND_UP = "TREND_UP"
 PRIMARY_TREND_DOWN = "TREND_DOWN"
 PRIMARY_COMPRESSION = "COMPRESSION"
 PRIMARY_CASCADE_DOWN = "CASCADE_DOWN"
 PRIMARY_CASCADE_UP = "CASCADE_UP"
+
+# Anti-flap: minimum dwell time before a non-cascade transition between
+# RANGE↔COMPRESSION pair. Observed 2026-05-19: 4 transitions in 12h spam.
+# 90min — 1.5 bars of 1h ATR buffer; cascades override (urgent).
+MIN_DWELL_MIN_LOW_VOL_FLIP = 90
+LOW_VOL_FLIP_PAIR = frozenset({PRIMARY_RANGE, PRIMARY_COMPRESSION})
 
 MODIFIER_BLACKOUT = "NEWS_BLACKOUT"
 MODIFIER_HUGE_DOWN_GAP = "HUGE_DOWN_GAP"
@@ -558,6 +567,29 @@ def classify(
         state.hysteresis_counter,
         is_cascade,
     )
+
+    # Min-dwell gate for RANGE↔COMPRESSION flips only. Trend/cascade transitions
+    # bypass this check — when the market is genuinely trending, we want fast
+    # response. Low-vol pair flap is the observed pathology.
+    if (new_current != state.current_primary
+            and not is_cascade
+            and {new_current, state.current_primary} <= LOW_VOL_FLIP_PAIR
+            and state.primary_since is not None):
+        try:
+            dwell_min = (ts - _ensure_utc(state.primary_since)).total_seconds() / 60.0
+        except (TypeError, ValueError):
+            dwell_min = MIN_DWELL_MIN_LOW_VOL_FLIP  # treat as eligible if state corrupt
+        # Only suppress when dwell is positive but below threshold. Negative
+        # dwell (stale state / clock skew / test fixture) is treated as "no
+        # recent transition observed" → allow flip.
+        if 0 <= dwell_min < MIN_DWELL_MIN_LOW_VOL_FLIP:
+            logger.info(
+                "regime.min_dwell_suppress symbol=%s from=%s to=%s dwell_min=%.1f threshold=%d",
+                symbol, state.current_primary, new_current, dwell_min, MIN_DWELL_MIN_LOW_VOL_FLIP,
+            )
+            new_current = state.current_primary
+            new_pending = None
+            new_counter = 0
 
     weekend_gap = detect_weekend_gap(candles_1h, ts)
     requested_modifiers: Dict[str, Dict[str, Any]] = {}

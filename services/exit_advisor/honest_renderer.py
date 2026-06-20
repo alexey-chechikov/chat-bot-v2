@@ -340,15 +340,17 @@ def _write_prev_snapshot(data: dict) -> None:
 
 
 def _is_critical(state: PositionStateSnapshot) -> bool:
-    """Critical conditions force a full alert with playbook:
-    - distance_to_liq <= 10%
-    - duration in DD >= 8h (very stuck)
-    - free_margin_pct < 70%
+    """Critical conditions force a full alert with playbook.
+
+    Operator feedback 2026-05-19: position info itself is not actionable
+    (видим на BitMEX UI). Critical = только реальные emergencies где надо
+    срочно делать что-то.
+      - distance_to_liq <= 10% (margin call territory)
+      - free_margin_pct < 70% (tight margin reserve)
+    Убрано: DD >= 8h (для grid bot в боковике это норма, не emergency).
     """
     if state.worst_bot:
         if state.worst_bot.distance_to_liq_pct <= 10.0:
-            return True
-        if state.worst_bot.duration_in_dd_h >= 8.0:
             return True
     if state.free_margin_pct < 70.0:
         return True
@@ -356,24 +358,26 @@ def _is_critical(state: PositionStateSnapshot) -> bool:
 
 
 def _significant_change(state: PositionStateSnapshot, prev: dict) -> bool:
-    """Skip duplicate alerts if nothing material changed since last hour."""
+    """Skip duplicate alerts if nothing material changed since last hour.
+
+    Operator feedback 2026-05-19: каждые 2h приходила POS-card с DD+2h —
+    DD-age растёт линейно с временем, это не "изменение позиции". Убран
+    DD-age trigger. uPnL threshold поднят $50 → $200 (за час $50 это шум
+    для $1k+ позиции, $200 = заметное движение).
+    """
     if not prev:
         return True
-    # uPnL changed > $50
+    # uPnL changed > $200 (raised from $50 — было слишком чувствительно)
     cur_upnl = state.total_unrealized_usd
     prev_upnl = prev.get("upnl", 0.0)
-    if abs(cur_upnl - prev_upnl) > 50.0:
+    if abs(cur_upnl - prev_upnl) > 200.0:
         return True
-    # DD age increased ≥ 1h
-    cur_dd = state.worst_bot.duration_in_dd_h if state.worst_bot else 0.0
-    prev_dd = prev.get("dd_h", 0.0)
-    if cur_dd - prev_dd >= 1.0:
-        return True
-    # Distance to liq dropped ≥ 1%
+    # Distance to liq dropped ≥ 1% (real risk movement)
     cur_liq = state.worst_bot.distance_to_liq_pct if state.worst_bot else 100.0
     prev_liq = prev.get("liq_dist", 100.0)
     if prev_liq - cur_liq >= 1.0:
         return True
+    # DD-age trigger removed — elapsed time != significant change.
     return False
 
 
@@ -392,6 +396,13 @@ def format_compact_advisory(state: PositionStateSnapshot) -> tuple[str, bool]:
     if not state.has_active_position:
         return ("", False)
     if state.scenario_class == ScenarioClass.MONITORING:
+        return ("", False)
+
+    # Kill-switch: env EXIT_ADVISOR_POS_CARD_DISABLED=1 → suppress всё,
+    # даже critical. Operator всё видит на BitMEX UI; cliff_monitor шлёт
+    # margin alerts отдельно. /playbook на запрос — остаётся.
+    import os as _os
+    if _os.environ.get("EXIT_ADVISOR_POS_CARD_DISABLED", "0") == "1":
         return ("", False)
 
     prev = _read_prev_snapshot()

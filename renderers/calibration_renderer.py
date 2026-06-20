@@ -46,8 +46,10 @@ def render_daily_report(summary: dict[str, Any]) -> str:
     ]
 
     if regime_shifts:
-        lines.extend(["", "СМЕНЫ РЕЖИМА"])
-        for event in regime_shifts[-3:]:
+        lines.extend(["", f"СМЕНЫ РЕЖИМА ({len(regime_shifts)})"])
+        # Show all transitions: summary counter и список должны совпадать.
+        # При 10+ переходах за день — оператору это сигнал о flapping регима.
+        for event in regime_shifts:
             lines.append(f"  • {event.get('reason_ru')}")
 
     if action_changes:

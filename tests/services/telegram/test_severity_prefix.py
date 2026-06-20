@@ -23,12 +23,12 @@ def test_regular_cascade_is_important():
 
 
 def test_grid_exhaustion_critical_at_4_signals():
-    sev = classify_severity("GRID_EXHAUSTION", "🔝 ВЕРХ ИСТОЩАЕТСЯ (4/6)", {"signals_count": 4})
+    sev = classify_severity("GRID_EXHAUSTION", "🔝 ВЕРХ — ИМПУЛЬС ВВЕРХ (4/6)", {"signals_count": 4})
     assert sev == CRITICAL
 
 
 def test_grid_exhaustion_only_important_at_3_signals():
-    sev = classify_severity("GRID_EXHAUSTION", "🔝 ВЕРХ ИСТОЩАЕТСЯ (3/6)", {"signals_count": 3})
+    sev = classify_severity("GRID_EXHAUSTION", "🔝 ВЕРХ — ИМПУЛЬС ВВЕРХ (3/6)", {"signals_count": 3})
     assert sev == IMPORTANT
 
 

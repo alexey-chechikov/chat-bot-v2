@@ -1,0 +1,243 @@
+// @version=5
+// ═══════════════════════════════════════════════════════════════
+//  bot7 TV Intelligence Hub — ALL SIGNALS IN ONE SCRIPT
+//  Чарт: BTCUSDT, таймфрейм 15m (обязательно)
+//
+//  Установка (один раз):
+//    1. Pine Editor → вставь → Save → Add to Chart
+//    2. Alerts → Create Alert
+//       Condition: "bot7 TV Intelligence Hub" → "Any alert() function call"
+//       Webhook URL: https://<твой-тоннель>/tv/<твой-токен>/alert
+//       Message: (оставь пустым — скрипт шлёт JSON сам)
+//       Expiration: дата далеко в будущем
+//    3. Save. Всё. Больше ничего.
+// ═══════════════════════════════════════════════════════════════
+indicator("bot7 TV Intelligence Hub", overlay=false, max_lines_count=200, max_boxes_count=50)
+
+// ──────────────────────────────────────────────────────────────
+//  INPUTS — настройки всех сигналов в одном месте
+// ──────────────────────────────────────────────────────────────
+grp_exh  = "🔴 Истощение движения"
+exh_vol  = input.float(2.2,  "Объём-множитель для climax",          group=grp_exh, minval=1.5)
+exh_rsi  = input.int(14,     "RSI период",                          group=grp_exh)
+exh_ob   = input.float(68,   "RSI перекупленность",                 group=grp_exh)
+exh_os   = input.float(32,   "RSI перепроданность",                 group=grp_exh)
+exh_lb   = input.int(10,     "Lookback для дивергенций (баров)",    group=grp_exh)
+
+grp_sq   = "⚡ Зарождение импульса (Squeeze)"
+sq_bb    = input.int(20,     "BB период",                           group=grp_sq)
+sq_bbm   = input.float(2.0,  "BB множитель",                        group=grp_sq)
+sq_kc    = input.int(20,     "KC период (ATR)",                     group=grp_sq)
+sq_kcm   = input.float(1.5,  "KC множитель",                        group=grp_sq)
+sq_min   = input.int(4,      "Мин. баров сжатия",                   group=grp_sq)
+
+grp_bos  = "📈 BOS — структурный разворот (1H)"
+bos_lb   = input.int(12,     "Lookback swing high/low (1H баров)",  group=grp_bos)
+
+grp_spx  = "🌐 SPX — S&P 500 движение"
+spx_dn   = input.float(-0.5, "Порог падения SPX %",                 group=grp_spx, maxval=-0.1)
+spx_up   = input.float(0.5,  "Порог роста SPX %",                   group=grp_spx, minval=0.1)
+
+grp_rng  = "📐 Граница недельного диапазона (Range Hunter)"
+rng_edge = input.float(8.0,  "Зона границы % от недельного диапаз", group=grp_rng)
+rng_vol  = input.float(1.5,  "Мин. объём (множитель от avg)",       group=grp_rng)
+
+grp_liq  = "💥 Каскад ликвидаций"
+liq_vol  = input.float(3.5,  "Объём-множитель для каскада [15m]",   group=grp_liq)
+liq_body = input.float(0.12, "Мин. тело свечи %",                   group=grp_liq)
+
+// ──────────────────────────────────────────────────────────────
+//  ОБЩИЕ ИНДИКАТОРЫ (15m — текущий чарт)
+// ──────────────────────────────────────────────────────────────
+vol_avg   = ta.sma(volume, 20)
+vol_ratio = volume / vol_avg
+rsi       = ta.rsi(close, exh_rsi)
+obv       = ta.obv
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 1: ИСТОЩЕНИЕ ДВИЖЕНИЯ (15m)
+//  Признаки остановки тренда: volume climax + RSI div + OBV div
+// ══════════════════════════════════════════════════════════════
+vol_climax    = volume > vol_avg * exh_vol
+
+// Медвежье истощение (топ)
+price_hh      = high  >= ta.highest(high, exh_lb)[1]
+rsi_lh        = rsi   <  ta.highest(rsi,  exh_lb)[1]
+obv_lh        = obv   <  ta.highest(obv,  exh_lb)[1]
+rsi_bear_div  = price_hh and rsi_lh and rsi > exh_ob
+obv_bear_div  = price_hh and obv_lh
+stoch_k_ob    = ta.stoch(rsi, rsi, rsi, 3) > 80
+
+s_top = (vol_climax ? 1 : 0) + (rsi_bear_div ? 1 : 0) + (obv_bear_div ? 1 : 0) + (stoch_k_ob ? 1 : 0)
+exh_top = s_top >= 2 and not (s_top[1] >= 2)
+
+// Бычье истощение (боттом)
+price_ll      = low   <= ta.lowest(low,  exh_lb)[1]
+rsi_hl        = rsi   >  ta.lowest(rsi,  exh_lb)[1]
+obv_hl        = obv   >  ta.lowest(obv,  exh_lb)[1]
+rsi_bull_div  = price_ll and rsi_hl and rsi < exh_os
+obv_bull_div  = price_ll and obv_hl
+stoch_k_os    = ta.stoch(rsi, rsi, rsi, 3) < 20
+
+s_bot = (vol_climax ? 1 : 0) + (rsi_bull_div ? 1 : 0) + (obv_bull_div ? 1 : 0) + (stoch_k_os ? 1 : 0)
+exh_bot = s_bot >= 2 and not (s_bot[1] >= 2)
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 2: ЗАРОЖДЕНИЕ ИМПУЛЬСА — Squeeze Breakout (15m)
+// ══════════════════════════════════════════════════════════════
+bb_upper = ta.sma(close, sq_bb) + ta.stdev(close, sq_bb) * sq_bbm
+bb_lower = ta.sma(close, sq_bb) - ta.stdev(close, sq_bb) * sq_bbm
+kc_mid   = ta.ema(close, sq_kc)
+kc_rng   = ta.atr(sq_kc) * sq_kcm
+kc_upper = kc_mid + kc_rng
+kc_lower = kc_mid - kc_rng
+
+in_squeeze = bb_upper < kc_upper and bb_lower > kc_lower
+
+var int sq_bars = 0
+sq_bars := in_squeeze ? sq_bars + 1 : 0
+
+momentum     = ta.linreg(close - kc_mid, sq_kc, 0)
+sq_breakout  = not in_squeeze and in_squeeze[1] and sq_bars[1] >= sq_min
+sq_up        = sq_breakout and momentum >= 0
+sq_down      = sq_breakout and momentum < 0
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 3: BOS — Break of Structure (1H via request.security)
+//  Ранний структурный разворот: пробой swing high/low на 1H
+// ══════════════════════════════════════════════════════════════
+h1_highest = request.security(syminfo.tickerid, "60", ta.highest(high, bos_lb)[1], lookahead=barmerge.lookahead_off)
+h1_lowest  = request.security(syminfo.tickerid, "60", ta.lowest(low,   bos_lb)[1], lookahead=barmerge.lookahead_off)
+h1_close   = request.security(syminfo.tickerid, "60", close,                        lookahead=barmerge.lookahead_off)
+h1_close1  = request.security(syminfo.tickerid, "60", close[1],                     lookahead=barmerge.lookahead_off)
+
+bos_bull = close > h1_highest and close[1] <= h1_highest
+bos_bear = close < h1_lowest  and close[1] >= h1_lowest
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 4: SPX MOVE (ES1! 15m via request.security)
+//  Резкое движение S&P 500 → давление/аппетит в BTC
+// ══════════════════════════════════════════════════════════════
+spx_c  = request.security("ES1!", "15", close,    lookahead=barmerge.lookahead_off)
+spx_c1 = request.security("ES1!", "15", close[1], lookahead=barmerge.lookahead_off)
+spx_chg = (spx_c - spx_c1) / spx_c1 * 100
+
+spx_drop_new = spx_chg <= spx_dn and not (spx_chg[1] <= spx_dn)
+spx_pump_new = spx_chg >= spx_up and not (spx_chg[1] >= spx_up)
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 5: ГРАНИЦА НЕДЕЛЬНОГО ДИАПАЗОНА (Range Hunter)
+//  Цена у нижней/верхней X% недельного диапазона + объём
+// ══════════════════════════════════════════════════════════════
+w_high = request.security(syminfo.tickerid, "W", high[1],  lookahead=barmerge.lookahead_on)
+w_low  = request.security(syminfo.tickerid, "W", low[1],   lookahead=barmerge.lookahead_on)
+w_rng  = w_high - w_low
+w_edge = rng_edge / 100.0
+
+lower_zone = w_low  + w_rng * w_edge
+upper_zone = w_high - w_rng * w_edge
+vol_ok     = volume >= vol_avg * rng_vol
+
+at_lower = close <= lower_zone and vol_ok and not (close[1] <= lower_zone and vol_ok[1])
+at_upper = close >= upper_zone and vol_ok and not (close[1] >= upper_zone and vol_ok[1])
+
+pct_from_low  = w_rng > 0 ? math.round((close - w_low)  / w_rng * 1000) / 10 : 0.0
+pct_from_high = w_rng > 0 ? math.round((w_high - close) / w_rng * 1000) / 10 : 0.0
+
+// ══════════════════════════════════════════════════════════════
+//  СИГНАЛ 6: КАСКАД ЛИКВИДАЦИЙ (15m — крупные свечи + объём)
+//  Экстремальный объём + большая свеча + фитиль = принудительные ликвидации
+// ══════════════════════════════════════════════════════════════
+body_pct   = math.abs(close - open) / close * 100
+lower_wick = (math.min(close, open) - low)  / close * 100
+upper_wick = (high - math.max(close, open)) / close * 100
+
+liq_longs_raw  = vol_ratio >= liq_vol and close < open and body_pct >= liq_body and lower_wick >= 0.08
+liq_shorts_raw = vol_ratio >= liq_vol and close > open and body_pct >= liq_body and upper_wick >= 0.08
+liq_longs_new  = liq_longs_raw  and not liq_longs_raw[1]
+liq_shorts_new = liq_shorts_raw and not liq_shorts_raw[1]
+
+// ──────────────────────────────────────────────────────────────
+//  ВИЗУАЛИЗАЦИЯ
+// ──────────────────────────────────────────────────────────────
+// Панель силы истощения
+plot(s_top, "Сила TOP",    color=color.new(color.red,   50), display=display.pane)
+plot(s_bot, "Сила BOT",    color=color.new(color.green, 50), display=display.pane)
+hline(2, "Порог сигнала",  color=color.orange, linestyle=hline.style_dashed)
+
+// Squeeze
+bgcolor(in_squeeze ? color.new(color.orange, 88) : na)
+
+// Маркеры
+plotshape(exh_top,      "Истощение ↑",  shape.triangledown, location.top,    color.red,   size=size.small)
+plotshape(exh_bot,      "Истощение ↓",  shape.triangleup,   location.bottom, color.green, size=size.small)
+plotshape(sq_up,        "Squeeze ▲",   shape.labelup,      location.bottom, color.teal,  size=size.small, text="SQ▲")
+plotshape(sq_down,      "Squeeze ▼",   shape.labeldown,    location.top,    color.purple,size=size.small, text="SQ▼")
+plotshape(bos_bull,     "BOS ↑",       shape.labelup,      location.bottom, color.lime,  size=size.tiny, text="BOS↑")
+plotshape(bos_bear,     "BOS ↓",       shape.labeldown,    location.top,    color.maroon,size=size.tiny, text="BOS↓")
+plotshape(spx_drop_new, "SPX DROP",    shape.xcross,       location.top,    color.red,   size=size.tiny)
+plotshape(spx_pump_new, "SPX PUMP",    shape.xcross,       location.bottom, color.green, size=size.tiny)
+plotshape(at_lower,     "Граница ↓",   shape.circle,       location.bottom, color.aqua,  size=size.tiny)
+plotshape(at_upper,     "Граница ↑",   shape.circle,       location.top,    color.aqua,  size=size.tiny)
+plotshape(liq_longs_new,  "Liq Longs",  shape.triangledown, location.top,    color.fuchsia, size=size.normal)
+plotshape(liq_shorts_new, "Liq Shorts", shape.triangleup,   location.bottom, color.yellow,  size=size.normal)
+
+// ──────────────────────────────────────────────────────────────
+//  ALERTS — все в одном alert() → один webhook
+//  В TV: Alert → "Any alert() function call" → Webhook URL
+// ──────────────────────────────────────────────────────────────
+vol_r   = str.tostring(math.round(vol_ratio * 10) / 10, "#.#")
+px      = str.tostring(close, "#.##")
+tf      = str.tostring(timeframe.period)
+spx_px  = str.tostring(spx_c, "#.##")
+spx_chg_r = str.tostring(math.round(spx_chg * 100) / 100, "#.##")
+
+// 1. Истощение — ТОП
+if exh_top
+    top_det = (vol_climax ? "vol_climax" : "") + (rsi_bear_div ? ",rsi_div" : "") + (obv_bear_div ? ",obv_div" : "") + (stoch_k_ob ? ",stoch_ob" : "")
+    alert('{"signal_type":"exhaustion_top","ticker":"' + syminfo.ticker + '","price":' + px + ',"timeframe":"' + tf + '","strength":' + str.tostring(s_top) + ',"vol_ratio":' + vol_r + ',"rsi":' + str.tostring(math.round(rsi * 10) / 10, "#.#") + ',"details":"' + top_det + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 2. Истощение — БОТТОМ
+if exh_bot
+    bot_det = (vol_climax ? "vol_climax" : "") + (rsi_bull_div ? ",rsi_div" : "") + (obv_bull_div ? ",obv_div" : "") + (stoch_k_os ? ",stoch_os" : "")
+    alert('{"signal_type":"exhaustion_bottom","ticker":"' + syminfo.ticker + '","price":' + px + ',"timeframe":"' + tf + '","strength":' + str.tostring(s_bot) + ',"vol_ratio":' + vol_r + ',"rsi":' + str.tostring(math.round(rsi * 10) / 10, "#.#") + ',"details":"' + bot_det + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 3. Squeeze — пробой вверх
+if sq_up
+    alert('{"signal_type":"squeeze_breakout_up","ticker":"' + syminfo.ticker + '","price":' + px + ',"timeframe":"' + tf + '","squeeze_bars":' + str.tostring(sq_bars[1]) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 4. Squeeze — пробой вниз
+if sq_down
+    alert('{"signal_type":"squeeze_breakout_down","ticker":"' + syminfo.ticker + '","price":' + px + ',"timeframe":"' + tf + '","squeeze_bars":' + str.tostring(sq_bars[1]) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 5. BOS вверх (1H структура)
+if bos_bull
+    alert('{"signal_type":"bos_bullish","ticker":"' + syminfo.ticker + '","price":' + px + ',"broken_level":' + str.tostring(h1_highest, "#.##") + ',"timeframe":"60","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 6. BOS вниз (1H структура)
+if bos_bear
+    alert('{"signal_type":"bos_bearish","ticker":"' + syminfo.ticker + '","price":' + px + ',"broken_level":' + str.tostring(h1_lowest, "#.##") + ',"timeframe":"60","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 7. SPX падает → давление на BTC
+if spx_drop_new
+    alert('{"signal_type":"spx_drop","spx_price":' + spx_px + ',"change_pct":' + spx_chg_r + ',"timeframe":"15","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 8. SPX растёт → риск-аппетит
+if spx_pump_new
+    alert('{"signal_type":"spx_pump","spx_price":' + spx_px + ',"change_pct":' + spx_chg_r + ',"timeframe":"15","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 9. Нижняя граница недельного диапазона (Range Hunter лонг)
+if at_lower
+    alert('{"signal_type":"range_boundary","ticker":"' + syminfo.ticker + '","price":' + px + ',"boundary_side":"lower","pct_from_edge":' + str.tostring(pct_from_low) + ',"weekly_low":' + str.tostring(w_low, "#.##") + ',"weekly_high":' + str.tostring(w_high, "#.##") + ',"vol_ratio":' + vol_r + ',"timeframe":"' + tf + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 10. Верхняя граница недельного диапазона (Range Hunter шорт)
+if at_upper
+    alert('{"signal_type":"range_boundary","ticker":"' + syminfo.ticker + '","price":' + px + ',"boundary_side":"upper","pct_from_edge":' + str.tostring(pct_from_high) + ',"weekly_low":' + str.tostring(w_low, "#.##") + ',"weekly_high":' + str.tostring(w_high, "#.##") + ',"vol_ratio":' + vol_r + ',"timeframe":"' + tf + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 11. Каскад ликвидаций — лонги
+if liq_longs_new
+    alert('{"signal_type":"liq_cascade","ticker":"' + syminfo.ticker + '","price":' + px + ',"liq_side":"LONGS","direction":"bearish","vol_ratio":' + vol_r + ',"body_pct":' + str.tostring(math.round(body_pct * 10) / 10, "#.#") + ',"timeframe":"' + tf + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+// 12. Каскад ликвидаций — шорты
+if liq_shorts_new
+    alert('{"signal_type":"liq_cascade","ticker":"' + syminfo.ticker + '","price":' + px + ',"liq_side":"SHORTS","direction":"bullish","vol_ratio":' + vol_r + ',"body_pct":' + str.tostring(math.round(body_pct * 10) / 10, "#.#") + ',"timeframe":"' + tf + '","ts":"{{timenow}}"}', alert.freq_once_per_bar_close)

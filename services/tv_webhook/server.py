@@ -140,6 +140,11 @@ def _make_handler(token: str) -> type[http.server.BaseHTTPRequestHandler]:
                 logger.info("tv_webhook.alert_received indicator=%s direction=%s ticker=%s",
                             payload.get("indicator"), payload.get("direction"),
                             payload.get("ticker"))
+                try:
+                    from .dispatcher import dispatch
+                    dispatch(payload, record)
+                except Exception:
+                    logger.exception("tv_webhook.dispatch_failed")
 
             # Respond OK quickly — TV doesn't care about body
             self.send_response(200)

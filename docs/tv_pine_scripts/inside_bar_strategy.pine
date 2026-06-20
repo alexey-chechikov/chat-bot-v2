@@ -1,0 +1,58 @@
+//@version=5
+// INSIDE BAR 4h — breakout strategy (канон Mac: baseline +123% / ATR-фильтр +281% Sharpe 2.23)
+// Поставь на BTCUSDT, ТФ = 4h. Открой "Тестер стратегий" внизу — там кривая дохода + WR.
+// Правила (фикс): inside bar (i-1 внутри i-2) → пробой МАТЕРИНСКОГО бара i-2 на закрытии →
+// вход по close, TP=5*ATR, SL=3*ATR (ATR фикс на входе), stop-and-reverse, без пирамид.
+// ATR-фильтр: торговать ТОЛЬКО когда ATR% >= своей медианы (брейкауты живут на воле, дохнут в штиле).
+strategy("Inside Bar 4h breakout", overlay=true,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.075,
+     process_orders_on_close=true, pyramiding=0, initial_capital=1000)
+
+useAtrFilt = input.bool(true,  "ATR-фильтр (ВКЛ = +281% / ВЫКЛ = baseline +123%)")
+atrN   = input.int(14,   "ATR length")
+medLen = input.int(100,  "ATR median lookback")
+tpM    = input.float(5.0,"TP x ATR", step=0.5)
+slM    = input.float(3.0,"SL x ATR", step=0.5)
+showIB = input.bool(true,"Подсветить inside-бары")
+
+atr    = ta.atr(atrN)
+atrPct = atr / close
+atrMed = ta.median(atrPct, medLen)
+hiVol  = atrPct >= atrMed
+filt   = not useAtrFilt or hiVol
+
+// inside bar (i-1 внутри i-2), пробой материнского i-2 на закрытии бара i
+inside   = high[1] < high[2] and low[1] > low[2]
+longSig  = inside and close > high[2] and filt
+shortSig = inside and close < low[2] and filt
+
+// ATR фикс на баре входа
+var float eAtr = na
+if longSig
+    eAtr := atr
+    strategy.entry("L", strategy.long)
+if shortSig
+    eAtr := atr
+    strategy.entry("S", strategy.short)
+
+// TP/SL от средней цены позиции, ATR зафиксирован
+if strategy.position_size > 0 and not na(eAtr)
+    strategy.exit("xL", from_entry="L", stop = strategy.position_avg_price - slM * eAtr, limit = strategy.position_avg_price + tpM * eAtr)
+if strategy.position_size < 0 and not na(eAtr)
+    strategy.exit("xS", from_entry="S", stop = strategy.position_avg_price + slM * eAtr, limit = strategy.position_avg_price - tpM * eAtr)
+
+// визуал
+barcolor(showIB and high[1] < high[2] and low[1] > low[2] ? color.new(color.yellow, 60) : na)
+plotshape(longSig,  "IB LONG",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size=size.small, text="IB↑")
+plotshape(shortSig, "IB SHORT", shape.triangledown, location.abovebar, color.new(color.red,  0), size=size.small, text="IB↓")
+
+// инфо-таблица
+var table tb = table.new(position.bottom_right, 2, 3, border_width=1)
+if barstate.islast
+    table.cell(tb, 0, 0, "Inside Bar 4h", text_color=color.white, bgcolor=color.new(color.blue,30))
+    table.cell(tb, 1, 0, useAtrFilt ? "ATR-фильтр ON" : "baseline", text_color=color.white, bgcolor=color.new(color.blue,30))
+    table.cell(tb, 0, 1, "Net %", text_color=color.silver)
+    table.cell(tb, 1, 1, str.tostring((strategy.equity/strategy.initial_capital - 1) * 100, "#.#"), text_color=color.white)
+    table.cell(tb, 0, 2, "сделок", text_color=color.silver)
+    table.cell(tb, 1, 2, str.tostring(strategy.closedtrades), text_color=color.white)

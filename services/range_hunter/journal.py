@@ -67,6 +67,30 @@ def signal_id_from_ts(ts: datetime, symbol: str = "BTCUSDT", variant: str = "1m"
     return "_".join(parts)
 
 
+def parse_signal_id(signal_id: str) -> tuple[str, str]:
+    """Reverse of signal_id_from_ts → (symbol, variant). Defaults BTCUSDT/1m."""
+    parts = signal_id.split("_")
+    if len(parts) < 3 or parts[0] != "rh":
+        return ("BTCUSDT", "1m")
+    symbol = "BTCUSDT"
+    variant = "1m"
+    for token in parts[3:]:
+        up = token.upper()
+        if up.endswith("USDT") or up.endswith("USD"):
+            symbol = up
+        else:
+            variant = token
+    return (symbol, variant)
+
+
+def _resolve_path(signal_id: str, path: Optional[Path]) -> Path:
+    """If path provided — use it; otherwise derive from signal_id."""
+    if path is not None:
+        return path
+    symbol, variant = parse_signal_id(signal_id)
+    return journal_path_for(symbol, variant)
+
+
 def append_signal(record: dict, *, path: Path = JOURNAL_PATH) -> None:
     """Append a new signal row to journal."""
     try:
@@ -120,13 +144,17 @@ def update_record(signal_id: str, updates: dict, *, path: Path = JOURNAL_PATH) -
 
 
 def mark_user_action(signal_id: str, action: str, *, now: Optional[datetime] = None,
-                     path: Path = JOURNAL_PATH) -> bool:
+                     path: Optional[Path] = None) -> bool:
     """Mark user's choice from inline button.
 
     action: "placed" (user поставил обе лимитки) | "skipped" (пропустил)
+
+    If path is None, derived from signal_id via parse_signal_id() — so multi-asset
+    TG callbacks route to the correct per-symbol journal.
     """
     if now is None:
         now = datetime.now(timezone.utc)
+    path = _resolve_path(signal_id, path)
     rows = read_all(path=path)
     for r in rows:
         if r.get("signal_id") == signal_id:
@@ -148,10 +176,14 @@ def mark_user_action(signal_id: str, action: str, *, now: Optional[datetime] = N
 
 def mark_hedge_action(signal_id: str, action: str, *,
                        now: Optional[datetime] = None,
-                       path: Path = JOURNAL_PATH) -> bool:
-    """Mark hedge advisory choice. action: 'hedged' | 'closed' | 'hold'."""
+                       path: Optional[Path] = None) -> bool:
+    """Mark hedge advisory choice. action: 'hedged' | 'closed' | 'hold'.
+
+    If path is None, derived from signal_id (multi-asset auto-routing).
+    """
     if now is None:
         now = datetime.now(timezone.utc)
+    path = _resolve_path(signal_id, path)
     rows = read_all(path=path)
     for r in rows:
         if r.get("signal_id") == signal_id:

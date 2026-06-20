@@ -120,6 +120,43 @@ def _deriv_context() -> str:
     return "  " + " · ".join(bits) if bits else ""
 
 
+REGIME_V2_PATH = ROOT / "state" / "regime_v2_state.json"
+
+
+def _btc_3state() -> str | None:
+    """BTC 4ч режим (MARKUP/MARKDOWN/RANGE) из regime_v2 — для launch-чеклиста."""
+    try:
+        d = json.loads(REGIME_V2_PATH.read_text(encoding="utf-8"))
+        return (d.get("BTCUSDT", {}).get("4h", {}) or {}).get("state_3state")
+    except Exception:
+        return None
+
+
+def _launch_checklist(ordcnt: int, regime3: str | None, good_hour: bool) -> list[str]:
+    """Защищённый конфиг под текущий режим: кап ноги-против-тренда + SL + не-резюм.
+    SOL-урок: в тренде неправая нога физически не должна набрать завал."""
+    cap = max(3, ordcnt // 3)
+    up = regime3 == "MARKUP"
+    down = regime3 == "MARKDOWN"
+    if down:
+        gate = "⚠️ BTC MARKDOWN → НЕ симметрично (лонг-нога бажит в падении)"
+        cap_line = f"   🛡 maxOpL = {cap} · maxOpS = {ordcnt}  ← ЛОНГ-нога капнута"
+    elif up:
+        gate = "⚠️ BTC MARKUP → НЕ симметрично (шорт-нога бажит в росте — урок SOL)"
+        cap_line = f"   🛡 maxOpL = {ordcnt} · maxOpS = {cap}  ← ШОРТ-нога капнута"
+    else:  # RANGE / неизвестно
+        gate = ("✅ BTC RANGE → симметрично можно" if regime3 == "RANGE"
+                else "🟡 режим неясен → ставь кап на всякий (maxOp/3)")
+        cap_line = f"   🛡 maxOpL = maxOpS = {ordcnt}" if regime3 == "RANGE" else \
+                   f"   🛡 кап обе ноги до {cap} (режим неясен)"
+    out = [f"   {gate}", cap_line,
+           "   🛡 tsl = −175 ОБЯЗАТЕЛЬНО (стоп с первого ордера)",
+           "   ⛔ НЕ резюмировать выключенный — только НОВЫЙ бот"]
+    if not good_hour:
+        out.append("   🔴 плохой час (направленно) — лучше подождать 16–20 мск")
+    return out
+
+
 def _load_managed() -> list[dict]:
     cfg = json.loads((ROOT / "state" / "short_bots_managed.json").read_text(encoding="utf-8"))
     return [m for m in cfg["managed_bots"] if not m.get("testbed")]
@@ -394,18 +431,21 @@ def build_card(data: dict) -> str:
     if stale is not None and stale > TRACKER_STALE_MIN:
         alerts.append(f"трекер молчит {stale:.0f} мин — данные ботов устарели")
 
-    # ── альт-кандидаты
+    # ── альт-кандидаты с launch-чеклистом (защищённый конфиг под режим)
     if scan:
         good = [x for x in scan["rows"] if not x["danger"] and not x["thin"]
                 and not x.get("pump")][:MAX_CANDIDATES]
-        L.append("━ АЛЬТ-КАНДИДАТЫ (топ ✅, MegaHard 12%)")
+        regime3 = _btc_3state()
+        good_hour = "🟢" in (scan.get("tilt") or "")
+        L.append("━ АЛЬТ-КАНДИДАТЫ + launch-чеклист (защита с 1-го ордера)")
         if good:
             for x in good:
                 m, a = x["m"], x["a"]
                 L.append(f"{x['sym']}: rng24 {m['rng24']:.1f}% · ER {m['er']:.2f} · ликв {x['liqrel']:.2f}")
                 L.append(f"   step {a['step']} · орд {a['ordcnt']} · охват {a['span']}% · target {a['target']}"
-                         f" · mult {a['mult']} · size {a['size']:.2f}/{a['maxsz']:.2f}"
-                         f" · off −{a['baseoff']} · TP/SL ±$175")
+                         f" · mult {a['mult']} · size {a['size']:.2f}/{a['maxsz']:.2f} · off −{a['baseoff']}")
+                L.extend(_launch_checklist(a["ordcnt"], regime3, good_hour))
+            L.append("1 бот, малый размер (мешки коррелируют). После запуска Alt-Guard ведёт.")
         else:
             L.append("нет чистых кандидатов (всё 🚫/⚠ — памп/тренд/тонко)")
 

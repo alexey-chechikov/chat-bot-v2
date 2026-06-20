@@ -1,0 +1,52 @@
+// @version=5
+// Liquidation Cascade + Volume Climax — всплески ликвидаций + экстремальный объём
+// Устанавливай на BTCUSDT, таймфрейм 1m или 3m
+// Alert: "Once Per Bar Close" | Webhook URL: https://<твой-тоннель>/tv/<токен>/alert
+//
+// Логика: большая свеча с экстремальным объёмом + длинный фитиль
+// = признак принудительных ликвидаций (настоящий ликвидационный каскад)
+indicator("Liq Cascade + Volume [bot7]", overlay=false)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+vol_mult      = input.float(3.0, "Объём: множитель для cascade",  minval=2.0)
+body_min_pct  = input.float(0.15, "Мин. размер тела свечи % от цены")
+wick_min_pct  = input.float(0.10, "Мин. фитиль % от цены")
+
+// ── Компоненты ───────────────────────────────────────────────────────────────
+vol_avg  = ta.sma(volume, 20)
+vol_spike = volume > vol_avg * vol_mult
+vol_ratio = volume / vol_avg
+
+candle_body  = math.abs(close - open)
+candle_range = high - low
+body_pct     = candle_body / close * 100
+upper_wick   = high - math.max(close, open)
+lower_wick   = math.min(close, open) - low
+upper_wick_pct = upper_wick / close * 100
+lower_wick_pct = lower_wick / close * 100
+
+// ── Сигналы ──────────────────────────────────────────────────────────────────
+// Ликвидация лонгов: медвежья большая свеча с объёмом + нижний фитиль
+liq_longs = vol_spike and close < open and body_pct >= body_min_pct and lower_wick_pct >= wick_min_pct
+
+// Ликвидация шортов: бычья большая свеча с объёмом + верхний фитиль
+liq_shorts = vol_spike and close > open and body_pct >= body_min_pct and upper_wick_pct >= wick_min_pct
+
+// Фильтр: не дублировать подряд
+liq_longs_new  = liq_longs  and not liq_longs[1]
+liq_shorts_new = liq_shorts and not liq_shorts[1]
+
+// ── Визуализация ─────────────────────────────────────────────────────────────
+plot(vol_ratio, "Vol ratio", color=color.gray)
+hline(vol_mult, "Cascade threshold", color.red, linestyle=hline.style_dashed)
+plotshape(liq_longs_new,  "Лонги ликв", shape.triangledown, location.top,    color.red,   size=size.normal)
+plotshape(liq_shorts_new, "Шорты ликв", shape.triangleup,   location.bottom, color.green, size=size.normal)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+vol_ratio_r = math.round(vol_ratio * 10) / 10
+
+if liq_longs_new
+    alert('{"signal_type":"liq_cascade","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"liq_side":"LONGS","direction":"bearish","vol_ratio":' + str.tostring(vol_ratio_r, "#.#") + ',"body_pct":' + str.tostring(math.round(body_pct * 10) / 10) + ',"timeframe":"' + str.tostring(timeframe.period) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
+
+if liq_shorts_new
+    alert('{"signal_type":"liq_cascade","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, "#.##") + ',"liq_side":"SHORTS","direction":"bullish","vol_ratio":' + str.tostring(vol_ratio_r, "#.#") + ',"body_pct":' + str.tostring(math.round(body_pct * 10) / 10) + ',"timeframe":"' + str.tostring(timeframe.period) + ',"ts":"{{timenow}}"}', alert.freq_once_per_bar_close)
