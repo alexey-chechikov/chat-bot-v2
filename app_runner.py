@@ -425,7 +425,14 @@ async def _run_paper_trader(stop_event: asyncio.Event, *, telegram_app=None) -> 
 
     send_fn = None
     if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
-        chat_ids = list(telegram_app.allowed_chat_ids)
+        # 2026-06-20: paper-trade открытия/закрытия (TP/SL/EXPIRE) — это research-
+        # телеметрия, не actionable. Раньше слались напрямую в личку и засоряли
+        # ленту (оператор показал EXPIRE-карточку как шум). alert_router уже
+        # объявляет PAPER_TRADE: ROUTINE — шлём в тихий чат. Накопит для weekly-
+        # дайджеста, личку не трогает. Fallback на личку если ROUTINE_CHAT_IDS пуст.
+        from services.telegram.channel_router import get_routine_chat_ids
+        routine_ids = get_routine_chat_ids()
+        chat_ids = routine_ids or list(telegram_app.allowed_chat_ids)
         bot = telegram_app.bot
 
         def _send(text: str) -> None:
