@@ -9,6 +9,10 @@ OHLCV_1M_CSV: Path = MARKET_LIVE_DIR / "market_1m.csv"
 OHLCV_15M_CSV: Path = MARKET_LIVE_DIR / "market_15m.csv"
 OHLCV_1H_CSV: Path = MARKET_LIVE_DIR / "market_1h.csv"
 LIQUIDATIONS_CSV: Path = MARKET_LIVE_DIR / "liquidations.csv"  # legacy: BTCUSDT only
+# WS liveness beat — пишется на КАЖДОМ тике loop'а (даже когда ликвидаций нет).
+# stale_monitor смотрит сюда, а не на mtime liquidations.csv: на тихом рынке
+# ликвидаций нет → csv стареет → ложный STALE при живых WS (флап 19–20.06).
+LIQ_HEARTBEAT_PATH: Path = _ROOT / "state" / "liq_stream_heartbeat.json"
 PID_DIR: Path = _ROOT / "market_collector" / "run"
 
 SYMBOL = "BTCUSDT"

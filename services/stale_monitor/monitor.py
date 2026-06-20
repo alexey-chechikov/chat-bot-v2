@@ -43,12 +43,14 @@ CRITICAL_SOURCES = {
         "label": "Classifier A regime state",
     },
     "liquidations_stream": {
-        "path": "market_live/liquidations.csv",
-        "max_age_min": 45,  # 2026-06-19: 30 флапал (STALE 36м → RECOVERED) в спокойном
-                              # рынке — ликвидации РЕДКИЕ (нет позиций к ликвидации = нет
-                              # строк), это не сбой WS. 45 терпит тихие окна, ловит реальную
-                              # смерть стрима (часы). Было 30 (флап-шум оператору 19.06).
-        "label": "Liquidation stream (Bybit+Binance WS)",
+        # 2026-06-20: переключено с liquidations.csv (mtime = последняя ЛИКВИДАЦИЯ)
+        # на liveness-heartbeat (пишется на каждом WS-тике независимо от событий).
+        # csv-mtime флапал на тихих выходных (WEEKEND_LOW_VOL, нет ликвидаций ≠ сбой
+        # стрима) — порог 30→45 не помог. Heartbeat стареет ТОЛЬКО когда все 3 WS
+        # в reconnect-цикле = реальная смерть. 10м с запасом (binance recv-timeout 190с).
+        "path": "state/liq_stream_heartbeat.json",
+        "max_age_min": 10,
+        "label": "Liquidation stream (WS liveness)",
     },
     "setup_detector_heartbeat": {
         # 2026-05-23: switched from setups.jsonl mtime to a dedicated

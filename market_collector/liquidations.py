@@ -16,6 +16,7 @@ from pathlib import Path
 from market_collector.config import (
     BINANCE_WS_URL,
     BYBIT_WS_URL,
+    LIQ_HEARTBEAT_PATH,
     LIQUIDATIONS_CSV,
     LIQ_SYMBOLS,
     OKX_INST_MAP,
@@ -28,6 +29,27 @@ from market_collector.config import (
 logger = logging.getLogger(__name__)
 LIQ_HEADERS = ["ts_utc", "exchange", "side", "qty", "price"]
 _lock = threading.Lock()
+
+# Heartbeat троттлится: пишем не чаще раза в 20с (3 потока стучат на каждом
+# recv-таймауте). Файл стареет ТОЛЬКО если все WS легли в reconnect-цикл.
+_HB_MIN_INTERVAL_SEC = 20.0
+_hb_lock = threading.Lock()
+_hb_last_write = 0.0
+
+
+def _touch_heartbeat() -> None:
+    global _hb_last_write
+    now = time.time()
+    with _hb_lock:
+        if now - _hb_last_write < _HB_MIN_INTERVAL_SEC:
+            return
+        _hb_last_write = now
+    try:
+        LIQ_HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LIQ_HEARTBEAT_PATH.write_text(
+            json.dumps({"ts": _ts_utc_now()}), encoding="utf-8")
+    except OSError:
+        logger.warning("liq.heartbeat_write_failed", exc_info=True)
 
 # OKX *-USDT-SWAP contract sizes (per OKX docs).
 # Native qty = contracts × contract_size.
@@ -78,6 +100,7 @@ def _run_bybit_ws(stop_event: threading.Event) -> None:
             last_ping = time.time()
             logger.info("bybit_ws.connected")
             while not stop_event.is_set():
+                _touch_heartbeat()  # WS жив, даже если ликвидаций нет
                 # Keepalive: Bybit требует ping каждые 20s, иначе закрывает.
                 if time.time() - last_ping >= 20:
                     try:
@@ -147,6 +170,7 @@ def _run_binance_ws(stop_event: threading.Event) -> None:
             backoff = WS_RECONNECT_BASE_SEC
             logger.info("binance_ws.connected")
             while not stop_event.is_set():
+                _touch_heartbeat()  # WS жив, даже если ликвидаций нет
                 try:
                     opcode, frame_data = ws.recv_data()
                 except (websocket.WebSocketTimeoutException, TimeoutError, OSError):
@@ -227,6 +251,7 @@ def _run_okx_ws(stop_event: threading.Event) -> None:
             last_ping = time.time()
             logger.info("okx_ws.connected")
             while not stop_event.is_set():
+                _touch_heartbeat()  # WS жив, даже если ликвидаций нет
                 if time.time() - last_ping >= 20:
                     try:
                         ws.send("ping")
