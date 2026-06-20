@@ -21,6 +21,7 @@ FUNDING_EXTREME = 0.0005  # |funding 8ч| ≥ 0.05% = толпа в одну с�
 
 SL_USD = 175.0            # обязательный SL на бота
 SL_WARN_USD = 140.0       # 80% от SL — алерт "у SL"
+SL_WARN_FRAC = 0.8        # доля от РЕАЛЬНОГО tsl бота для алерта "у SL"
 NET_CLOSE_USD = 70.0      # net-0/+$70 → пора закрыть руками
 DAY_LIMIT_USD = 350.0     # дневной лимит убытка = 2×SL → стоп-день
 LIQ_WARN_PCT = 15.0       # дистанция до ликвидации, ближе — алерт
@@ -312,9 +313,28 @@ def build_card(data: dict) -> str:
             if net is not None:
                 bits.append(f"день {_usd(net)}")
             flags = ""
-            if bag is not None and bag <= -SL_WARN_USD:
+            # «у SL» — только если у бота РЕАЛЬНО стоит tsl и мешок к нему подходит,
+            # ИЛИ ликвидация близко. 2026-06-20: плоский −175 ложно орал на мелкий
+            # inverse BTC-LONG (поза $6100, ликв в 55%, БЕЗ стопа) — успокоено.
+            p = params.get(bid)
+            bot_tsl = None
+            if p:
+                try:
+                    bot_tsl = json.loads(p.get("raw_params_json") or "{}").get("tsl")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            liq_d = _liq_dist_pct("long" if (latest.get("position") or 0) > 0 else "short",
+                                  (r or {}).get("px") or latest.get("average_price") or 0,
+                                  latest.get("liquidation_price"))
+            sl_ref = abs(float(bot_tsl)) if bot_tsl else None
+            near_real_sl = sl_ref is not None and bag is not None and bag <= -SL_WARN_FRAC * sl_ref
+            near_liq = liq_d is not None and liq_d < LIQ_WARN_PCT
+            if near_real_sl:
                 flags += " ⚠️у SL"
-                alerts.append(f"{name}: мешок {_usd(bag)} — у SL −$175, проверь стоп")
+                alerts.append(f"{name}: мешок {_usd(bag)} — {abs(bag)/sl_ref*100:.0f}% от SL −${sl_ref:.0f}, проверь")
+            elif near_liq:
+                flags += " ⚠️ликв близко"
+                alerts.append(f"{name}: ликвидация {liq_d:+.0f}% — близко, разгрузи/добавь маржи")
             if net is not None and net >= NET_CLOSE_USD:
                 flags += " 💰закрой руками"
                 alerts.append(f"{name}: net за день {_usd(net)} ≥ +$70 — правило: закрыть руками")

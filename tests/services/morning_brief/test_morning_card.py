@@ -33,6 +33,7 @@ SNAP_ROWS_REAL = """\
 PARAMS_HEADER = ",".join(tr.PARAMS_HEADERS)
 PARAMS_ROWS_REAL = """\
 2026-06-09T20:45:51+00:00,6287583200,🐉SHORT-T2🐉,,,2,0.05,,220,65800,,0.018,0.006,0.02,0.34,10,175,0,True,False,"{""border"": {""bottom"": null, ""top"": 65800}}",3
+2026-06-09T20:45:51+00:00,5086761417,🐉ЭФИР ШОРТ 1.4%,,,2,0.05,,220,,,0.018,0.006,0.02,0.34,10,175,0,True,False,"{""tsl"": -175, ""side"": 2}",3
 """
 
 NOW = datetime(2026, 6, 9, 22, 5, 0, tzinfo=timezone.utc)
@@ -117,7 +118,7 @@ def test_build_card_full(live_dir: Path):
     assert "МЕШКИ НА СТОПЕ" in card
     assert "хедж лонг на шорте-T1" in card
     assert "стоп-мешки" in card
-    # прочие активные: ЭФИР, мешок = current−profit = −197.8 → алерт "у SL"
+    # прочие активные: ЭФИР с tsl=-175, мешок −197.8 → 113% от SL → алерт "у SL"
     assert "у SL" in card
     assert "-198$" in card
     # пыль (BTC-LONG-✨ 5317457827: профит ~0, поз 0) отфильтрована, INV остался
@@ -137,6 +138,27 @@ def test_build_card_full(live_dir: Path):
     assert "SL±$175/бот" in card
     # плохой час подсвечен
     assert "ПЛОХОЙ час" in card
+
+
+def test_no_false_sl_warn_without_tsl_and_far_liq(live_dir: Path):
+    """2026-06-20: мелкий inverse-бот БЕЗ tsl + ликвидация далеко → НЕ орать «у SL»
+    (плоский −175 ложно срабатывал на BTC-LONG, поза $6100, ликв в 55%)."""
+    d = _data(live_dir)
+    # бот без params (нет tsl), большой мешок, но ликвидация далеко
+    d["snap"]["bots"]["9999999999"] = {
+        "latest": {"bot_name": "BTC-LONG-✨", "status": 2, "profit": 30.0,
+                   "current_profit": -160.0, "position": 6100.0, "average_price": 64800.0,
+                   "balance": 0.003, "liquidation_price": 28500.0},
+        "day0": {"bot_name": "BTC-LONG-✨", "status": 2, "profit": 30.0,
+                 "current_profit": -160.0, "position": 6100.0, "average_price": 64800.0,
+                 "balance": 0.003, "liquidation_price": 28500.0},
+        "fresh": True,
+    }
+    card = build_card(d)
+    # этот бот не должен получить «у SL» (нет tsl, ликв 28.5k при цене ~63k = далеко)
+    assert "BTC-LONG-✨" in card
+    lines = [ln for ln in card.split("\n") if "BTC-LONG" in ln]
+    assert not any("у SL" in ln for ln in lines)
 
 
 def test_build_card_voloff_and_degraded(live_dir: Path):
