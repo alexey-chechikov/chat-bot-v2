@@ -190,6 +190,45 @@ def _format_trade_card(setup: Setup, *, direction: str, icon: str) -> str:
     )
 
 
+def format_actionable_card(setup: Setup, edge: dict, *, countertrend: bool = False) -> str:
+    """«ОТКРОЙ СЕЙЧАС» — императивная карточка валид-эджа со статистикой inline.
+
+    2026-06-21: оператор хотел видеть проактивные входы «вот сейчас можно
+    открыть такую сделку» с понятными RR/PF, а не только жди/закрывай.
+    edge = выхлоп edge_stats.edge_for() (pf/wr/rr/exp/n + regime_pf)."""
+    from services.common.humanize import humanize_setup_type, fmt_price_compact
+    direction = "SHORT" if setup.setup_type.value.startswith("short_") else "LONG"
+    ts = setup.detected_at.strftime("%H:%M UTC")
+    setup_ru = humanize_setup_type(setup.setup_type.value)
+
+    entry = f"${fmt_price_compact(setup.entry_price)}" if setup.entry_price else f"${fmt_price_compact(setup.current_price)}"
+    stop = f"${fmt_price_compact(setup.stop_price)}" if setup.stop_price else "—"
+    tp1 = f"${fmt_price_compact(setup.tp1_price)}" if setup.tp1_price else "—"
+    tp2 = f"${fmt_price_compact(setup.tp2_price)}" if setup.tp2_price else "—"
+    rr = f"1:{setup.risk_reward:.1f}" if setup.risk_reward else f"1:{edge.get('rr', 0):.1f}"
+
+    icon = "🟢" if direction == "LONG" else "🔴"
+    reg = edge.get("regime") or "?"
+    if edge.get("regime_known"):
+        edge_line = (f"📊 PF(режим {reg}) {edge['regime_pf']:.1f} · WR {edge.get('regime_wr', edge['wr'])}%"
+                     f" · всего PF {edge['pf']:.2f}/RR {edge['rr']:.1f}/ожид +{edge['exp']:.2f}% (n={edge['n']})")
+    else:
+        edge_line = (f"📊 PF {edge['pf']:.2f} · WR {edge['wr']}% · RR {edge['rr']:.1f}"
+                     f" · ожид +{edge['exp']:.2f}%/сделку (n={edge['n']})")
+
+    cancel = "; ".join(setup.cancel_conditions[:2]) if setup.cancel_conditions else "стоп"
+    lines = [
+        f"🎯 ОТКРОЙ {icon} {direction} · {setup_ru} · {setup.pair}  {ts}",
+        f"ВХОД {entry} (limit) · СТОП {stop} · TP1 {tp1} / TP2 {tp2} · RR {rr}",
+        edge_line,
+        f"размер {setup.recommended_size_btc:.2f} BTC · окно {setup.window_minutes}мин · уверенность {setup.confidence_pct:.0f}%",
+    ]
+    if countertrend:
+        lines.append("⚠️ КОНТРТРЕНД: против BTC 4h-структуры — половинь размер или жди подтверждения")
+    lines.append(f"отмена: {cancel}")
+    return "\n".join(lines)
+
+
 def _format_grid_card(setup: Setup) -> str:
     ts = setup.detected_at.strftime("%H:%M UTC")
     basis_lines = "\n".join(f"• {b.label}" for b in setup.basis[:5])

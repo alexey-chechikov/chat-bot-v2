@@ -199,6 +199,9 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
     if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
         from services.telegram.channel_router import get_routine_chat_ids
         from services.telegram.severity_prefix import classify_severity, with_prefix
+        from services.setup_detector.edge_stats import (
+            EDGE_OVERALL, edge_for, btc_3state, is_countertrend)
+        from services.setup_detector.telegram_card import format_actionable_card
         primary_chat_ids = list(telegram_app.allowed_chat_ids)
         routine_chat_ids = get_routine_chat_ids() or primary_chat_ids
         bot = telegram_app.bot
@@ -219,6 +222,29 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
                 stype = setup.setup_type.value if hasattr(setup, "setup_type") else ""
                 conf = float(getattr(setup, "confidence_pct", 0))
                 if stype.startswith("grid_") or stype.startswith("def_"):
+                    return
+                # ── Валид-эдж: режим-условная actionable-карточка «ОТКРОЙ СЕЙЧАС».
+                # 2026-06-21: rally_fade/dump_reversal/pdl_bounce/div_bos (PF 1.6–4.5)
+                # раньше резались conf-70 гейтом. Теперь пушим, НО только если PF в
+                # текущем режиме > 1.2 (edge_for вернёт None иначе) — баланс качества.
+                if stype in EDGE_OVERALL:
+                    regime_label = getattr(setup, "regime_label", None)
+                    edge = edge_for(stype, regime_label)
+                    if edge is None:
+                        logger.info("setup_push.regime_gated type=%s regime=%s — молчим",
+                                    stype, regime_label)
+                        return
+                    try:
+                        ct = is_countertrend(stype, btc_3state())
+                        actionable = format_actionable_card(setup, edge, countertrend=ct)
+                    except Exception:
+                        logger.exception("setup_push.actionable_card_failed type=%s", stype)
+                        actionable = card_text
+                    for cid in primary_chat_ids:
+                        try:
+                            bot.send_message(cid, actionable)
+                        except Exception:
+                            logger.exception("setup_detector.telegram_send_failed cid=%s", cid)
                     return
                 if stype not in PRIORITY_TYPES and conf < SETUP_PUSH_MIN_CONFIDENCE:
                     # P-15 lifecycle events have no confidence — let them through
