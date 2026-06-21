@@ -139,6 +139,24 @@ class Setup:
         return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
 
 
+def round_price(value: float | None) -> float | None:
+    """Magnitude-aware округление цены. 2026-06-21: детекторы рубили round(x,1) —
+    ок для BTC ($64000), но XRP $1.1474 → 1.1 (8% тик!) → entry=stop=tp,
+    сигнал нечитаем (Win-аудит). Даём значимые знаки под масштаб цены."""
+    if value is None:
+        return None
+    a = abs(value)
+    if a >= 1000:
+        return round(value, 1)
+    if a >= 100:
+        return round(value, 2)
+    if a >= 1:
+        return round(value, 4)
+    if a >= 0.01:
+        return round(value, 5)
+    return round(value, 6)
+
+
 def make_setup(
     *,
     setup_type: SetupType,
@@ -174,10 +192,10 @@ def make_setup(
         current_price=current_price,
         regime_label=regime_label,
         session_label=session_label,
-        entry_price=entry_price,
-        stop_price=stop_price,
-        tp1_price=tp1_price,
-        tp2_price=tp2_price,
+        entry_price=round_price(entry_price),
+        stop_price=round_price(stop_price),
+        tp1_price=round_price(tp1_price),
+        tp2_price=round_price(tp2_price),
         risk_reward=risk_reward,
         grid_action=grid_action,
         grid_target_bots=grid_target_bots,

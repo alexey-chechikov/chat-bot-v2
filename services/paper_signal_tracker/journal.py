@@ -34,6 +34,13 @@ JOURNAL_PATH = Path("state/paper_signals.jsonl")
 MARKET_1M_CSV = Path("market_live/market_1m.csv")
 TAKER_FEE_PCT = 0.075  # BitMEX taker per side
 
+# 2026-06-21 (Win-аудит): источники, убитые по СОБСТВЕННОМУ правилу отчёта
+# «WR<40% ИЛИ PnL<−$50/нед → kill source entirely». level_break: WR 17–22% на
+# 900+ сделках, −$830/нед = доказанный анти-эдж, флудил 100+/день. Перестаём
+# писать paper (старые строки выпадут из rolling-окна). Детект LEVEL_BREAK для
+# /levels и ROUTINE-канала живёт — убран только бесполезный paper-трекинг.
+KILLED_SOURCES = frozenset({"level_break"})
+
 
 def read_btc_last_price() -> Optional[float]:
     """Best-effort: вернуть последний close из market_live/market_1m.csv.
@@ -72,6 +79,9 @@ def record_paper_signal(*, source: str, side: str, entry: float,
       resolves each signal against ITS OWN symbol's 1m bars (2026-05-29 — needed
       for alt TV signals & alt_decorr; legacy rows w/o symbol → BTCUSDT).
     """
+    if source in KILLED_SOURCES:
+        logger.info("paper_signal.killed_source_skip source=%s — анти-эдж, не пишем", source)
+        return ""
     if now is None:
         now = datetime.now(timezone.utc)
     side_u = side.upper()

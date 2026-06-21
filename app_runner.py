@@ -189,6 +189,11 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
     from services.setup_detector.loop import setup_detector_loop
 
     SETUP_PUSH_MIN_CONFIDENCE = 70.0
+    # 2026-06-21 (Win-аудит): контртренд-входы (лонг в MARKDOWN / шорт в MARKUP)
+    # требуют ПОВЫШЕННЫЙ режим-PF. Слабый контртренд (pdl_bounce PF 1.4 в даунтренде)
+    # = низкая ценность, истекает без цели. Сильный разворот (dump_reversal PF 3.3)
+    # переживает порог. По тренду — обычный гейт.
+    COUNTERTREND_MIN_PF = 2.0
     # Push priority types — push regardless of confidence (still backtest-validated).
     PRIORITY_TYPES = {
         "long_div_bos_confirmed",   # PF=4.49 hold_1h, walk-forward stable
@@ -235,8 +240,12 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
                         logger.info("setup_push.regime_gated type=%s regime=%s — молчим",
                                     stype, regime_label)
                         return
+                    ct = is_countertrend(stype, btc_3state())
+                    if ct and edge.get("regime_pf", 0) < COUNTERTREND_MIN_PF:
+                        logger.info("setup_push.countertrend_weak type=%s pf=%.1f<%.1f — молчим",
+                                    stype, edge.get("regime_pf", 0), COUNTERTREND_MIN_PF)
+                        return
                     try:
-                        ct = is_countertrend(stype, btc_3state())
                         actionable = format_actionable_card(setup, edge, countertrend=ct)
                     except Exception:
                         logger.exception("setup_push.actionable_card_failed type=%s", stype)

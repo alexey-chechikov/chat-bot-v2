@@ -92,9 +92,14 @@ def _peak_positions_week(
                 try:
                     pos = abs(float(row.get("position") or 0))
                     avg = float(row.get("average_price") or 0)
+                    bal = float(row.get("balance") or 0)
                 except ValueError:
                     continue
-                peak_usd = pos * avg
+                # 2026-06-21 (Win-аудит): inverse XBTUSD position уже в USD-контрактах
+                # (1 контракт=$1) → notional = |pos|, НЕ pos*avg (иначе ×price = гарблено
+                # «peak $527089k»). Linear: pos в BTC × avg = USD. Inverse: balance XBT < 5.
+                is_inverse = 0 < bal < 5
+                peak_usd = pos if is_inverse else pos * avg
                 if peak_usd > peaks[bid]:
                     peaks[bid] = peak_usd
     except OSError:
