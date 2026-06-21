@@ -1,16 +1,15 @@
-"""Валидные входные эджи + режим-условный гейт.
+"""Валидные входные эджи + режим-условный гейт (data-driven из матрицы).
 
-2026-06-21: оператор «вижу только жди/закрывай, реальных входов не вижу».
-Корень: app_runner пушил в личку только conf≥70 или 2 priority-типа, а
-rally_fade/dump_reversal/pdl_bounce (PF 1.6–3.1) молча резались.
+2026-06-21: оператор «один сетап в разном режиме = разный эдж → не убивать,
+найти нишу и пускать только в нужном режиме». Гейт грузит матрицу
+state/setup_regime_edge.json (генерит scripts/setup_regime_matrix.py из точных
+TP/SL исходов). Пушим вход ТОЛЬКО если (тип,режим) помечен ARMED.
 
-Числа из state/setup_precision_outcomes.jsonl (точные TP/SL, all-time):
-один и тот же сетап в разных режимах = разный эдж, поэтому гейт режим-условный.
-Пушим вход ТОЛЬКО если PF в ТЕКУЩЕМ режиме > MIN_REGIME_PF — это и есть
-«качество с балансом»: в плохом режиме сетап молчит сам.
+Не убиваем по общему PF: double_top ВСЕГО 0.73, но range_wide 1.62 = ARMED;
+pdh_rejection ВСЕГО 0.54, но trend_up 2.43 = ARMED. WATCH-ниши (PF>1.2 но n мал)
+НЕ пушим — дозреют и авто-промоутятся в ARMED на следующей регенерации.
 
-Словарь режимов (regime_label на сетапе) совпадает с regime в outcomes:
-range_wide / consolidation / trend_up / trend_down / range_tight.
+Hardcoded fallback на случай отсутствия артефакта.
 """
 from __future__ import annotations
 
@@ -19,35 +18,42 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 REGIME_V2_PATH = ROOT / "state" / "regime_v2_state.json"
+ARTIFACT_PATH = ROOT / "state" / "setup_regime_edge.json"
 
-MIN_REGIME_PF = 1.2   # ниже — эдж в этом режиме не пушим
+MIN_REGIME_PF = 1.2
 
-# Общая статистика (all-regime) — для отображения «как тип в среднем».
-# pf / wr% / rr / exp%(ожидание на сделку) / n
-EDGE_OVERALL: dict[str, dict] = {
-    "short_rally_fade":    {"pf": 3.13, "wr": 62, "rr": 1.96, "exp": 0.303, "n": 91},
-    "long_dump_reversal":  {"pf": 3.05, "wr": 54, "rr": 2.63, "exp": 0.280, "n": 82},
-    "long_div_bos_15m":    {"pf": 1.93, "wr": 50, "rr": 1.93, "exp": 0.294, "n": 26},
-    "long_div_bos_confirmed": {"pf": 4.49, "wr": 60, "rr": 2.5, "exp": 0.30, "n": 20},
-    "long_pdl_bounce":     {"pf": 1.63, "wr": 41, "rr": 2.34, "exp": 0.138, "n": 229},
+# ── Fallback (используется ТОЛЬКО если артефакт отсутствует/битый) ──
+_FB_OVERALL: dict[str, dict] = {
+    "short_rally_fade":   {"pf": 3.13, "wr": 62, "rr": 1.96, "exp": 0.303, "n": 91},
+    "long_dump_reversal": {"pf": 3.05, "wr": 54, "rr": 2.63, "exp": 0.280, "n": 82},
+    "long_div_bos_15m":   {"pf": 1.93, "wr": 50, "rr": 1.93, "exp": 0.294, "n": 26},
+    "long_pdl_bounce":    {"pf": 1.63, "wr": 41, "rr": 2.34, "exp": 0.138, "n": 229},
 }
-
-# Режим-условный PF/WR/n (cell). Отсутствие пары (тип,режим) = нет данных →
-# не угадываем, не пушим (кроме always-armed ниже).
-EDGE_BY_REGIME: dict[tuple[str, str], dict] = {
-    ("short_rally_fade", "range_wide"):    {"pf": 7.3,  "wr": 60, "n": 20},
-    ("short_rally_fade", "consolidation"): {"pf": 18.0, "wr": 95, "n": 20},  # PF=187, капнут для отображения
-    ("short_rally_fade", "trend_up"):      {"pf": 2.2,  "wr": 43, "n": 30},
-    ("short_rally_fade", "range_tight"):   {"pf": 0.6,  "wr": 57, "n": 21},  # ТЕРЯЕТ
-    ("long_dump_reversal", "trend_down"):  {"pf": 3.3,  "wr": 53, "n": 49},
-    ("long_dump_reversal", "range_wide"):  {"pf": 2.8,  "wr": 56, "n": 32},
-    ("long_pdl_bounce", "range_wide"):     {"pf": 2.0,  "wr": 43, "n": 89},
-    ("long_pdl_bounce", "consolidation"):  {"pf": 1.6,  "wr": 43, "n": 30},
-    ("long_pdl_bounce", "trend_down"):     {"pf": 1.4,  "wr": 39, "n": 109},
+_FB_REGIME: dict[str, dict[str, dict]] = {
+    "short_rally_fade":   {"range_wide": {"pf": 7.3, "wr": 60, "n": 20, "tier": "ARMED"},
+                           "trend_up":   {"pf": 2.2, "wr": 43, "n": 30, "tier": "ARMED"}},
+    "long_dump_reversal": {"trend_down": {"pf": 3.3, "wr": 53, "n": 49, "tier": "ARMED"},
+                           "range_wide": {"pf": 2.8, "wr": 56, "n": 32, "tier": "ARMED"}},
+    "long_pdl_bounce":    {"range_wide": {"pf": 2.0, "wr": 43, "n": 89, "tier": "ARMED"},
+                           "trend_down": {"pf": 1.4, "wr": 39, "n": 109, "tier": "ARMED"}},
 }
+_FB_ALWAYS = {"long_div_bos_15m", "long_div_bos_confirmed"}
 
-# Типы, которые armed в любом режиме (walk-forward стабильные, мало режим-зависимы).
-ALWAYS_ARMED = {"long_div_bos_15m", "long_div_bos_confirmed"}
+
+def _load() -> dict:
+    try:
+        d = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
+        if d.get("overall") and d.get("regime_edge") is not None:
+            return d
+    except Exception:
+        pass
+    return {"overall": _FB_OVERALL, "regime_edge": _FB_REGIME,
+            "always_armed": sorted(_FB_ALWAYS)}
+
+
+_ART = _load()
+EDGE_OVERALL: dict[str, dict] = _ART["overall"]          # все известные типы (для membership-чека)
+ALWAYS_ARMED: set[str] = set(_ART.get("always_armed", _FB_ALWAYS))
 
 
 def direction_of(setup_type: str) -> str:
@@ -55,26 +61,29 @@ def direction_of(setup_type: str) -> str:
 
 
 def edge_for(setup_type: str, regime_label: str | None) -> dict | None:
-    """Вернуть статистику эджа, если тип ВАЛИДЕН в текущем режиме, иначе None.
-
-    Решение:
-      - тип не в списке валидных → None
-      - always-armed тип → отдаём (overall)
-      - есть cell (тип,режим): armed только если cell PF > MIN_REGIME_PF
-      - нет cell, но режим неизвестен/нет данных → None (не угадываем)
-    """
+    """Статистика эджа если (тип,режим) ARMED, иначе None.
+    always-armed типы отдаются в любом режиме. WATCH/dead → None."""
     base = EDGE_OVERALL.get(setup_type)
     if base is None:
         return None
     if setup_type in ALWAYS_ARMED:
         return {**base, "regime_pf": base["pf"], "regime": regime_label, "regime_known": False}
-    cell = EDGE_BY_REGIME.get((setup_type, regime_label or ""))
-    if cell is None:
-        return None  # нет данных по этому режиму — молчим
-    if cell["pf"] <= MIN_REGIME_PF:
-        return None  # эдж в этом режиме отрицательный/слабый — молчим
-    return {**base, "regime_pf": cell["pf"], "regime_wr": cell["wr"],
-            "regime_n": cell["n"], "regime": regime_label, "regime_known": True}
+    cell = (_ART.get("regime_edge", {}).get(setup_type, {}) or {}).get(regime_label or "")
+    if not cell or cell.get("tier") != "ARMED" or cell.get("pf", 0) <= MIN_REGIME_PF:
+        return None
+    return {**base, "regime_pf": cell["pf"], "regime_wr": cell.get("wr", base["wr"]),
+            "regime_n": cell.get("n", base["n"]), "regime": regime_label, "regime_known": True}
+
+
+def armed_setups_for_regime(regime_label: str | None) -> list[tuple[str, dict]]:
+    """Все ARMED-сетапы для режима — для утреннего «План дня». Сорт по regime_pf."""
+    out: list[tuple[str, dict]] = []
+    for st in EDGE_OVERALL:
+        e = edge_for(st, regime_label)
+        if e is not None:
+            out.append((st, e))
+    out.sort(key=lambda x: -x[1].get("regime_pf", 0))
+    return out
 
 
 def btc_3state() -> str | None:

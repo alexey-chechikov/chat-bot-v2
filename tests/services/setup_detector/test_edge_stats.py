@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from services.setup_detector.edge_stats import (
-    edge_for, is_countertrend, direction_of, MIN_REGIME_PF)
+    edge_for, is_countertrend, direction_of, armed_setups_for_regime, MIN_REGIME_PF)
 from services.setup_detector.models import SetupType, SetupBasis, make_setup
 from services.setup_detector.telegram_card import format_actionable_card
 
 
 def test_rally_fade_armed_in_range_wide():
     e = edge_for("short_rally_fade", "range_wide")
-    assert e is not None and e["regime_pf"] == 7.3 and e["regime_known"]
+    assert e is not None and e["regime_pf"] > 5 and e["regime_known"]
 
 
 def test_rally_fade_silent_in_range_tight():
@@ -19,13 +19,13 @@ def test_rally_fade_silent_in_range_tight():
 
 
 def test_rally_fade_silent_in_unknown_regime():
-    # нет cell (trend_down) → не угадываем
+    # нет ARMED-cell (trend_down) → не угадываем
     assert edge_for("short_rally_fade", "trend_down") is None
 
 
 def test_pdl_bounce_armed_in_trend_down():
     e = edge_for("long_pdl_bounce", "trend_down")
-    assert e is not None and e["regime_pf"] == 1.4 > MIN_REGIME_PF
+    assert e is not None and e["regime_pf"] > MIN_REGIME_PF
 
 
 def test_div_bos_always_armed():
@@ -33,9 +33,32 @@ def test_div_bos_always_armed():
     assert e is not None and e["regime_known"] is False
 
 
-def test_non_validated_type_returns_none():
-    assert edge_for("short_double_top", "range_wide") is None
-    assert edge_for("long_double_bottom", "range_wide") is None
+def test_double_top_armed_in_niche_only():
+    # «не убивать»: ВСЕГО PF 0.73, но range_wide ARMED, trend_down dead
+    assert edge_for("short_double_top", "range_wide") is not None
+    assert edge_for("short_double_top", "trend_down") is None
+
+
+def test_pdh_rejection_armed_in_trend_up_only():
+    assert edge_for("short_pdh_rejection", "trend_up") is not None
+    assert edge_for("short_pdh_rejection", "range_wide") is None
+
+
+def test_truly_dead_type_returns_none_everywhere():
+    # multi_divergence / short_div_bos_15m — нет ни одной ARMED-ниши
+    assert edge_for("long_multi_divergence", "range_wide") is None
+    assert edge_for("short_div_bos_15m", "trend_down") is None
+
+
+def test_armed_setups_for_regime_lists_niches():
+    armed = armed_setups_for_regime("range_wide")
+    types = {t for t, _ in armed}
+    assert "short_rally_fade" in types and "long_pdl_bounce" in types
+    assert "short_double_top" in types          # ниша флэта
+    assert "short_div_bos_15m" not in types     # мёртвый везде
+    # отсортировано по убыванию regime_pf
+    pfs = [e["regime_pf"] for _, e in armed]
+    assert pfs == sorted(pfs, reverse=True)
 
 
 def test_countertrend_flags():

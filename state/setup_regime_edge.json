@@ -1,0 +1,219 @@
+{
+ "computed_from": "setup_precision_outcomes.jsonl",
+ "min_pf": 1.2,
+ "min_n": 15,
+ "always_armed": [
+  "long_div_bos_15m",
+  "long_div_bos_confirmed"
+ ],
+ "overall": {
+  "short_rally_fade": {
+   "n": 91,
+   "wr": 61.5,
+   "pf": 3.13,
+   "rr": 1.96,
+   "exp": 0.303
+  },
+  "short_pdh_rejection": {
+   "n": 67,
+   "wr": 25.4,
+   "pf": 0.54,
+   "rr": 1.58,
+   "exp": -0.117
+  },
+  "long_dump_reversal": {
+   "n": 82,
+   "wr": 53.7,
+   "pf": 3.05,
+   "rr": 2.63,
+   "exp": 0.28
+  },
+  "long_pdl_bounce": {
+   "n": 229,
+   "wr": 41.0,
+   "pf": 1.63,
+   "rr": 2.34,
+   "exp": 0.138
+  },
+  "long_multi_divergence": {
+   "n": 101,
+   "wr": 37.6,
+   "pf": 0.81,
+   "rr": 1.34,
+   "exp": -0.055
+  },
+  "long_double_bottom": {
+   "n": 108,
+   "wr": 36.1,
+   "pf": 0.54,
+   "rr": 0.95,
+   "exp": -0.161
+  },
+  "short_double_top": {
+   "n": 118,
+   "wr": 43.2,
+   "pf": 0.73,
+   "rr": 0.96,
+   "exp": -0.093
+  },
+  "short_div_bos_15m": {
+   "n": 34,
+   "wr": 26.5,
+   "pf": 0.53,
+   "rr": 1.46,
+   "exp": -0.31
+  },
+  "long_div_bos_15m": {
+   "n": 26,
+   "wr": 50.0,
+   "pf": 1.93,
+   "rr": 1.93,
+   "exp": 0.294
+  },
+  "long_mega_dump_bounce": {
+   "n": 35,
+   "wr": 34.3,
+   "pf": 1.01,
+   "rr": 1.94,
+   "exp": 0.004
+  }
+ },
+ "regime_edge": {
+  "short_rally_fade": {
+   "consolidation": {
+    "n": 20,
+    "wr": 95.0,
+    "pf": 187.36,
+    "rr": 9.86,
+    "exp": 0.407,
+    "tier": "ARMED"
+   },
+   "range_wide": {
+    "n": 20,
+    "wr": 60.0,
+    "pf": 7.26,
+    "rr": 4.84,
+    "exp": 0.797,
+    "tier": "ARMED"
+   },
+   "trend_up": {
+    "n": 30,
+    "wr": 43.3,
+    "pf": 2.17,
+    "rr": 2.83,
+    "exp": 0.193,
+    "tier": "ARMED"
+   }
+  },
+  "long_dump_reversal": {
+   "trend_down": {
+    "n": 49,
+    "wr": 53.1,
+    "pf": 3.3,
+    "rr": 2.92,
+    "exp": 0.333,
+    "tier": "ARMED"
+   },
+   "range_wide": {
+    "n": 32,
+    "wr": 56.2,
+    "pf": 2.78,
+    "rr": 2.16,
+    "exp": 0.214,
+    "tier": "ARMED"
+   }
+  },
+  "long_div_bos_15m": {
+   "trend_up": {
+    "n": 5,
+    "wr": 60.0,
+    "pf": 3.2,
+    "rr": 2.13,
+    "exp": 0.667,
+    "tier": "WATCH"
+   },
+   "range_wide": {
+    "n": 16,
+    "wr": 37.5,
+    "pf": 1.78,
+    "rr": 2.97,
+    "exp": 0.277,
+    "tier": "ARMED"
+   }
+  },
+  "long_pdl_bounce": {
+   "impulse_down": {
+    "n": 1,
+    "wr": 100.0,
+    "pf": 99.0,
+    "rr": 99.0,
+    "exp": 0.013,
+    "tier": "WATCH"
+   },
+   "range_wide": {
+    "n": 89,
+    "wr": 42.7,
+    "pf": 1.95,
+    "rr": 2.62,
+    "exp": 0.191,
+    "tier": "ARMED"
+   },
+   "consolidation": {
+    "n": 30,
+    "wr": 43.3,
+    "pf": 1.56,
+    "rr": 2.03,
+    "exp": 0.102,
+    "tier": "ARMED"
+   },
+   "trend_down": {
+    "n": 109,
+    "wr": 38.5,
+    "pf": 1.43,
+    "rr": 2.28,
+    "exp": 0.106,
+    "tier": "ARMED"
+   }
+  },
+  "long_mega_dump_bounce": {
+   "range_wide": {
+    "n": 13,
+    "wr": 46.2,
+    "pf": 1.67,
+    "rr": 1.94,
+    "exp": 0.244,
+    "tier": "WATCH"
+   }
+  },
+  "short_double_top": {
+   "range_wide": {
+    "n": 55,
+    "wr": 54.5,
+    "pf": 1.62,
+    "rr": 1.35,
+    "exp": 0.135,
+    "tier": "ARMED"
+   }
+  },
+  "short_pdh_rejection": {
+   "trend_up": {
+    "n": 16,
+    "wr": 62.5,
+    "pf": 2.43,
+    "rr": 1.46,
+    "exp": 0.228,
+    "tier": "ARMED"
+   }
+  },
+  "long_double_bottom": {
+   "trend_down": {
+    "n": 7,
+    "wr": 85.7,
+    "pf": 10.16,
+    "rr": 1.69,
+    "exp": 0.44,
+    "tier": "WATCH"
+   }
+  }
+ }
+}
