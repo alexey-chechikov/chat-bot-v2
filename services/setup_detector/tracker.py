@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from .models import SetupStatus
 from .outcomes import OutcomesWriter, check_setup_progress
 from .storage import SetupStorage
-from .telegram_card import format_outcome_card
+from .telegram_card import format_followup_card
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +73,19 @@ async def setup_tracker_loop(
                     store.update_status(setup.setup_id, result.new_status)
                     writer.write_outcome_event(setup, result)
 
-                    if result.new_status in _NOTIFY_STATUSES and send_fn is not None:
-                        card = format_outcome_card(
+                    if result.new_status in _NOTIFY_STATUSES and callable(send_fn):
+                        card = format_followup_card(
                             setup,
-                            new_status=result.new_status.value,
-                            current_price=price,
-                            hypothetical_pnl_usd=result.hypothetical_pnl_usd,
-                            time_to_outcome_min=result.time_to_outcome_min,
+                            result.new_status.value,
+                            result.hypothetical_pnl_usd,
+                            result.time_to_outcome_min,
                         )
                         try:
-                            callable(send_fn) and send_fn(card)  # type: ignore[operator]
+                            # передаём setup — получатель гейтит по реестру пушнутых
+                            try:
+                                send_fn(card, setup)  # type: ignore[call-arg]
+                            except TypeError:
+                                send_fn(card)  # type: ignore[operator]
                         except Exception:
                             logger.exception("setup_tracker.send_failed id=%s", setup.setup_id)
 

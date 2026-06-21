@@ -202,6 +202,7 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
         from services.setup_detector.edge_stats import (
             EDGE_OVERALL, edge_for, btc_3state, is_countertrend)
         from services.setup_detector.telegram_card import format_actionable_card
+        from services.setup_detector.actionable_registry import record_pushed
         primary_chat_ids = list(telegram_app.allowed_chat_ids)
         routine_chat_ids = get_routine_chat_ids() or primary_chat_ids
         bot = telegram_app.bot
@@ -245,11 +246,12 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
                             bot.send_message(cid, actionable)
                         except Exception:
                             logger.exception("setup_detector.telegram_send_failed cid=%s", cid)
+                    record_pushed(setup)   # Stage 3: для intraday TP/отмена follow-up
                     return
-                if stype not in PRIORITY_TYPES and conf < SETUP_PUSH_MIN_CONFIDENCE:
-                    # P-15 lifecycle events have no confidence — let them through
-                    if not stype.startswith("p15_"):
-                        return
+                # Не-валидный тип (нет в матрице эджей) + не-p15 → молчим. В личку идут
+                # ТОЛЬКО проверенные actionable-входы (выше) и p15-жизненный цикл (ниже).
+                if not stype.startswith("p15_"):
+                    return
                 # Decode p15 stage from basis
                 if stype.startswith("p15_"):
                     for b in getattr(setup, "basis", []) or []:
@@ -473,10 +475,30 @@ async def _run_paper_trader(stop_event: asyncio.Event, *, telegram_app=None) -> 
     await paper_trader_loop(stop_event=stop_event, send_fn=send_fn)
 
 
-async def _run_setup_tracker(stop_event: asyncio.Event) -> None:
+async def _run_setup_tracker(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Резолвит активные сетапы. Stage 3: пингует ✅TP/❌отмена в личку, но ТОЛЬКО
+    по входам, реально запушенным как 🎯 ОТКРОЙ (гейт по actionable_registry)."""
     from services.setup_detector.tracker import setup_tracker_loop
 
-    await setup_tracker_loop(stop_event=stop_event)
+    send_fn = None
+    if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
+        from services.setup_detector.actionable_registry import pop_if_pushed
+        chat_ids = list(telegram_app.allowed_chat_ids)
+        bot = telegram_app.bot
+
+        def _send(card: str, setup=None) -> None:
+            # пингуем follow-up ТОЛЬКО по пушнутым входам (иначе шум по всем сетапам)
+            if setup is None or pop_if_pushed(setup.setup_id) is None:
+                return
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, card)
+                except Exception:
+                    logger.exception("setup_tracker.telegram_send_failed cid=%s", cid)
+
+        send_fn = _send
+
+    await setup_tracker_loop(stop_event=stop_event, send_fn=send_fn)
 
 
 async def _run_exit_advisor(stop_event: asyncio.Event, *, telegram_app=None) -> None:
@@ -1288,14 +1310,17 @@ async def main(
     dashboard_http_task = asyncio.create_task(_run_dashboard_http(stop_event), name="dashboard_http")
     # TG silenced 2026-05-18 (Phase 1 audit): setup_detector сейчас paper-only,
     # карточки в TG = шум. Журнал в state/setups.jsonl остаётся.
-    setup_detector_task = asyncio.create_task(_run_setup_detector(stop_event, telegram_app=None), name="setup_detector")
+    # 2026-06-21: re-enabled (было telegram_app=None «карточки = шум»). Теперь
+    # _send пускает в личку ТОЛЬКО режим-условные actionable-входы (edge_for) +
+    # p15 — старый шум conf-70 по непроверенным типам подавлен. p15 не фаерит (0/7д).
+    setup_detector_task = asyncio.create_task(_run_setup_detector(stop_event, telegram_app=app), name="setup_detector")
     paper_trader_task = asyncio.create_task(_run_paper_trader(stop_event, telegram_app=app), name="paper_trader")
     stale_monitor_task = asyncio.create_task(_run_stale_monitor(stop_event, telegram_app=app), name="stale_monitor")
     # TG silenced 2026-05-18 (Phase 1 audit): "regime_instability stability=0"
     # без action = шум для трейдера. Decisions всё ещё пишутся в decisions.jsonl.
     decision_layer_emitter_task = asyncio.create_task(_run_decision_layer_emitter(stop_event, telegram_app=None), name="decision_layer_emitter")
     daily_reports_task = asyncio.create_task(_run_daily_weekly_reports(stop_event, telegram_app=app), name="daily_reports")
-    setup_tracker_task = asyncio.create_task(_run_setup_tracker(stop_event), name="setup_tracker")
+    setup_tracker_task = asyncio.create_task(_run_setup_tracker(stop_event, telegram_app=app), name="setup_tracker")
     exit_advisor_task = asyncio.create_task(_run_exit_advisor(stop_event, telegram_app=app), name="exit_advisor")
     market_intelligence_task = asyncio.create_task(_run_market_intelligence(stop_event), name="market_intelligence")
     market_forward_task = asyncio.create_task(_run_market_forward_analysis(stop_event), name="market_forward_analysis")

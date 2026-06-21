@@ -190,6 +190,29 @@ def _format_trade_card(setup: Setup, *, direction: str, icon: str) -> str:
     )
 
 
+def format_followup_card(setup: Setup, status: str,
+                         pnl_usd: float | None, mins: int | None) -> str:
+    """Intraday-пинг по запушенному 🎯 ОТКРОЙ: ✅TP / ❌отмена + что делать.
+    2026-06-21 Stage 3: оператор хотел видеть как развивается сделка."""
+    from services.common.humanize import humanize_setup_type, fmt_price_compact
+    name = humanize_setup_type(setup.setup_type.value)
+    direction = "SHORT" if setup.setup_type.value.startswith("short_") else "LONG"
+    icon, head, tail = {
+        "tp1_hit":  ("✅", "TP1 ВЗЯТ",      "→ фиксируй часть / двигай стоп в безубыток"),
+        "tp2_hit":  ("🎯", "TP2 ВЗЯТ",      "→ закрывай"),
+        "stop_hit": ("❌", "ОТМЕНА (стоп)", "→ вне сделки"),
+        "expired":  ("⏱", "ИСТЁК",         "→ цель не достигнута, вне сделки"),
+    }.get(status, ("•", status.upper(), ""))
+    entry = f"вход ${fmt_price_compact(setup.entry_price)}" if setup.entry_price else ""
+    bits = [b for b in (entry,
+                        f"{pnl_usd:+.0f}$" if pnl_usd is not None else "",
+                        f"{mins}мин" if mins is not None else "") if b]
+    line1 = f"{icon} {head} · {name} {direction} {setup.pair}"
+    if bits:
+        line1 += " · " + " · ".join(bits)
+    return line1 + (f"\n{tail}" if tail else "")
+
+
 def format_actionable_card(setup: Setup, edge: dict, *, countertrend: bool = False) -> str:
     """«ОТКРОЙ СЕЙЧАС» — императивная карточка валид-эджа со статистикой inline.
 
