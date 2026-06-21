@@ -278,6 +278,16 @@ def build_card(data: dict) -> str:
     else:
         L.append("━ РЫНОК: ✖ нет данных")
 
+    # ── план дня: арсенал под текущий режим
+    try:
+        from services.day_plan.plan import build_day_plan_lines
+        L.extend(build_day_plan_lines())
+    except Exception as e:
+        L.append("━ 📋 ПЛАН ДНЯ: ✖ нет данных")
+        errors_dbg = data.get("errors")
+        if isinstance(errors_dbg, list):
+            errors_dbg.append(f"day_plan: {e}")
+
     # ── core-боты
     L.append("━ CORE-БОТЫ")
     managed_ids = set()
