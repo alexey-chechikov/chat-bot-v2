@@ -170,6 +170,14 @@ def _liq_dist_pct(side: str, px: float, liq: float | None) -> float | None:
     return (px - liq) / px * 100.0
 
 
+def _near_liq(liq_d: float | None) -> bool:
+    """Реальное предупреждение о ликвидации = положительная малая дистанция.
+    2026-06-20: XRP ложно орал «ликвидация −100% близко» — liquidation_price≈0
+    (флэт-грид/не та сторона) даёт отрицательную дистанцию, а guard liq_d<15
+    срабатывал на ЛЮБОЕ отрицательное. Отрицательная/абсурдная = битые данные."""
+    return liq_d is not None and 0.0 <= liq_d < LIQ_WARN_PCT
+
+
 def _day_delta(slot: dict) -> tuple[float | None, float | None]:
     """(реализованный Δ за сутки мск = Δprofit, net за сутки = ΔcurrentProfit)."""
     latest, day0 = slot.get("latest"), slot.get("day0")
@@ -307,10 +315,10 @@ def build_card(data: dict) -> str:
         if pos:
             bits.append(f"поз {pos:+g}")
             liq_d = _liq_dist_pct(side, (r or {}).get("px") or 0, latest.get("liquidation_price"))
-            if liq_d is not None:
-                warn = " ⚠️БЛИЗКО" if liq_d < LIQ_WARN_PCT else ""
+            if liq_d is not None and liq_d >= 0:  # отрицательная дистанция = битые данные, не показываем
+                warn = " ⚠️БЛИЗКО" if _near_liq(liq_d) else ""
                 bits.append(f"ликв {liq_d:+.0f}%{warn}")
-                if liq_d < LIQ_WARN_PCT:
+                if _near_liq(liq_d):
                     alerts.append(f"{alias}: ликвидация ближе {LIQ_WARN_PCT:.0f}% — разгрузи/добавь маржи")
         p = params.get(bid)
         if p and r:
@@ -360,12 +368,15 @@ def build_card(data: dict) -> str:
                     bot_tsl = json.loads(p.get("raw_params_json") or "{}").get("tsl")
                 except (json.JSONDecodeError, TypeError):
                     pass
-            liq_d = _liq_dist_pct("long" if (latest.get("position") or 0) > 0 else "short",
+            # Считаем дистанцию до ликвидации ТОЛЬКО при реальной позиции —
+            # флэт-грид (поз≈0) даёт side=short + liq≈0 → ложный «−100% близко».
+            pos_val = latest.get("position") or 0
+            liq_d = _liq_dist_pct("long" if pos_val > 0 else "short",
                                   (r or {}).get("px") or latest.get("average_price") or 0,
-                                  latest.get("liquidation_price"))
+                                  latest.get("liquidation_price")) if pos_val else None
             sl_ref = abs(float(bot_tsl)) if bot_tsl else None
             near_real_sl = sl_ref is not None and bag is not None and bag <= -SL_WARN_FRAC * sl_ref
-            near_liq = liq_d is not None and liq_d < LIQ_WARN_PCT
+            near_liq = _near_liq(liq_d)
             if near_real_sl:
                 flags += " ⚠️у SL"
                 alerts.append(f"{name}: мешок {_usd(bag)} — {abs(bag)/sl_ref*100:.0f}% от SL −${sl_ref:.0f}, проверь")
