@@ -69,6 +69,19 @@ ETH_CORR_THRESHOLD = 0.70
 ETH_RSI_HIGH = 70.0
 ETH_RSI_LOW = 30.0
 
+# ── Bottom-exhaustion (2026-06-25, ревью Вина): на ЭКСТРЕМЕ (RSI<20, MFI<15)
+# моментум РАЗВОРАЧИВАЕТСЯ, не продолжается. GC «continuation»-эдж валиден на
+# RSI~35, но на капитуляции (RSI 11-17) бот орал «86% вниз» в самом дне (59 438,
+# через 30мин отскок). Складываем ингредиенты дна (экстрим + OI-делеверидж +
+# funding-squeeze + кластер свипов) и ИНВЕРТИРУЕМ заголовок в «выдыхается».
+EXTREME_RSI = 20.0
+EXTREME_MFI = 15.0
+OI_DELEVERAGE_PCT = 1.0          # OI 1ч <= -1% = делеверидж (лонги выходят)
+FUNDING_SQUEEZE_8H = 0.00005     # funding <= -0.005%/8h = шорты платят = squeeze
+LIQ_CSV_PATH = ROOT / "market_live" / "liquidations.csv"
+SWEEP_CLUSTER_BTC = 15.0         # ∑ long-ликвидаций за окно = капитуляционный кластер
+SWEEP_WINDOW_MIN = 30
+
 
 def _rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
@@ -254,6 +267,84 @@ def evaluate_exhaustion(btc: pd.DataFrame, eth: pd.DataFrame | None,
     }
 
 
+def _recent_long_liq_btc(now: datetime) -> float:
+    """∑ BTC long-ликвидаций (форс-продажи = капитуляция) за SWEEP_WINDOW_MIN."""
+    if not LIQ_CSV_PATH.exists():
+        return 0.0
+    cutoff = now - timedelta(minutes=SWEEP_WINDOW_MIN)
+    total = 0.0
+    try:
+        size = LIQ_CSV_PATH.stat().st_size
+        with LIQ_CSV_PATH.open("rb") as fh:
+            if size > 400_000:
+                fh.seek(size - 400_000); fh.readline()
+            lines = fh.read().decode("utf-8", errors="replace").splitlines()
+        for ln in lines:
+            p = ln.split(",")
+            if len(p) != 5 or p[0] == "ts_utc":
+                continue
+            try:
+                ts = datetime.fromisoformat(p[0])
+                side = p[2]; qty = float(p[3])
+            except (ValueError, IndexError):
+                continue
+            if ts >= cutoff and side == "long" and qty > 0:
+                total += qty
+    except OSError:
+        pass
+    return total
+
+
+def evaluate_bottom_exhaustion(details: dict, now: datetime) -> dict:
+    """ИНВЕРСИЯ чтения на экстремуме: складываем ингредиенты капитуляционного дна.
+    Гейт — экстрим (RSI<20 И MFI<15, оба обязательны, редкое событие). Затем
+    подтверждения: OI-делеверидж, funding-squeeze, кластер long-свипов. Fired при
+    экстриме + ≥2 подтверждениях = реальная капитуляция, не просто перепроданность."""
+    rsi = details.get("rsi_btc_now")
+    mfi = details.get("mfi_btc_now")
+    if rsi is None or mfi is None:
+        return {"fired": False}
+    if not (rsi <= EXTREME_RSI and mfi <= EXTREME_MFI):
+        return {"fired": False, "extreme": False}
+    oi = float(details.get("oi_change_1h_pct") or 0)
+    funding = float(details.get("funding_rate_8h") or 0)
+    long_liq = _recent_long_liq_btc(now)
+    deleverage = oi <= -OI_DELEVERAGE_PCT
+    squeeze = funding <= -FUNDING_SQUEEZE_8H
+    sweep = long_liq >= SWEEP_CLUSTER_BTC
+    confirms = sum([deleverage, squeeze, sweep])
+    return {"fired": confirms >= 2, "extreme": True, "confirms": confirms,
+            "deleverage": deleverage, "squeeze": squeeze, "sweep": sweep,
+            "long_liq_btc": round(long_liq, 1), "oi": oi, "funding": funding,
+            "rsi": rsi, "mfi": mfi, "btc_close": details.get("btc_close")}
+
+
+def _format_exhaustion_card(bx: dict) -> str:
+    bits = []
+    if bx.get("deleverage"):
+        bits.append(f"  • OI делеверидж {bx['oi']:+.2f}% (лонги выходят)")
+    if bx.get("squeeze"):
+        bits.append(f"  • funding засквизен {bx['funding']*100:+.4f}% (шорты платят)")
+    if bx.get("sweep"):
+        bits.append(f"  • кластер long-свипов {bx['long_liq_btc']:.0f} BTC (форс-продажи = капитуляция)")
+    px = bx.get("btc_close")
+    head = f"BTC: ${px:,.0f}  " if px else ""
+    return (
+        f"📈 ПАДЕНИЕ ВЫДЫХАЕТСЯ — сетап на ОТСКОК ({bx['confirms']}/3 подтверждений)\n"
+        f"\n"
+        f"{head}RSI={bx['rsi']}  MFI={bx['mfi']}  (ЭКСТРИМ перепроданности)\n"
+        f"Сложились ингредиенты дна:\n"
+        + "\n".join(bits) + "\n"
+        f"\n"
+        f"⚠️ НЕ прогноз точного дна (заранее не определить — стена), а ИНВЕРСИЯ\n"
+        f"чтения: на экстремуме моментум РАЗВОРАЧИВАЕТСЯ, не продолжается.\n"
+        f"→ Сними/не добавляй шорт. Если играешь отскок — ядро сетапа funding-\n"
+        f"squeeze LONG (ист. 70%), вход по ПОДТВЕРЖДЕНИЮ (слом 15m вверх /\n"
+        f"dump_reversal стрельнёт), НЕ на ноже.\n"
+        f"Это рекомендация — бот не торгует, решение оператора."
+    )
+
+
 def _format_card(direction: str, score: int, details: dict) -> str:
     if direction == "up":
         emoji = "🔝"
@@ -360,6 +451,28 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
             dedup = _load_dedup()
             fired = False
 
+            # ── Bottom-exhaustion (ревью Вина): на ЭКСТРЕМЕ инвертируем «86% вниз»
+            # в «выдыхается». Гасит противоречивую down-карточку в тот же тик, чтобы
+            # трейдер на дне не получал два встречных сигнала.
+            bx = evaluate_bottom_exhaustion(details, now)
+            suppress_down = False
+            if bx.get("fired"):
+                suppress_down = True
+                if _check_cooldown("bottom_ex", dedup, now):
+                    card = _format_exhaustion_card(bx)
+                    logger.info("grid_coordinator.BOTTOM_EXHAUSTION confirms=%d rsi=%s mfi=%s",
+                                bx["confirms"], bx["rsi"], bx["mfi"])
+                    if send_fn:
+                        try:
+                            send_fn(card)
+                        except Exception:
+                            logger.exception("grid_coordinator.exhaustion_send_failed")
+                    dedup["bottom_ex"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    _journal({"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                              "direction": "bottom_exhaustion", "confirms": bx["confirms"],
+                              "details": details})
+                    _save_dedup(dedup)
+
             # Score-escalation: повторный alert на том же уровне игнорируется
             # на cooldown'е; если score вырос (3→4→5) — alert даже на cooldown.
             # 2026-05-29: reset-on-sub-threshold убран (см. continue ниже) — он
@@ -392,6 +505,10 @@ async def grid_coordinator_loop(stop_event: asyncio.Event, *, send_fn=None,
                     # `_check_cooldown` already permits a fresh fire.
                     continue
                 dedup[f"{direction}_exhausted_for"] = 0  # импульс снова активен → сброс
+                # На экстреме bottom-exhaustion заменяет «86% вниз» — не шлём оба.
+                if direction == "down" and suppress_down:
+                    logger.info("grid_coordinator.down_card_suppressed_by_exhaustion score=%d", score)
+                    continue
                 on_cd = not _check_cooldown(direction, dedup, now)
                 # 2026-06-15 (ревью Вина): up-импульс СЛАБЫЙ — НЕ эскалируем на росте
                 # score в перекупленность (давал 5× спам в вершину 3→4→5). Эскалация
