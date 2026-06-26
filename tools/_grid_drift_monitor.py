@@ -73,10 +73,12 @@ def assess(df, tsl=-175.0):
     deepening = bag_accel < -5.0
     total = float(cur["current_profit"])                            # realized + мешок (знак = рейнджер vs дрифтер)
     pinned_neg = _pinned_neg_min(d, cur)
-    # Path A — ВЗРЫВ мешка. РЕЙНДЖЕР-ГАРД: если бот нетто В ПЛЮСЕ (total>0), поднять планку до почти-SL —
-    # иначе ложно режем винера (MegaHard 16.06: bag 79% SL + total +141 → держал → +247).
+    # Path A — ВЗРЫВ мешка. РЕЙНДЖЕР-ГАРД: если бот НЕ глубоко в минусе (total > пола −90), поднять планку
+    # до почти-SL — иначе ложно режем винера. MegaHard 16.06: bag 79% + total +141 → держал → +247.
+    # SOL_c 25.06: bag 85-97% «дышит», total −35 при +212 реализованных → Stage-3 палил 12× ложно,
+    # бот восстановился до +100. Гард по total>0 это пропускал; по total>−90 — ловит (рейнджер с буфером).
     explosion = bag_pct >= 0.75 and pos_pin >= 0.80 and deepening
-    if total > 0:
+    if total > TOTAL_DRIFT_FLOOR:
         explosion = bag_pct >= 0.95 and pos_pin >= 0.80 and deepening
     # Path B — СТОЙКИЙ ДРИФТЕР: total ниже ПОЛА (значимо в минусе, не просто <0) + пригвождён + держится долго.
     # Урок: тренд заранее не отличить (_strong_move_classifier) → это РИСК-стоп по магнитуде, не тренд-прогноз.
@@ -97,22 +99,27 @@ def assess(df, tsl=-175.0):
                                bag_accel=round(bag_accel, 1), pinned_neg_min=round(pinned_neg))
 
 class StageAlerter:
-    """Дедуп Stage-алертов (фикс спама 16.06: MegaHard получил 6+ одинаковых Stage-2 за 14ч).
-    Эмитим ТОЛЬКО на смену стадии; Stage-3 (actionable) напоминаем раз в REMIND_MIN. Состояние per bot."""
+    """Дедуп Stage-алертов. Фикс спама 16.06 (MegaHard 6+ Stage-2) И 25.06 (SOL_c 12 Stage-3 за 12ч из-за
+    осцилляции 2↔3 — мешок «дышал» через порог). Кулдаун per (bot, stage): каждую стадию эмитим максимум
+    раз в REMIND_MIN, даже если между ними был дроп на низшую стадию. Stage-3 напоминаем раз в час, не 12×."""
     REMIND_MIN = 60
     def __init__(self):
-        self.last = {}                      # bot_id -> (stage, ts)
+        self.last_stage = {}                # bot_id -> последняя стадия
+        self.last_emit = {}                 # (bot_id, stage) -> ts последнего эмита этой стадии
     def should_emit(self, bot_id, stage, ts):
         ts = pd.Timestamp(ts)
-        prev = self.last.get(bot_id)
-        if prev is None:
-            self.last[bot_id] = (stage, ts); return stage > 0     # первый раз — молчим если healthy
-        ps, pts = prev
-        if stage != ps:                     # смена стадии (вверх или вниз) — эмитим
-            self.last[bot_id] = (stage, ts); return True
-        if stage >= 3 and (ts - pts).total_seconds() / 60 >= self.REMIND_MIN:
-            self.last[bot_id] = (stage, ts); return True          # та же Stage-3 — напоминаем раз в час
-        return False                        # та же Stage-1/2 — глушим (это и был спам)
+        prev = self.last_stage.get(bot_id, 0)
+        self.last_stage[bot_id] = stage
+        if stage == 0:
+            return False
+        le = self.last_emit.get((bot_id, stage))
+        cooled = le is None or (ts - le).total_seconds() / 60 >= self.REMIND_MIN
+        escalated = stage > prev
+        # эмитим: эскалация на свежую стадию (не палёную <REMIND назад), ИЛИ напоминание о незакрытой стадии
+        if (escalated or stage >= 2) and cooled:
+            self.last_emit[(bot_id, stage)] = ts
+            return True
+        return False
 
 def replay(df, tsl=-175.0, name=""):
     """Прогон монитора по истории бота: печатает переходы стадий + точку Stage-3 (где бы закрыли)."""
@@ -152,6 +159,7 @@ if __name__ == "__main__":
     print("ОЖИДАНИЕ: MegaHard (total+, рейнджер)=держать; XRP −50 (восстановился!)=держать; WLD-тип −110=закрыть")
     _synth("MegaHard", bag_pct=0.79, total=+141, pinned_min=30)     # рейнджер total+ — ДЕРЖАТЬ
     _synth("XRP-recov", bag_pct=0.62, total=-50, pinned_min=240)    # восстановился (−50→−7) — НЕ резать (был мой ложняк)
+    _synth("SOLc-25.06", bag_pct=0.88, total=-35, pinned_min=120)   # bag глубокий, total−35 (+212 реализ.) — рейнджер, НЕ резать (палил 12× ложно)
     _synth("WLD-bleed", bag_pct=0.78, total=-110, pinned_min=180)   # настоящий бледер ниже пола −90 — ЗАКРЫТЬ
     print("\n=== Регресс на данных 10.06 (WLD дрифтер→Stage3, SOL/XRP рейнджеры целы) ===")
     D = "docs/CONTEXT/data/alt_run_2026-06-10/"
