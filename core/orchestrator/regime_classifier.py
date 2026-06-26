@@ -24,6 +24,18 @@ PRIMARY_CASCADE_UP = "CASCADE_UP"
 MIN_DWELL_MIN_LOW_VOL_FLIP = 90
 LOW_VOL_FLIP_PAIR = frozenset({PRIMARY_RANGE, PRIMARY_COMPRESSION})
 
+# Anti-flap: min-dwell на границе low-vol(RANGE/COMPRESSION)↔TREND (Win 25.06).
+# С 2:05-8:04 25.06 оркестратор флипнул БОКОВИК↔ТРЕНД-ВНИЗ ~7×/6ч, дёргая
+# BTC-LONG. Причина — критерий тренда (ADX~25) болтается у порога. Win предложил
+# ATR-дедбенд, но эмпирика опровергла: синтетический тренд имеет ATR 0.77% <
+# range 0.85% → тренд определяется ADX/EMA, ОРТОГОНАЛЬНО ATR, low-vol тренд
+# реален (грайнд 62k→58.5k был low-vol). Поэтому НЕ ATR-гейт (он бы глушил
+# настоящие медленные тренды), а ВРЕМЕННОЙ гистерезис: только-что сменившийся
+# режим не флипает обратно < порога. Каскады override (urgent, fast crash).
+MIN_DWELL_MIN_TREND_FLIP = 90
+_LOW_VOL_REGIMES = (PRIMARY_RANGE, PRIMARY_COMPRESSION)
+_TREND_REGIMES = (PRIMARY_TREND_UP, PRIMARY_TREND_DOWN)
+
 MODIFIER_BLACKOUT = "NEWS_BLACKOUT"
 MODIFIER_HUGE_DOWN_GAP = "HUGE_DOWN_GAP"
 MODIFIER_TREND_UP_SUSPECTED = "TREND_UP_SUSPECTED"
@@ -412,6 +424,12 @@ def detect_range(metrics: RegimeMetrics) -> bool:
     )
 
 
+def is_lowvol_trend_flip(a: str, b: str) -> bool:
+    """True если переход a→b пересекает границу low-vol(RANGE/COMP)↔trend."""
+    return ((a in _LOW_VOL_REGIMES and b in _TREND_REGIMES)
+            or (a in _TREND_REGIMES and b in _LOW_VOL_REGIMES))
+
+
 def apply_hysteresis(
     current: str,
     candidate: str,
@@ -568,28 +586,34 @@ def classify(
         is_cascade,
     )
 
-    # Min-dwell gate for RANGE↔COMPRESSION flips only. Trend/cascade transitions
-    # bypass this check — when the market is genuinely trending, we want fast
-    # response. Low-vol pair flap is the observed pathology.
-    if (new_current != state.current_primary
-            and not is_cascade
-            and {new_current, state.current_primary} <= LOW_VOL_FLIP_PAIR
-            and state.primary_since is not None):
-        try:
-            dwell_min = (ts - _ensure_utc(state.primary_since)).total_seconds() / 60.0
-        except (TypeError, ValueError):
-            dwell_min = MIN_DWELL_MIN_LOW_VOL_FLIP  # treat as eligible if state corrupt
-        # Only suppress when dwell is positive but below threshold. Negative
-        # dwell (stale state / clock skew / test fixture) is treated as "no
-        # recent transition observed" → allow flip.
-        if 0 <= dwell_min < MIN_DWELL_MIN_LOW_VOL_FLIP:
-            logger.info(
-                "regime.min_dwell_suppress symbol=%s from=%s to=%s dwell_min=%.1f threshold=%d",
-                symbol, state.current_primary, new_current, dwell_min, MIN_DWELL_MIN_LOW_VOL_FLIP,
-            )
-            new_current = state.current_primary
-            new_pending = None
-            new_counter = 0
+    # Min-dwell gate. Two damped boundaries (cascades always bypass — urgent):
+    #  • RANGE↔COMPRESSION (low-vol pair flap, 2026-05-19): MIN_DWELL_MIN_LOW_VOL_FLIP
+    #  • low-vol↔TREND (Win 25.06 whipsaw БОКОВИК↔ТРЕНД-ВНИЗ): MIN_DWELL_MIN_TREND_FLIP
+    # Только-что сменившийся режим не флипает обратно раньше порога; настоящий
+    # устойчивый тренд переживает порог и коммитится (грайнд = медленно, задержка ок).
+    if new_current != state.current_primary and not is_cascade and state.primary_since is not None:
+        flip_pair = {new_current, state.current_primary}
+        if flip_pair <= LOW_VOL_FLIP_PAIR:
+            dwell_threshold = MIN_DWELL_MIN_LOW_VOL_FLIP
+        elif is_lowvol_trend_flip(state.current_primary, new_current):
+            dwell_threshold = MIN_DWELL_MIN_TREND_FLIP
+        else:
+            dwell_threshold = 0
+        if dwell_threshold > 0:
+            try:
+                dwell_min = (ts - _ensure_utc(state.primary_since)).total_seconds() / 60.0
+            except (TypeError, ValueError):
+                dwell_min = dwell_threshold  # treat as eligible if state corrupt
+            # Negative dwell (stale state / clock skew / fixture) = no recent
+            # transition observed → allow flip.
+            if 0 <= dwell_min < dwell_threshold:
+                logger.info(
+                    "regime.min_dwell_suppress symbol=%s from=%s to=%s dwell_min=%.1f threshold=%d",
+                    symbol, state.current_primary, new_current, dwell_min, dwell_threshold,
+                )
+                new_current = state.current_primary
+                new_pending = None
+                new_counter = 0
 
     weekend_gap = detect_weekend_gap(candles_1h, ts)
     requested_modifiers: Dict[str, Dict[str, Any]] = {}

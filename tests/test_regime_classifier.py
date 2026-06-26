@@ -143,6 +143,35 @@ def test_detect_trend_down(tmp_path):
     assert snapshot.primary_regime == "TREND_DOWN"
 
 
+def test_trend_flip_suppressed_when_lowvol_young(tmp_path):
+    # Win 25.06 whipsaw: молодой боковик (30мин) не должен флипать в тренд —
+    # min-dwell гасит, BTC-LONG не дёргается.
+    store = _store(tmp_path)
+    ts = datetime(2026, 4, 14, 12, tzinfo=timezone.utc)
+    st = store.get_state("BTCUSDT")
+    st.current_primary = "RANGE"
+    st.pending_primary = "TREND_DOWN"
+    st.hysteresis_counter = 1
+    st.primary_since = ts - timedelta(minutes=30)
+    store.save_state("BTCUSDT", st)
+    snapshot = _classify(store, ts, gen_trend_down_candles())
+    assert snapshot.primary_regime == "RANGE"  # подавлено dwell'ом
+
+
+def test_trend_flip_allowed_when_lowvol_old(tmp_path):
+    # устойчивый боковик (100мин) → настоящий тренд коммитится (dwell пройден)
+    store = _store(tmp_path)
+    ts = datetime(2026, 4, 14, 12, tzinfo=timezone.utc)
+    st = store.get_state("BTCUSDT")
+    st.current_primary = "RANGE"
+    st.pending_primary = "TREND_DOWN"
+    st.hysteresis_counter = 1
+    st.primary_since = ts - timedelta(minutes=100)
+    store.save_state("BTCUSDT", st)
+    snapshot = _classify(store, ts, gen_trend_down_candles())
+    assert snapshot.primary_regime == "TREND_DOWN"  # dwell пройден
+
+
 def test_detect_cascade_down_immediate(tmp_path):
     store = _store(tmp_path)
     ts = datetime(2026, 4, 14, 12, tzinfo=timezone.utc)
