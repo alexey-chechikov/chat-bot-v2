@@ -49,7 +49,11 @@ DEFAULT_CONFIG = {
     "bots": {},
     "max_orders_per_cycle": 10,
     "max_orders_per_day_per_bot": 40,
-    "min_gap_between_harvests_sec": 600,
+    # оператор 2026-07-15: чек и закрытие раз в минуту (= каждый тик)
+    "min_gap_between_harvests_sec": 60,
+    # но после цикла, где закрытия НЕ удались, — длинный откат, чтобы не
+    # долбить pause/resume и API вхолостую (урок WAF 2026-07-08)
+    "fail_backoff_sec": 600,
 }
 
 
@@ -290,8 +294,7 @@ def tick(send_fn=None, api=None) -> int:
         if day_used >= day_cap:
             continue
         last = _last_harvest_mono.get(bot_id)
-        gap = float(cfg.get("min_gap_between_harvests_sec", 600))
-        if last is not None and (time.monotonic() - last) < gap:
+        if last is not None and (time.monotonic() - last) < _next_gap.get(bot_id, 0):
             continue
 
         try:
@@ -306,15 +309,19 @@ def tick(send_fn=None, api=None) -> int:
             continue
 
         budget = min(int(cfg.get("max_orders_per_cycle", 10)), day_cap - day_used)
-        harvested += harvest_orders(api, bot_id, alias, cands[:budget],
-                                    send_fn=send_fn)
-        # gap после ЛЮБОГО цикла (в т.ч. неудачного) — не дёргаем pause/resume
-        # и API каждый тик при повторяющихся сбоях (урок WAF 2026-07-08)
+        n = harvest_orders(api, bot_id, alias, cands[:budget], send_fn=send_fn)
+        harvested += n
+        # успешный цикл → обычный gap (оператор: раз в минуту достаточно);
+        # цикл без единого закрытия (пауза была, closes упали) → длинный
+        # откат, чтобы не дёргать pause/resume каждый тик (урок WAF 07-08)
         _last_harvest_mono[bot_id] = time.monotonic()
+        _next_gap[bot_id] = (float(cfg.get("min_gap_between_harvests_sec", 60))
+                             if n > 0 else float(cfg.get("fail_backoff_sec", 600)))
     return harvested
 
 
 _last_harvest_mono: dict[str, float] = {}
+_next_gap: dict[str, float] = {}  # сколько ждать после последнего цикла бота
 _api_cache: list = []  # [BotsAPI] — один логин на процесс; клиент сам ре-логинится на 401
 
 

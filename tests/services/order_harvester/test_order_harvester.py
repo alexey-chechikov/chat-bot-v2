@@ -21,6 +21,7 @@ def _isolate_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(oh, "STATUS_POLL_SEC", 0.01)
     monkeypatch.setattr(oh, "STATUS_WAIT_MAX_SEC", 0.05)
     oh._last_harvest_mono.clear()
+    oh._next_gap.clear()
     oh._api_cache.clear()
 
 
@@ -241,3 +242,29 @@ def test_tick_batch_respects_cycle_budget(monkeypatch):
     closes = [c[2] for c in api.calls if c[0] == "close_order"]
     assert closes == ["b", "c"]                   # топ-2 по профиту, "a" ждёт
     assert "42" in oh._last_harvest_mono          # gap-таймер взведён
+    assert oh._next_gap["42"] == 600.0            # min_gap из конфига теста
+
+
+def test_tick_gap_short_on_success_long_on_failure(monkeypatch):
+    """Успешный цикл → короткий gap (закрываем каждую минуту); цикл, где
+    пауза прошла, но закрытия упали → длинный fail-backoff."""
+    _patch_control(monkeypatch)
+    cfg = {
+        "enabled": True,
+        "bots": {"42": {"alias": "X", "min_order_profit_usd": 1.0}},
+        "min_gap_between_harvests_sec": 60,
+        "fail_backoff_sec": 600,
+    }
+    oh.CONFIG_PATH.write_text(json.dumps(cfg), encoding="utf-8")
+
+    ok_api = FakeAPI([_order("a", 2.0)],
+                     statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
+    assert oh.tick(api=ok_api) == 1
+    assert oh._next_gap["42"] == 60.0
+
+    oh._last_harvest_mono.clear()                 # обнуляем таймер, не gap
+    bad_api = FakeAPI([_order("b", 2.0)],
+                      statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
+    bad_api.close_raises = RuntimeError("boom")
+    assert oh.tick(api=bad_api) == 0
+    assert oh._next_gap["42"] == 600.0

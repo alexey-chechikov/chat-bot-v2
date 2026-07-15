@@ -13,5 +13,6 @@
   },
   "max_orders_per_cycle": 10,
   "max_orders_per_day_per_bot": 40,
-  "min_gap_between_harvests_sec": 600
+  "min_gap_between_harvests_sec": 60,
+  "fail_backoff_sec": 600
 }
