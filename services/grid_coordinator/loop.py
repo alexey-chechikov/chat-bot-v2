@@ -319,6 +319,20 @@ def evaluate_bottom_exhaustion(details: dict, now: datetime) -> dict:
             "rsi": rsi, "mfi": mfi, "btc_close": details.get("btc_close")}
 
 
+def _live_gc_edge_line() -> str:
+    """Живая P(ниже через 4ч) по скользящим 60д собственных down-fires.
+
+    Аудит 2026-07-18: статичный «≈73%» из бэктеста жил в карточке 1.5 месяца
+    после смерти эджа. Число теперь только из edge_stats (данные < 24ч)."""
+    try:
+        from services.pre_cascade_alert.edge_stats import format_line, get_stats
+        return "Живой эдж: " + format_line(get_stats(), "gc_down_4h",
+                                           "P(ниже 4ч)") + "."
+    except Exception:
+        logger.exception("grid_coordinator.edge_stats_failed")
+        return "Живой эдж: статистика недоступна."
+
+
 def _format_exhaustion_card(bx: dict) -> str:
     bits = []
     if bx.get("deleverage"):
@@ -376,12 +390,15 @@ def _format_card(direction: str, score: int, details: dict) -> str:
         # Re-labelled + re-framed from the old "истощение/закрой LONG, откупи на
         # откате" which had the polarity inverted.
         title = f"НИЗ — ИМПУЛЬС ВНИЗ ({score}/6 сигналов)"
-        # P(ниже через 4ч) по score из бэктеста: 4/6≈73%, 5/6≈78%, 6/6≈86%
-        p_down = {4: "73%", 5: "78%", 6: "86%"}.get(score, "73%")
+        # Аудит 2026-07-18: статичные «73/78/86%» из бэктеста 05-29 умерли на
+        # живых fires (60д: 48.5% ниже@4ч, июль 38%; score>=5: 45%, mean +0.24%
+        # ВВЕРХ). Mirror-short подсказка снята — на live она убыточна. Карточка
+        # остаётся индикатором полярности (тайминг защиты контр-ноги сеток),
+        # вероятность печатаем ЖИВУЮ из собственного журнала fires.
         action = (
-            f"⬇️ Импульс вниз ПРОДОЛЖАЕТСЯ (не разворот). Истор. P(ниже через 4ч) ≈ {p_down}.\n"
-            "→ Защити/сократи LONG-сетки. На score≥5 — потенциальный SHORT-сетап "
-            "(mirror: stop +0.5%, tp −0.75%, ~4ч)."
+            f"⬇️ Полярность: продолжение вниз (не разворот). {_live_gc_edge_line()}\n"
+            "→ Защити/сократи LONG-сетки (полярность, не прогноз — "
+            "живой эдж направления см. выше)."
         )
         sigs = details.get("down_signals", {})
 

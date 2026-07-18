@@ -146,6 +146,9 @@ def _build_report(now: datetime) -> str:
 
 def maybe_send_daily_digest(*, send_fn: Optional[Callable] = None,
                               now: Optional[datetime] = None) -> bool:
+    from services.reports.push_policy import scheduled_push_enabled
+    if send_fn is not None and not scheduled_push_enabled():
+        send_fn = None  # отчёт строится в лог (dry_run), пуш выключен оператором
     if now is None:
         now = datetime.now(timezone.utc)
     if not (WINDOW_START_HOUR_UTC <= now.hour < WINDOW_END_HOUR_UTC):

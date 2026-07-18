@@ -19,6 +19,11 @@ TEST_DIRS = [
     "tests/services/range_hunter/",
     "tests/services/session_breakout/",
     "tests/services/paper_signal_tracker/",
+    "tests/services/scalp_liq/",
+    "tests/services/order_harvester/",
+    "tests/services/pre_cascade_alert/",
+    "tests/services/reports/",
+    "tests/services/grid_coordinator/",
 ]
 
 def main():

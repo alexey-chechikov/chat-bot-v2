@@ -273,6 +273,11 @@ def maybe_send_daily(*, send_fn: Callable[[str], None],
         now = datetime.now(timezone.utc)
     if not should_send(now):
         return False
+    from services.reports.push_policy import scheduled_push_enabled
+    if not scheduled_push_enabled():
+        logger.info("daily_self_report.push_off (отчёты по команде)")
+        mark_sent(now)  # окно закрываем, чтобы не пересобирать каждый тик
+        return False
     text = build_report(now)
     try:
         send_fn(text)

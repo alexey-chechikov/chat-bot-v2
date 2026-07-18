@@ -56,6 +56,9 @@ def _build_report() -> str:
 def maybe_send_paper_signal_weekly(*, send_fn: Optional[Callable] = None,
                                      now: Optional[datetime] = None) -> bool:
     """Returns True если report был отправлен."""
+    from services.reports.push_policy import scheduled_push_enabled
+    if send_fn is not None and not scheduled_push_enabled():
+        send_fn = None  # отчёт строится в лог (dry_run), пуш выключен оператором
     if now is None:
         now = datetime.now(timezone.utc)
     # Sunday = 6 в isoweekday (Mon=1..Sun=7); weekday() Mon=0..Sun=6

@@ -1,0 +1,4 @@
+{
+  "_note": "Оператор 2026-07-18: регулярные отчёты в TG только по команде (/card, /report_today, /report_week...). scheduled_push=false глушит расписания: daily 21:00 UTC, weekly, digest 09:00 UTC, self-reports, paper-weekly, weekly-audit, morning-brief 4х/день. Событийные риск-пинги не гейтятся.",
+  "scheduled_push": false
+}

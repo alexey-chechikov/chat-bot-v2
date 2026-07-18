@@ -33,7 +33,12 @@ def test_no_alert_when_below_threshold(tmp_path: Path) -> None:
     send.assert_not_called()
 
 
-def test_alert_when_cluster_threshold_met(tmp_path: Path) -> None:
+def test_alert_when_cluster_threshold_met(tmp_path: Path, monkeypatch) -> None:
+    # 2026-07-18: в проде TG выключен (тихий журнал) и стоит edge-гейт —
+    # для теста порога изолируем оба (их поведение покрыто отдельными тестами)
+    import services.pre_cascade_alert.liq_clustering as lc
+    monkeypatch.setattr(lc, "_tg_enabled", lambda: True)
+    monkeypatch.setattr(lc, "_live_edge_line", lambda: ("test edge 70% (n=99)", True))
     liq = tmp_path / "liq.csv"
     now = datetime(2026, 5, 13, 16, 30, tzinfo=timezone.utc)
     # 4 small long-liqs summing to 0.5 BTC > 0.3 threshold
@@ -56,6 +61,49 @@ def test_alert_when_cluster_threshold_met(tmp_path: Path) -> None:
     send.assert_called_once()
     assert "PRE-CASCADE" in send.call_args[0][0]
     assert "LONG" in send.call_args[0][0]
+
+
+def test_tg_disabled_journals_but_never_sends(tmp_path: Path, monkeypatch) -> None:
+    """Оператор 2026-07-18: тихий журнал — fires пишутся, TG молчит."""
+    import services.pre_cascade_alert.liq_clustering as lc
+    monkeypatch.setattr(lc, "_tg_enabled", lambda: False)
+    monkeypatch.setattr(lc, "_live_edge_line", lambda: ("test edge 70% (n=99)", True))
+    liq = tmp_path / "liq.csv"
+    now = datetime(2026, 5, 13, 16, 30, tzinfo=timezone.utc)
+    _write_liqs(liq, [(now - timedelta(minutes=2), "long", 0.6)])
+    send = MagicMock()
+    journal = tmp_path / "j.jsonl"
+    fired = check_and_alert(
+        send_fn=send, now=now,
+        state_path=tmp_path / "s.json",
+        journal_path=journal,
+        liq_csv=liq,
+    )
+    assert len(fired) == 1              # событие зафиксировано
+    assert journal.exists()             # журнал пишется
+    send.assert_not_called()            # TG молчит
+
+
+def test_edge_gate_failclosed_strips_plan(tmp_path: Path, monkeypatch) -> None:
+    """Эдж ниже гейта (или статистики нет) → план не даётся, карточка
+    non-actionable → в TG не уходит даже при tg_enabled."""
+    import services.pre_cascade_alert.liq_clustering as lc
+    monkeypatch.setattr(lc, "_tg_enabled", lambda: True)
+    monkeypatch.setattr(lc, "_live_edge_line",
+                        lambda: ("P(ниже 24ч) = 49% (n=236, 60д)", False))
+    liq = tmp_path / "liq.csv"
+    now = datetime(2026, 5, 13, 16, 30, tzinfo=timezone.utc)
+    _write_liqs(liq, [(now - timedelta(minutes=2), "long", 0.6)])
+    send = MagicMock()
+    fired = check_and_alert(
+        send_fn=send, now=now,
+        state_path=tmp_path / "s.json",
+        journal_path=tmp_path / "j.jsonl",
+        liq_csv=liq,
+    )
+    assert len(fired) == 1
+    assert fired[0]["actionable"] is False
+    send.assert_not_called()
 
 
 def test_no_alert_when_cascade_in_window(tmp_path: Path) -> None:

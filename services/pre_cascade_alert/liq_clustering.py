@@ -275,17 +275,23 @@ def _format_alert(side: str, qty_btc: float,
         rr2 = abs(plan["tp2_pct"]) / risk if risk else 0
         from datetime import timedelta as _td
         exit_at = (now or datetime.now(timezone.utc)) + _td(hours=plan["exit_after_h"])
+        edge_line, edge_alive = _live_edge_line()
         if conflict_event:
             lines.append(f"⚠ Offensive option — CONFLICT с {conflict_event}, SKIP")
             lines.append(f"  (оба сигнала за <60 мин = whipsaw, edge не работает)")
+        elif not edge_alive:
+            # Аудит 2026-07-18: статичная строка «Re-validated 2026-05-19»
+            # пережила свой эдж на 2 месяца. Теперь план даётся только при
+            # живом эдже >= 60% на скользящих 60д (fail-closed).
+            lines.append(f"⛔ Торговый план отключён edge-гейтом: {edge_line}")
         else:
             lines.append(f"💰 План — вход ПОСЛЕ {window_end.strftime('%H:%M')} UTC, maker-limit [{confidence}]:")
             lines.append(f"  {plan['dir']}  entry ~${last_price:,.0f}")
             lines.append(f"  Stop: ${stop:,.0f} ({plan['stop_pct']:+.2f}%)")
             lines.append(f"  TP1:  ${tp1:,.0f} (R:R 1:{rr1:.1f})")
             lines.append(f"  TP2:  ${tp2:,.0f} (R:R 1:{rr2:.1f})")
-            lines.append(f"  Exit by {exit_at.strftime('%H:%M UTC')} (+{plan['exit_after_h']}h)")
-            lines.append(f"  Edge: {plan['edge_note']}")
+            lines.append(f"  Exit by {exit_at.strftime('%d.%m %H:%M UTC')} (+{plan['exit_after_h']}h)")
+            lines.append(f"  Edge (живой, 60д): {edge_line}")
             plan_info.update({
                 "actionable": True,
                 "trade_dir": plan["dir"],
@@ -294,12 +300,47 @@ def _format_alert(side: str, qty_btc: float,
                 "tp1": round(tp1, 2),
                 "tp2": round(tp2, 2),
                 "exit_by_ts": exit_at.isoformat(timespec="seconds"),
-                "edge_note": plan["edge_note"],
+                "edge_note": edge_line,
             })
     elif side == "long":
         lines.append("ℹ️ LONG cluster: defensive only (edge инвертировался в 2026)")
 
     return "\n".join(lines), plan_info
+
+
+def _live_edge_line() -> tuple[str, bool]:
+    """(строка живого эджа для карточки, прошёл ли гейт 60%/n>=30).
+
+    Fail-closed: нет статистики → гейт закрыт. Урок 2026-07-18: карточка
+    2 месяца печатала мёртвое «Re-validated 2026-05-19 70.8%» как живое.
+    """
+    try:
+        from services.pre_cascade_alert.edge_stats import (
+            format_line, gate_ok, get_stats,
+        )
+        stats = get_stats()
+        line = format_line(stats, "pre_cascade_24h", "P(ниже 24ч)")
+        return line, gate_ok((stats or {}).get("pre_cascade_24h"))
+    except Exception:
+        logger.exception("liq_pre_cascade.edge_stats_failed")
+        return "edge-статистика недоступна", False
+
+
+CONFIG_PATH = ROOT / "state" / "pre_cascade_config.json"
+
+
+def _tg_enabled() -> bool:
+    """Оператор 2026-07-18: PRE-CASCADE — в тихий журнал. Живой эдж умер
+    (июль: 49% down@24h при обещанных 70.8%), а частота fires выросла ×10
+    против валидационной выборки (порог 0.5 BTC ловит другую популяцию).
+    Файл-конфиг позволит включить обратно после восстановления эджа."""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return True  # нет конфига = историческое поведение (для тестов/чужих сред)
+    except Exception:
+        return True
+    return bool(cfg.get("tg_enabled", True))
 
 
 def _build_keyboard(signal_id: str):
@@ -378,7 +419,8 @@ def check_and_alert(
         # 2026-05-18: TG send ТОЛЬКО для actionable plans (defensive-only
         # и conflict cases — silent, только в journal). Оператор:
         # "сколько текста, и каждое надо анализировать на адекватность".
-        if plan_info.get("actionable") and global_ok and side == send_side:
+        if plan_info.get("actionable") and global_ok and side == send_side \
+                and _tg_enabled():
             kb = _build_keyboard(signal_id)
             try:
                 try:
@@ -390,7 +432,9 @@ def check_and_alert(
                 continue
             state["last_alert_any"] = now.isoformat(timespec="seconds")
         else:
-            if plan_info.get("has_conflict"):
+            if not _tg_enabled():
+                reason = "tg_disabled_by_operator"  # 2026-07-18: тихий журнал
+            elif plan_info.get("has_conflict"):
                 reason = "conflict"
             elif not plan_info.get("actionable"):
                 reason = "defensive_only"

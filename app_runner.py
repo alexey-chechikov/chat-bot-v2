@@ -151,6 +151,10 @@ async def _run_weekly_audit(stop_event: asyncio.Event) -> None:
     from services.paper_trader.weekly_audit_loop import weekly_audit_loop
 
     def _send(text: str) -> None:
+        from services.reports.push_policy import scheduled_push_enabled
+        if not scheduled_push_enabled():
+            logger.info("weekly_audit.push_off (см. /audit_filters)")
+            return
         try:
             subprocess.run(
                 ["python", "scripts/done.py", text],
@@ -194,6 +198,9 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
     # = низкая ценность, истекает без цели. Сильный разворот (dump_reversal PF 3.3)
     # переживает порог. По тренду — обычный гейт.
     COUNTERTREND_MIN_PF = 2.0
+    # {setup_type: monotonic ts последней отправленной actionable-карточки} —
+    # кулдаун 90 мин на тип, дубли по второй паре режем (2026-07-14)
+    _actionable_type_sent: dict[str, float] = {}
     # Push priority types — push regardless of confidence (still backtest-validated).
     PRIORITY_TYPES = {
         "long_div_bos_confirmed",   # PF=4.49 hold_1h, walk-forward stable
@@ -245,6 +252,17 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
                         logger.info("setup_push.countertrend_weak type=%s pf=%.1f<%.1f — молчим",
                                     stype, edge.get("regime_pf", 0), COUNTERTREND_MIN_PF)
                         return
+                    # 2026-07-14: кулдаун 90 мин на ТИП сетапа (оператор: «карточек
+                    # перебор») — один сетап на BTC+ETH в одну минуту слал 2 почти
+                    # одинаковые карточки. Первая пара проходит, дубли типа — молчат.
+                    import time as _time
+                    now_mono = _time.monotonic()
+                    last_t = _actionable_type_sent.get(stype, 0.0)
+                    if now_mono - last_t < 90 * 60:
+                        logger.info("setup_push.type_cooldown type=%s pair=%s — молчим (дубль типа)",
+                                    stype, getattr(setup, "pair", "?"))
+                        return
+                    _actionable_type_sent[stype] = now_mono
                     try:
                         actionable = format_actionable_card(setup, edge, countertrend=ct)
                     except Exception:
@@ -374,13 +392,16 @@ async def _run_daily_weekly_reports(stop_event: asyncio.Event, *, telegram_app=N
                 and state.get("last_daily") != today_str
             ):
                 try:
+                    from services.reports.push_policy import scheduled_push_enabled
                     text = build_daily_report(now)
                     save_daily_report(text, now)
-                    if send_fn:
+                    if send_fn and scheduled_push_enabled():
                         send_fn(text)
+                        logger.info("daily_report.sent date=%s", today_str)
+                    else:
+                        logger.info("daily_report.push_off date=%s (см. /report_today)", today_str)
                     state["last_daily"] = today_str
                     _write_state(state)
-                    logger.info("daily_report.sent date=%s", today_str)
                 except Exception:
                     logger.exception("daily_report.daily_failed")
 
@@ -391,13 +412,16 @@ async def _run_daily_weekly_reports(stop_event: asyncio.Event, *, telegram_app=N
                 and state.get("last_weekly") != this_week_str
             ):
                 try:
+                    from services.reports.push_policy import scheduled_push_enabled
                     text = build_weekly_report(now)
                     save_weekly_report(text, now)
-                    if send_fn:
+                    if send_fn and scheduled_push_enabled():
                         send_fn(text)
+                        logger.info("weekly_report.sent week=%s", this_week_str)
+                    else:
+                        logger.info("weekly_report.push_off week=%s (см. /report_week)", this_week_str)
                     state["last_weekly"] = this_week_str
                     _write_state(state)
-                    logger.info("weekly_report.sent week=%s", this_week_str)
                 except Exception:
                     logger.exception("daily_report.weekly_failed")
         except Exception:
@@ -627,6 +651,17 @@ async def _run_scalp_liq(stop_event: asyncio.Event, *, telegram_app=None) -> Non
     from services.telegram.channel_router import build_send_fn
     send_fn = build_send_fn(telegram_app, "SCALP_LIQ") if telegram_app else None
     await scalp_liq_loop(stop_event=stop_event, send_fn=send_fn)
+
+
+async def _run_order_harvester(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Order Harvester (2026-07-08): у dynamic-ботов с obap+trailing отдельные
+    ордера не фиксируются сами — когда открытый ордер достигает +$7 (конфиг
+    state/order_harvester_config.json), пауза бота → PUT /bots/{id}/close/{orderId}
+    (✕ из UI) → резюм. ЖИВЫЕ ордера BitMEX через GinArea. PRIMARY (личка)."""
+    from services.order_harvester.loop import order_harvester_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "ORDER_HARVESTER") if telegram_app else None
+    await order_harvester_loop(stop_event=stop_event, send_fn=send_fn)
 
 
 async def _run_alt_momentum_shadow(stop_event: asyncio.Event) -> None:
@@ -1368,6 +1403,7 @@ async def main(
     ma_cross_shadow_task = asyncio.create_task(_run_ma_cross_shadow(stop_event, telegram_app=app), name="ma_cross_shadow")
     alt_momentum_shadow_task = asyncio.create_task(_run_alt_momentum_shadow(stop_event), name="alt_momentum_shadow")
     scalp_liq_task = asyncio.create_task(_run_scalp_liq(stop_event, telegram_app=app), name="scalp_liq")
+    order_harvester_task = asyncio.create_task(_run_order_harvester(stop_event, telegram_app=app), name="order_harvester")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
     regime_shadow_task = asyncio.create_task(_run_regime_shadow(stop_event), name="regime_shadow")
@@ -1415,7 +1451,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0

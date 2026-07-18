@@ -197,6 +197,11 @@ def maybe_send_weekly(
         now = datetime.now(timezone.utc)
     if not should_send(now, state_path=state_path):
         return False
+    from services.reports.push_policy import scheduled_push_enabled
+    if not scheduled_push_enabled():
+        logger.info("weekly_self_report.push_off (отчёты по команде)")
+        mark_sent(now, state_path=state_path)
+        return False
     text = build_report(
         summary_fn=summary_fn,
         drift_summary_fn=drift_summary_fn,
