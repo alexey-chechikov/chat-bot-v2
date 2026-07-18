@@ -25,21 +25,32 @@ def _isolate_paths(monkeypatch, tmp_path):
     oh._api_cache.clear()
 
 
+# stat, из которого derive_mark даёт mark=95.0:
+# bag = 55−5 = 50; mark = 100 + 50/(−10) = 95; нотионал |−10·100|=1000 ≥ floor
+DEFAULT_STAT = dict(position=-10.0, averagePrice=100.0,
+                    currentProfit=55.0, profit=5.0)
+
+
 class FakeAPI:
     """Мини-двойник BotsAPI: статусная машина + журнал вызовов."""
 
-    def __init__(self, orders, statuses=None, params_extra=None):
+    def __init__(self, orders, statuses=None, params_extra=None, stat=None):
         self.orders = orders
         self.calls: list[tuple] = []
         # очередь статусов для get_bot; последний повторяется
         self.statuses = list(statuses or [oh.STATUS_ACTIVE])
         self.params_extra = params_extra if params_extra is not None else {}
+        self.stat = SimpleNamespace(**(stat if stat is not None else DEFAULT_STAT))
         self.close_raises = None
 
     def get_bot(self, bot_id):
         st = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
         self.calls.append(("get_bot", bot_id, st))
         return SimpleNamespace(status=st)
+
+    def get_stat(self, bot_id):
+        self.calls.append(("get_stat", bot_id))
+        return self.stat
 
     def get_orders(self, bot_id, **kw):
         self.calls.append(("get_orders", bot_id))
@@ -68,11 +79,33 @@ REAL_CLOSED_ORDER = {
 }
 
 
+# реальная форма ОТКРЫТОГО ордера — снята 2026-07-18 с 6233908669 (ETH-DYN):
+# profit=null (UI считает на клиенте), closedAt==openedAt, out=null
+REAL_OPEN_ORDER = {
+    "id": "63397883-70af-46d9-a74e-049d709f0202", "side": 1, "price": 1835.45,
+    "quantity": 0.01, "closedPrice": 1835.23, "closedQuantity": 0.01,
+    "fee": 0.006423, "feeExchangeCurrencyId": 11, "stopCount": 1,
+    "openedAt": "2026-07-17T18:20:49.233Z", "closedAt": "2026-07-17T18:20:49.233Z",
+    "isOpen": True, "botId": 6233908669, "profit": None, "profitInDistance": None,
+    "trigger": {"price": 1850.829455, "quantity": 0.01, "initPrice": 1835.45,
+                "lastPrice": 1835.45, "isTrailing": False,
+                "quantityPositions": [0]},
+    "out": None, "closeReason": 0,
+}
+
+
 def _order(oid="o1", profit=8.5, opened=True, **extra):
     o = {"id": oid, "profit": profit, "quantity": 0.0117, "price": 61540.2,
          "isOpen": opened, "side": 1, "botId": 4499423673}
     o.update(extra)
     return o
+
+
+def _open_order(oid, price, qty=1.0, side=2):
+    """Открытый ордер в живой форме: profit=null, профит считается по mark.
+    С DEFAULT_STAT (mark=95) SELL qty=1 @ price даёт профит (price − 95)."""
+    return {"id": oid, "profit": None, "quantity": qty, "price": price,
+            "isOpen": True, "side": side, "botId": 42}
 
 
 def _patch_control(monkeypatch, pause_action="paused", resume_action="resumed"):
@@ -109,11 +142,57 @@ def test_order_fields_real_api_shape():
     assert f["qty"] == 0.0066 and f["price_in"] == 62087.9 and f["side"] == 1
 
 
+def test_order_fields_real_open_order():
+    """Verbatim ОТКРЫТЫЙ ордер живого API (2026-07-18): profit=null."""
+    f = oh.order_fields(REAL_OPEN_ORDER)
+    assert f["opened"] and f["profit_usd"] is None
+    assert f["qty"] == 0.01 and f["price_in"] == 1835.45 and f["side"] == 1
+
+
+def test_derive_mark_real_ltc_numbers():
+    """Живой снимок LTC-DYN 2026-07-18: pos=−34.6 avg=45.24
+    currentProfit=41.98 profit=49.44 → mark ≈ 45.456 (реальная цена LTC).
+    Без вычитания profit mark выходил абсурдный (44.02 → ETH давал 316)."""
+    st = SimpleNamespace(position=-34.6, averagePrice=45.24,
+                         currentProfit=41.98, profit=49.44)
+    mark = oh.derive_mark(st)
+    assert abs(mark - 45.4556) < 0.001
+    # SELL 5 LTC @ 45.56 при этом mark → ~+$0.52
+    p = oh.order_profit_usd(mark, {"side": 2, "price_in": 45.56, "qty": 5})
+    assert abs(p - 0.522) < 0.01
+
+
+def test_derive_mark_rejects_tiny_position():
+    assert oh.derive_mark(SimpleNamespace(
+        position=0.0, averagePrice=100.0, currentProfit=5.0, profit=0.0)) is None
+    # нотионал ниже пола $200
+    assert oh.derive_mark(SimpleNamespace(
+        position=-0.5, averagePrice=100.0, currentProfit=5.0, profit=0.0)) is None
+
+
+def test_order_profit_direction():
+    # mark=95: SELL @100 в плюсе, BUY @100 в минусе
+    assert oh.order_profit_usd(95.0, {"side": 2, "price_in": 100.0, "qty": 1.0}) == 5.0
+    assert oh.order_profit_usd(95.0, {"side": 1, "price_in": 100.0, "qty": 1.0}) == -5.0
+    assert oh.order_profit_usd(95.0, {"side": 99, "price_in": 100.0, "qty": 1.0}) is None
+
+
 def test_candidates_threshold_and_sorting():
-    api = FakeAPI([_order("a", 3.0), _order("b", 9.1), _order("c", 7.0),
-                   _order("d", 20.0, opened=False)])
+    """Профит вычисляется по mark (95): a=+1, b=+10, c=+8, d закрыт."""
+    api = FakeAPI([_open_order("a", 96.0), _open_order("b", 105.0),
+                   _open_order("c", 103.0), _order("d", 20.0, opened=False)])
     cands = oh._candidates(api, "123", 7.0)
     assert [c["order_id"] for c in cands] == ["b", "c"]  # d закрыт, a ниже порога
+    assert cands[0]["profit_usd"] == 10.0
+
+
+def test_candidates_skip_when_mark_underivable():
+    """pos≈0 → mark не выводится → пропуск без запроса ордеров."""
+    api = FakeAPI([_open_order("a", 105.0)],
+                  stat=dict(position=0.0, averagePrice=100.0,
+                            currentProfit=0.0, profit=0.0))
+    assert oh._candidates(api, "123", 1.0) == []
+    assert all(c[0] != "get_orders" for c in api.calls)
 
 
 def test_harvest_success_flow(monkeypatch):
@@ -236,7 +315,9 @@ def test_tick_batch_respects_cycle_budget(monkeypatch):
         "min_gap_between_harvests_sec": 600,
     }), encoding="utf-8")
     # get_bot: ACTIVE (скан) → STOPPED (pause-wait) → ACTIVE (resume-wait)
-    api = FakeAPI([_order("a", 1.5), _order("b", 9.0), _order("c", 4.0)],
+    # mark=95 → профиты: a=+1.5, b=+9, c=+4
+    api = FakeAPI([_open_order("a", 96.5), _open_order("b", 104.0),
+                   _open_order("c", 99.0)],
                   statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
     assert oh.tick(api=api) == 2
     closes = [c[2] for c in api.calls if c[0] == "close_order"]
@@ -257,13 +338,13 @@ def test_tick_gap_short_on_success_long_on_failure(monkeypatch):
     }
     oh.CONFIG_PATH.write_text(json.dumps(cfg), encoding="utf-8")
 
-    ok_api = FakeAPI([_order("a", 2.0)],
+    ok_api = FakeAPI([_open_order("a", 97.0)],
                      statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
     assert oh.tick(api=ok_api) == 1
     assert oh._next_gap["42"] == 60.0
 
     oh._last_harvest_mono.clear()                 # обнуляем таймер, не gap
-    bad_api = FakeAPI([_order("b", 2.0)],
+    bad_api = FakeAPI([_open_order("b", 97.0)],
                       statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
     bad_api.close_raises = RuntimeError("boom")
     assert oh.tick(api=bad_api) == 0

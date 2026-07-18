@@ -148,3 +148,41 @@ class BotsAPI:
             f"/bots/{bot_id}/start",
             json={},
         )
+
+    # ─── Orders (RE 2026-07-08 from ginarea.org JS bundle chunk-NVN532GA.js) ──
+    # getOrders(e,i,n,a) → GET /bots/{id}/orders?pageSize=&pageNumber=&onlyOpened=
+    # closeOrder(e,i)    → PUT /bots/{id}/close/{orderId}, body {}
+    # close(e)           → PUT /bots/{id}/close, body {}  (весь мешок — НЕ оборачиваем,
+    #                      чтобы никто случайно не закрыл позицию целиком)
+
+    def get_orders(self, bot_id: int, *, page_size: int = 100,
+                   page_number: int = 0, only_opened: bool = True) -> dict:
+        """Список ордеров бота (вкладка «Ордера» в UI).
+
+        Пагинация 0-BASED (проверено живьём 2026-07-18: pageNumber=1 — это
+        ВТОРАЯ страница; с onlyOpened=true при <100 открытых она пуста и
+        сервер отдаёт orders:null при ненулевом totalCount).
+
+        У ОТКРЫТЫХ ордеров profit=null — UI считает профит на клиенте;
+        серверного значения нет, считать самим по mark-цене.
+        """
+        return self.client.request(
+            "GET",
+            f"/bots/{bot_id}/orders",
+            params={"pageSize": str(page_size), "pageNumber": str(page_number),
+                    "onlyOpened": "true" if only_opened else "false"},
+        )
+
+    def close_order(self, bot_id: int, order_id: str) -> dict:
+        """Закрыть ОДИН ордер бота (кнопка ✕ в UI-таблице ордеров).
+
+        То, что UI вызывает при закрытии отдельного плюсового ордера:
+        рыночный выход именно этой части позиции, бот продолжает работать
+        с остальной сеткой.
+        """
+        _assert_not_production(bot_id)
+        return self.client.request(
+            "PUT",
+            f"/bots/{bot_id}/close/{order_id}",
+            json={},
+        )

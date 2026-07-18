@@ -8,6 +8,13 @@
 Батч за одну паузу — как оператор делает руками (10:08–10:33 МСК 15.07:
 10 ордеров TEST ETH за 20 минут).
 
+2026-07-18, разбор трёх дней молчания — две причины, обе в _candidates:
+1) пагинация /bots/{id}/orders 0-BASED: с pageNumber=1 (дефолт клиента был
+   1-based) сервер отдавал orders:null — харвестер видел пустоту;
+2) у открытых ордеров profit=null (UI считает на клиенте) — даже с ордерами
+   кандидатов бы не было. Теперь считаем сами: mark из stat (derive_mark),
+   profit = (mark − вход) · qty · направление.
+
 Безопасность:
 - работает ТОЛЬКО по ботам из state/order_harvester_config.json;
 - перед паузой проверяет, что у бота НЕТ in.otc (урок 2026-05-17: stop/start
@@ -103,9 +110,12 @@ def is_frozen() -> bool:
 # ── извлечение полей ордера (форма ответа /bots/{id}/orders) ─────────────────
 
 def order_fields(o: dict) -> dict:
-    """Нормализованные поля ордера GET /bots/{id}/orders (реальная форма снята
-    2026-07-09 с бота 4499423673): id=GUID, isOpen=bool, profit=USD float,
-    quantity, price (вход), side (1=BUY), openedAt/closedAt, trigger{...}."""
+    """Нормализованные поля ордера GET /bots/{id}/orders (реальные формы:
+    закрытый снят 2026-07-09, открытый — 2026-07-18): id=GUID, isOpen=bool,
+    quantity, price (вход), side (1=BUY, 2=SELL), openedAt, trigger{...}.
+
+    profit: у ЗАКРЫТЫХ — USD float; у ОТКРЫТЫХ — null (UI считает на клиенте).
+    Для открытых profit_usd заполняет _candidates() по mark-цене."""
     oid = o.get("id")
     profit = o.get("profit")
     return {
@@ -118,15 +128,58 @@ def order_fields(o: dict) -> dict:
     }
 
 
+# ниже этого нотионала |pos|·avg деление bag/pos ненадёжно; и боли от мешка
+# при таком pos нет — просто пропускаем тик
+MIN_MARK_NOTIONAL_USD = 200.0
+
+
+def derive_mark(stat) -> float | None:
+    """Текущая цена, восстановленная из stat бота (линейные USDT-контракты).
+
+    У открытых ордеров API profit=null, поэтому считаем сами. Нереализованный
+    мешок = currentProfit − profit = (mark − averagePrice) · position
+    (currentProfit ВКЛЮЧАЕТ реализованный profit — проверено 2026-07-18:
+    без вычитания mark выходит абсурдный, с вычитанием совпадает с рынком).
+    """
+    pos = float(stat.position or 0)
+    avg = float(stat.averagePrice or 0)
+    if avg <= 0 or abs(pos * avg) < MIN_MARK_NOTIONAL_USD:
+        return None
+    bag = float(stat.currentProfit or 0) - float(stat.profit or 0)
+    return avg + bag / pos
+
+
+def order_profit_usd(mark: float, f: dict) -> float | None:
+    """(mark − вход) · qty · направление; side 1=BUY → +1, 2=SELL → −1."""
+    if f["side"] == 1:
+        direction = 1.0
+    elif f["side"] == 2:
+        direction = -1.0
+    else:
+        return None
+    try:
+        return (mark - float(f["price_in"])) * float(f["qty"]) * direction
+    except (TypeError, ValueError):
+        return None
+
+
 def _candidates(api, bot_id: str, min_profit: float) -> list[dict]:
+    stat = api.get_stat(int(bot_id))
+    mark = derive_mark(stat)
+    if mark is None:
+        return []
     data = api.get_orders(int(bot_id), only_opened=True)
     orders = data.get("orders") or []
     out = []
     for o in orders:
         f = order_fields(o)
-        if f["order_id"] and f["opened"] and f["profit_usd"] is not None \
-                and f["profit_usd"] >= min_profit:
-            out.append(f)
+        if not (f["order_id"] and f["opened"]):
+            continue
+        profit = order_profit_usd(mark, f)
+        if profit is None or profit < min_profit:
+            continue
+        f["profit_usd"] = round(profit, 2)
+        out.append(f)
     out.sort(key=lambda f: -(f["profit_usd"] or 0))
     return out
 
