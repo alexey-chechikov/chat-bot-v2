@@ -35,18 +35,25 @@ def _cfg(tmp=None, **over):
 
 
 class FakeAPI:
-    def __init__(self, gs=0.1, tog=0.85, p=True, extra=None, status=2):
+    def __init__(self, gs=0.1, tog=0.85, p=True, extra=None, status=2,
+                 maxq=None):
         self.params = SimpleNamespace(gs=gs, gap=SimpleNamespace(tog=tog),
-                                      p=p, extra_raw=extra or {})
+                                      p=p, extra_raw=extra or {},
+                                      q=SimpleNamespace(minQ=None, maxQ=maxq,
+                                                        qr=None))
         self.status = status
         self.set_calls: list[tuple] = []
         self.set_raises = None
+        self.flip_otc_on_set = False   # симуляция сброса otcPassed записью
 
     def get_params(self, bot_id):
         return self.params
 
     def set_params(self, bot_id, params):
-        self.set_calls.append((round(params.gs, 4), round(params.gap.tog, 4)))
+        self.set_calls.append((round(params.gs, 4), round(params.gap.tog, 4),
+                               params.q.maxQ))
+        if self.flip_otc_on_set and (params.extra_raw or {}).get("in"):
+            params.extra_raw["in"]["otcPassed"] = False
         if self.set_raises:
             raise self.set_raises
 
@@ -66,7 +73,7 @@ def test_widen_on_stage2(tmp_path):
     n = gat.tick(send_fn=sent.append, api=api,
                  drift={"42": 2}, bags={"42": {"bag": -150.0, "status": 2}})
     assert n == 1
-    assert api.set_calls == [(0.13, 1.105)]           # +30%
+    assert api.set_calls == [(0.13, 1.105, None)]     # +30%
     assert "APPLIED" in _events()
     active = json.loads(gat.ACTIVE_PATH.read_text())
     assert active["42"]["orig"] == {"gs": 0.1, "tog": 0.85}
@@ -83,7 +90,7 @@ def test_restore_after_recovery(tmp_path):
     n = gat.tick(send_fn=sent.append, api=api,
                  drift={"42": 0}, bags={"42": {"bag": -5.0, "status": 2}})
     assert n == 1
-    assert api.set_calls == [(0.1, 0.85)]             # откат к исходным
+    assert api.set_calls == [(0.1, 0.85, None)]       # откат к исходным
     assert "RESTORED" in _events()
     assert json.loads(gat.ACTIVE_PATH.read_text()) == {}
     assert sent and "вернул" in sent[0]
@@ -110,7 +117,7 @@ def test_verify_failure_freezes_and_rolls_back(tmp_path):
     assert n == 0
     assert gat.is_frozen()
     # два вызова: попытка widen + rollback на исходные
-    assert api.set_calls == [(0.13, 1.105), (0.1, 0.85)]
+    assert api.set_calls == [(0.13, 1.105, None), (0.1, 0.85, None)]
     assert any("КРИТИЧНО" in s for s in sent)
     assert "APPLY_FAILED" in _events()
 
@@ -148,6 +155,138 @@ def test_daily_cap(tmp_path):
     assert not api.set_calls
 
 
+BTCLONG_BOT = {
+    "5317457827": {
+        "alias": "BTC-LONG", "trigger": "btc_move_1h", "move_pct_1h": 0.8,
+        "calm_hours": 4, "min_abs_position": 5500, "episode_maxQ": 100,
+        "quiet_maxQ": 300, "restore_bag": -0.0003, "otc_expected": True,
+    }
+}
+
+
+def _btclong_api(gs=0.09, tog=0.77, maxq=300, **kw):
+    return FakeAPI(gs=gs, tog=tog, maxq=maxq,
+                   extra={"in": {"otc": True, "otcPassed": True}}, **kw)
+
+
+def test_btc_move_widens_and_cuts_order_size(tmp_path, monkeypatch):
+    """Оператор: сильное движение BTC → ордер $100 + шире шаг/таргет.
+    in.otc НЕ морозит сервис (otc_expected), otcPassed проверяется."""
+    _cfg(bots=BTCLONG_BOT)
+    monkeypatch.setattr(gat, "read_btc_move",
+                        lambda **kw: {"move_1h_pct": 1.2,
+                                      "max_move_calm_pct": 1.2})
+    api = _btclong_api()
+    sent = []
+    n = gat.tick(send_fn=sent.append, api=api, drift={},
+                 bags={"5317457827": {"bag": -0.001, "status": 2,
+                                      "position": 6000}})
+    assert n == 1
+    assert api.set_calls == [(0.117, 1.001, 100.0)]   # gs/tog +30%, ордер 100$
+    assert not gat.is_frozen()
+    active = json.loads(gat.ACTIVE_PATH.read_text())
+    assert active["5317457827"]["orig"] == {"gs": 0.09, "tog": 0.77, "maxQ": 300}
+    assert sent and "100" in sent[0] and "АВТОШИРЕНИЕ" in sent[0]
+
+
+def test_btc_move_restores_quiet_size_on_calm(tmp_path, monkeypatch):
+    _cfg(bots=BTCLONG_BOT)
+    gat.ACTIVE_PATH.write_text(json.dumps(
+        {"5317457827": {"orig": {"gs": 0.09, "tog": 0.77, "maxQ": 300},
+                        "applied_ts": "x", "widen_pct": 30}}), encoding="utf-8")
+    monkeypatch.setattr(gat, "read_btc_move",
+                        lambda **kw: {"move_1h_pct": 0.1,
+                                      "max_move_calm_pct": 0.3})
+    api = _btclong_api(gs=0.117, tog=1.001, maxq=100)
+    sent = []
+    n = gat.tick(send_fn=sent.append, api=api, drift={},
+                 bags={"5317457827": {"bag": -0.0001, "status": 2,
+                                      "position": 6000}})
+    assert n == 1
+    assert api.set_calls == [(0.09, 0.77, 300.0)]     # исходные + quiet 300$
+    assert json.loads(gat.ACTIVE_PATH.read_text()) == {}
+    assert sent and "300" in sent[0]
+
+
+def test_btc_move_no_restore_until_calm(tmp_path, monkeypatch):
+    """Движение продолжается в calm-окне → сидим в эпизоде."""
+    _cfg(bots=BTCLONG_BOT)
+    gat.ACTIVE_PATH.write_text(json.dumps(
+        {"5317457827": {"orig": {"gs": 0.09, "tog": 0.77, "maxQ": 300},
+                        "applied_ts": "x", "widen_pct": 30}}), encoding="utf-8")
+    monkeypatch.setattr(gat, "read_btc_move",
+                        lambda **kw: {"move_1h_pct": 0.2,
+                                      "max_move_calm_pct": 1.5})
+    api = _btclong_api()
+    assert gat.tick(api=api, drift={},
+                    bags={"5317457827": {"bag": 0.0, "status": 2}}) == 0
+    assert not api.set_calls
+
+
+def test_btc_move_stale_prices_do_nothing(tmp_path, monkeypatch):
+    _cfg(bots=BTCLONG_BOT)
+    monkeypatch.setattr(gat, "read_btc_move", lambda **kw: None)
+    api = _btclong_api()
+    assert gat.tick(api=api, drift={},
+                    bags={"5317457827": {"bag": -0.001, "status": 2}}) == 0
+    assert not api.set_calls
+
+
+def test_otc_passed_flip_freezes_and_rolls_back(tmp_path, monkeypatch):
+    """Если запись вдруг сбросит otcPassed (урок 17.05) — rollback + freeze."""
+    _cfg(bots=BTCLONG_BOT)
+    monkeypatch.setattr(gat, "read_btc_move",
+                        lambda **kw: {"move_1h_pct": 1.2,
+                                      "max_move_calm_pct": 1.2})
+    api = _btclong_api()
+    api.flip_otc_on_set = True
+    sent = []
+    n = gat.tick(send_fn=sent.append, api=api, drift={},
+                 bags={"5317457827": {"bag": -0.001, "status": 2,
+                                      "position": 6000}})
+    assert n == 0
+    assert gat.is_frozen()
+    assert len(api.set_calls) == 2                    # попытка + rollback
+    assert any("КРИТИЧНО" in s for s in sent)
+
+
+def test_btc_position_below_threshold_left_alone(tmp_path, monkeypatch):
+    """Оператор: пока не набрал позицию (~$5-6k) — не трогаем, даже при
+    сильном движении BTC."""
+    _cfg(bots=BTCLONG_BOT)
+    monkeypatch.setattr(gat, "read_btc_move",
+                        lambda **kw: {"move_1h_pct": 1.5,
+                                      "max_move_calm_pct": 1.5})
+    api = _btclong_api()
+    n = gat.tick(api=api, drift={},
+                 bags={"5317457827": {"bag": -0.001, "status": 2,
+                                      "position": 2300}})  # < 5500
+    assert n == 0
+    assert not api.set_calls
+    assert "SKIP_SMALL_POS" in _events()
+
+
+def test_read_btc_move_from_csv(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+    lines = ["ts,open,high,low,close,volume"]
+    t = now - timedelta(minutes=300)
+    while t <= now:
+        px = 64000.0 if t <= now - timedelta(minutes=60) else 65000.0
+        lines.append(f"{t.isoformat()},{px},{px},{px},{px},1")
+        t += timedelta(minutes=1)
+    csv = tmp_path / "m1.csv"
+    csv.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    mv = gat.read_btc_move(csv, calm_hours=4.0, now=now)
+    assert mv is not None
+    assert abs(mv["move_1h_pct"] - 1.5625) < 0.01     # 64000→65000
+    assert mv["max_move_calm_pct"] >= mv["move_1h_pct"] - 0.01
+    # протухшие свечи → None
+    old = gat.read_btc_move(csv, calm_hours=4.0,
+                            now=now + timedelta(minutes=30))
+    assert old is None
+
+
 def test_read_bags_parses_snapshot_tail(tmp_path, monkeypatch):
     csv = tmp_path / "snaps.csv"
     csv.write_text(
@@ -158,3 +297,4 @@ def test_read_bags_parses_snapshot_tail(tmp_path, monkeypatch):
     bags = gat.read_bags(csv)
     assert bags["42"]["status"] == 2
     assert abs(bags["42"]["bag"] - (-45.0)) < 1e-9    # последняя строка бота
+    assert abs(bags["42"]["position"] - (-1.5)) < 1e-9

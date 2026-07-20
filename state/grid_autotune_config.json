@@ -13,6 +13,18 @@
     "4643987212": {"alias": "XRP-DYN"},
     "4922851123": {"alias": "LTC-DYN"},
     "5085651183": {"alias": "BCH-DYN"},
-    "5288594904": {"alias": "LINK-DYN"}
+    "5288594904": {"alias": "LINK-DYN"},
+    "5317457827": {
+      "alias": "BTC-LONG",
+      "_note": "оператор 2026-07-20: спокойно maxQ=$300, сильное движение maxQ=$100 + шире шаг/таргет. НО пока не набрал позицию (|поза| < ~$5-6k контрактов) — не трогаем (min_abs_position). Инверсный XBTUSD: позиция в USD-контрактах, мешок в XBT (restore_bag -0.0003 XBT ~ -$19). otc_expected: in.otc есть, правки параметров его НЕ сбрасывают (история 16-20.07), но проверяется после каждой записи.",
+      "trigger": "btc_move_1h",
+      "move_pct_1h": 0.8,
+      "calm_hours": 4,
+      "min_abs_position": 5500,
+      "episode_maxQ": 100,
+      "quiet_maxQ": 300,
+      "restore_bag": -0.0003,
+      "otc_expected": true
+    }
   }
 }

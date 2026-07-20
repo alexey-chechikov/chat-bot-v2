@@ -4,14 +4,21 @@
 "РАСШИРИТЬ step/target"? Делай сам: +30% шаг и таргет при резком движении».
 
 Механика (всё доказано живьём ранее):
-- триггер: drift Stage >= 2 из alt_guard (state/alt_guard_state.json
-  drift_last — лестница Win, валидирована 10.06) + мешок из снапшотов
-  трекера. Никаких направленных прогнозов — только реакция на факт.
-- действие: gs и gap.tog ×(1+widen_pct/100) через set_params на ЖИВОМ
-  боте (без рестарта — доказано 10.06; extra_raw passthrough закрывает
-  урок 2026-05-17 с потерей `in`-блока).
-- откат: когда drift снят (stage 0) И мешок восстановился — возвращаем
-  ИСХОДНЫЕ параметры (сетка не остаётся широкой навсегда).
+- триггеры (per-bot "trigger" в конфиге):
+  * "drift" (DYN-боты): drift Stage >= 2 из alt_guard
+    (state/alt_guard_state.json drift_last — лестница Win, 10.06);
+  * "btc_move_1h" (BTC-LONG 5317457827, оператор 2026-07-20: «спокойно —
+    ордер до $300; сильное движение — ордер $100, шаг/таргет шире»):
+    |1ч-ход BTC| >= move_pct_1h из живых свечей market_1m.csv.
+  Никаких направленных прогнозов — только реакция на факт движения.
+- действие: gs и gap.tog ×(1+widen_pct/100); опционально q.maxQ →
+  episode_maxQ. Через set_params на ЖИВОМ боте (без рестарта — доказано
+  10.06; extra_raw passthrough закрывает урок 2026-05-17 с потерей `in`).
+- откат: успокоилось (drift 0 / BTC тихий calm_hours) И мешок
+  восстановился — возвращаем исходные gs/tog и quiet_maxQ.
+- otc-боты (otc_expected=true): правки параметров НЕ сбрасывают otcPassed
+  (история 16-20.07: 8 ручных правок maxQ пережиты), но после КАЖДОЙ
+  записи это проверяется — расхождение = rollback + freeze.
 - TG-пинг сообщает о СДЕЛАННОМ (событийное действие с деньгами, не совет).
 
 Безопасность (паттерн order_harvester):
@@ -39,10 +46,12 @@ JOURNAL_PATH = ROOT / "state" / "grid_autotune_journal.jsonl"
 FROZEN_PATH = ROOT / "state" / "grid_autotune_frozen.json"
 ALT_GUARD_STATE = ROOT / "state" / "alt_guard_state.json"
 SNAPSHOTS_CSV = ROOT / "ginarea_live" / "snapshots.csv"
+BTC_1M_CSV = ROOT / "market_live" / "market_1m.csv"
 
 POLL_INTERVAL_SEC = 60
 STATUS_ACTIVE = 2
 _SNAP_TAIL_BYTES = 2_000_000  # ~13 мин снапшотов всех ботов — хватает с запасом
+_BTC_STALE_MIN = 10.0         # свечи старше — триггер по цене не работаем
 
 DEFAULT_CONFIG = {
     # безопасный фолбэк: битый/пропавший конфиг = сервис молчит
@@ -122,9 +131,10 @@ def read_drift_stages(path: Path = ALT_GUARD_STATE) -> dict[str, int]:
 
 
 def read_bags(path: Path = SNAPSHOTS_CSV) -> dict[str, dict]:
-    """{bot_id: {bag, status}} из хвоста snapshots.csv (последняя строка бота).
-
-    Колонки: ts,bot_id,name,alias,status,position,profit,current_profit,..."""
+    """{bot_id: {bag, status, position}} из хвоста snapshots.csv (последняя
+    строка бота). position — в валюте бота (DYN: coin; BTC-LONG inverse: USD-
+    контракты, ~= нотионал). Колонки: ts,bot_id,name,alias,status,position,
+    profit,current_profit,..."""
     out: dict[str, dict] = {}
     try:
         with path.open("rb") as f:
@@ -142,11 +152,57 @@ def read_bags(path: Path = SNAPSHOTS_CSV) -> dict[str, dict]:
         try:
             bid = str(int(float(parts[1])))
             status = int(float(parts[4]))
+            position = float(parts[5])
             bag = float(parts[7]) - float(parts[6])
         except (ValueError, IndexError):
             continue
-        out[bid] = {"bag": bag, "status": status}  # последняя строка бота победит
+        # последняя строка бота победит
+        out[bid] = {"bag": bag, "status": status, "position": position}
     return out
+
+
+def read_btc_move(path: Path = BTC_1M_CSV, *, calm_hours: float = 4.0,
+                  now: datetime | None = None) -> dict | None:
+    """|1ч-движение| BTC сейчас и максимум за calm_hours, из market_1m.csv.
+
+    None = данные протухли (>10 мин) или их мало — по цене НЕ действуем."""
+    now = now or datetime.now(timezone.utc)
+    need_min = int(calm_hours * 60) + 61
+    closes: list[tuple[int, float]] = []
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - (need_min + 10) * 64))
+            chunk = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for ln in chunk.splitlines()[1:]:
+        parts = ln.split(",")
+        if len(parts) < 5:
+            continue
+        try:
+            ts = datetime.fromisoformat(parts[0]).timestamp()
+            closes.append((int(ts) // 60, float(parts[4])))
+        except (ValueError, IndexError):
+            continue
+    if len(closes) < 62:
+        return None
+    last_min, _ = closes[-1]
+    if (now.timestamp() / 60 - last_min) > _BTC_STALE_MIN:
+        return None
+    by_min = dict(closes)
+    moves = []
+    for m, px in closes:
+        prev = by_min.get(m - 60)
+        if prev:
+            moves.append((m, abs(px / prev - 1) * 100))
+    if not moves:
+        return None
+    calm_cut = last_min - int(calm_hours * 60)
+    window = [mv for m, mv in moves if m >= calm_cut]
+    return {"move_1h_pct": moves[-1][1],
+            "max_move_calm_pct": max(window) if window else moves[-1][1]}
 
 
 def _episodes_today(bot_id: str, today: str) -> int:
@@ -169,15 +225,28 @@ def _otc_safe(params) -> bool:
     return not ((params.extra_raw or {}).get("in") or {}).get("otc")
 
 
-def _set_and_verify(api, bot_id: str, params, want_gs: float,
-                    want_tog: float) -> bool:
-    """set_params → re-read → значения совпали, p=true, бот Active."""
+def _otc_passed(params) -> object:
+    return ((params.extra_raw or {}).get("in") or {}).get("otcPassed")
+
+
+def _set_and_verify(api, bot_id: str, params, want_gs: float, want_tog: float,
+                    want_maxq: float | None = None,
+                    want_otc_passed: object = None) -> bool:
+    """set_params → re-read → значения совпали, p=true, бот Active.
+
+    want_otc_passed: для otc-ботов (BTC-LONG) — otcPassed обязан остаться
+    каким был до записи (история 16-20.07: 8 правок maxQ его не трогали;
+    если наша запись поведёт себя иначе — стоп немедленно)."""
     api.set_params(int(bot_id), params)
     back = api.get_params(int(bot_id))
     if back.gs is None or back.gap.tog is None:
         return False
     ok = (abs(back.gs - want_gs) < 1e-9 and abs(back.gap.tog - want_tog) < 1e-9
           and bool(back.p))
+    if want_maxq is not None:
+        ok = ok and back.q.maxQ is not None and abs(back.q.maxQ - want_maxq) < 1e-9
+    if want_otc_passed is not None:
+        ok = ok and _otc_passed(back) == want_otc_passed
     try:
         ok = ok and int(api.get_bot(int(bot_id)).status) == STATUS_ACTIVE
     except Exception:
@@ -185,10 +254,14 @@ def _set_and_verify(api, bot_id: str, params, want_gs: float,
     return ok
 
 
-def apply_widen(api, bot_id: str, alias: str, factor: float, stage: int,
-                bag: float, send_fn=None) -> bool:
+def apply_widen(api, bot_id: str, alias: str, factor: float, stage,
+                bag: float, send_fn=None, bcfg: dict | None = None) -> bool:
+    bcfg = bcfg or {}
+    otc_expected = bool(bcfg.get("otc_expected"))
+    episode_maxq = bcfg.get("episode_maxQ")
+
     params = api.get_params(int(bot_id))
-    if not _otc_safe(params):
+    if not otc_expected and not _otc_safe(params):
         freeze("otc_guard: in.otc у бота — set_params опасен", {"bot_id": bot_id})
         if send_fn:
             send_fn(f"⚙️⛔️ Autotune ЗАМОРОЖЕН: у {alias} появился in.otc. "
@@ -202,22 +275,33 @@ def apply_widen(api, bot_id: str, alias: str, factor: float, stage: int,
     new_gs = round(params.gs * factor, 4)
     new_tog = round(params.gap.tog * factor, 4)
     params.gs, params.gap.tog = new_gs, new_tog
+    otc_before = _otc_passed(params) if otc_expected else None
+    new_maxq = None
+    if episode_maxq is not None and params.q.maxQ is not None:
+        orig["maxQ"] = params.q.maxQ
+        new_maxq = float(episode_maxq)
+        params.q.maxQ = new_maxq
 
-    base = {"bot_id": bot_id, "alias": alias, "orig": orig,
-            "gs": new_gs, "tog": new_tog, "stage": stage, "bag": round(bag, 1)}
+    base = {"bot_id": bot_id, "alias": alias, "orig": orig, "gs": new_gs,
+            "tog": new_tog, "maxQ": new_maxq, "trigger": stage,
+            "bag": round(bag, 4)}
     try:
-        if not _set_and_verify(api, bot_id, params, new_gs, new_tog):
+        if not _set_and_verify(api, bot_id, params, new_gs, new_tog,
+                               want_maxq=new_maxq,
+                               want_otc_passed=otc_before):
             raise RuntimeError("verify failed")
     except Exception as e:
         # откат на исходные и стоп-кран
         try:
             params.gs, params.gap.tog = orig["gs"], orig["tog"]
+            if "maxQ" in orig:
+                params.q.maxQ = orig["maxQ"]
             api.set_params(int(bot_id), params)
         except Exception:
             logger.exception("grid_autotune.rollback_failed bot=%s", bot_id)
         freeze(f"apply_verify_failed: {e}", base)
         if send_fn:
-            send_fn(f"⚙️🚨 КРИТИЧНО {alias}: расширение сетки НЕ прошло "
+            send_fn(f"⚙️🚨 КРИТИЧНО {alias}: правка сетки НЕ прошла "
                     f"верификацию ({e}) — откатил на gs={orig['gs']} "
                     f"tog={orig['tog']}, ПРОВЕРЬ бота в GinArea. "
                     "Autotune заморожен.")
@@ -230,23 +314,34 @@ def apply_widen(api, bot_id: str, alias: str, factor: float, stage: int,
     _write_active(active)
     _journal({"event": "APPLIED", **base})
     if send_fn:
-        send_fn(f"⚙️ АВТОШИРЕНИЕ {alias}: drift Stage {stage}, мешок {bag:+,.0f}$ "
-                f"→ сделал gs {orig['gs']}→{new_gs}, target {orig['tog']}→{new_tog} "
-                f"(+{round((factor - 1) * 100)}%). Бот работает, верну при "
-                "восстановлении мешка.")
+        qnote = (f", ордер {orig['maxQ']:g}→{new_maxq:g}$"
+                 if new_maxq is not None else "")
+        send_fn(f"⚙️ АВТОШИРЕНИЕ {alias}: {stage} → сделал "
+                f"gs {orig['gs']}→{new_gs}, target {orig['tog']}→{new_tog}"
+                f"{qnote}. Бот работает, верну при успокоении.")
     return True
 
 
 def restore_params(api, bot_id: str, alias: str, rec: dict, bag: float,
-                   send_fn=None) -> bool:
+                   send_fn=None, bcfg: dict | None = None) -> bool:
+    bcfg = bcfg or {}
+    otc_expected = bool(bcfg.get("otc_expected"))
     params = api.get_params(int(bot_id))
     orig = rec["orig"]
     cur = {"gs": params.gs, "tog": params.gap.tog}
     params.gs, params.gap.tog = orig["gs"], orig["tog"]
+    otc_before = _otc_passed(params) if otc_expected else None
+    want_maxq = None
+    if "maxQ" in orig:
+        # тихий размер: quiet_maxQ конфига (актуален) > исходный на момент эпизода
+        want_maxq = float(bcfg.get("quiet_maxQ", orig["maxQ"]))
+        params.q.maxQ = want_maxq
     base = {"bot_id": bot_id, "alias": alias, "from": cur, "to": orig,
-            "bag": round(bag, 1)}
+            "maxQ": want_maxq, "bag": round(bag, 4)}
     try:
-        if not _set_and_verify(api, bot_id, params, orig["gs"], orig["tog"]):
+        if not _set_and_verify(api, bot_id, params, orig["gs"], orig["tog"],
+                               want_maxq=want_maxq,
+                               want_otc_passed=otc_before):
             raise RuntimeError("verify failed")
     except Exception as e:
         freeze(f"restore_verify_failed: {e}", base)
@@ -262,8 +357,10 @@ def restore_params(api, bot_id: str, alias: str, rec: dict, bag: float,
     _write_active(active)
     _journal({"event": "RESTORED", **base})
     if send_fn:
-        send_fn(f"↩️ {alias}: мешок восстановился ({bag:+,.0f}$) → вернул "
-                f"gs {cur['gs']}→{orig['gs']}, target {cur['tog']}→{orig['tog']}.")
+        qnote = f", ордер обратно {want_maxq:g}$" if want_maxq is not None else ""
+        send_fn(f"↩️ {alias}: успокоилось (мешок {bag:+,.4g}) → вернул "
+                f"gs {cur['gs']}→{orig['gs']}, target {cur['tog']}→{orig['tog']}"
+                f"{qnote}.")
     return True
 
 
@@ -287,16 +384,37 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
     active = _read_active()
     factor = 1.0 + float(cfg.get("widen_pct", 30)) / 100.0
     trigger_stage = int(cfg.get("trigger_stage", 2))
-    restore_bag = float(cfg.get("restore_bag_usd", -20.0))
+    default_restore_bag = float(cfg.get("restore_bag_usd", -20.0))
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     actions = 0
+    btc_move = None       # лениво, один раз на тик
+    btc_move_read = False
 
     for bot_id, bcfg in bots.items():
         alias = bcfg.get("alias", bot_id)
         snap = bags.get(bot_id)
         if snap is None:
             continue
-        stage = drift.get(bot_id, 0)
+        trig_kind = bcfg.get("trigger", "drift")
+        restore_bag = float(bcfg.get("restore_bag", default_restore_bag))
+
+        # оценка триггера/успокоения
+        if trig_kind == "btc_move_1h":
+            if not btc_move_read:
+                btc_move = read_btc_move(
+                    calm_hours=float(bcfg.get("calm_hours", 4.0)))
+                btc_move_read = True
+            if btc_move is None:
+                continue  # цены протухли — по этому триггеру не действуем
+            thr = float(bcfg.get("move_pct_1h", 0.8))
+            fired = btc_move["move_1h_pct"] >= thr
+            calmed = btc_move["max_move_calm_pct"] < thr
+            trig_label = (f"BTC {btc_move['move_1h_pct']:.2f}%/1ч ≥ {thr}%")
+        else:
+            stage = drift.get(bot_id, 0)
+            fired = stage >= trigger_stage
+            calmed = stage == 0
+            trig_label = f"drift Stage {stage}, мешок {snap['bag']:+,.0f}$"
 
         if api is None:
             api = _cached_api()
@@ -304,17 +422,27 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
                 return actions
 
         if bot_id in active:
-            # эпизод открыт → ждём восстановления
-            if stage == 0 and snap["bag"] >= restore_bag \
+            # эпизод открыт → ждём успокоения
+            if calmed and snap["bag"] >= restore_bag \
                     and snap["status"] == STATUS_ACTIVE:
                 if restore_params(api, bot_id, alias, active[bot_id],
-                                  snap["bag"], send_fn=send_fn):
+                                  snap["bag"], send_fn=send_fn, bcfg=bcfg):
                     actions += 1
             continue
 
         # эпизод не открыт → ждём триггера
-        if stage < trigger_stage or snap["status"] != STATUS_ACTIVE:
+        if not fired or snap["status"] != STATUS_ACTIVE:
             continue
+        # ворота по размеру позиции (оператор 2026-07-20: BTC-LONG до ~$5-6k
+        # ещё «набирает позицию» — не трогаем, пока |поза| < min_abs_position).
+        # Гейт только на ВХОД в эпизод; восстановление выше не гейтится.
+        min_pos = float(bcfg.get("min_abs_position", 0) or 0)
+        if min_pos > 0:
+            pos = snap.get("position")
+            if pos is None or abs(pos) < min_pos:
+                _journal({"event": "SKIP_SMALL_POS", "bot_id": bot_id,
+                          "alias": alias, "position": pos, "min": min_pos})
+                continue
         if _episodes_today(bot_id, today) >= int(
                 cfg.get("max_episodes_per_day_per_bot", 2)):
             continue
@@ -323,8 +451,8 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
         if last is not None and (time.monotonic() - last) < gap:
             continue
 
-        if apply_widen(api, bot_id, alias, factor, stage, snap["bag"],
-                       send_fn=send_fn):
+        if apply_widen(api, bot_id, alias, factor, trig_label, snap["bag"],
+                       send_fn=send_fn, bcfg=bcfg):
             actions += 1
         _last_episode_mono[bot_id] = time.monotonic()
     return actions

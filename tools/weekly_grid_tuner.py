@@ -95,6 +95,58 @@ def classify_ping(g: pd.DataFrame, ts: datetime) -> str:
     return "истинный" if fwd["bag"].min() < bag0 - EF_TRUE_DELTA_USD else "ложный"
 
 
+PARAMS_CSV = ROOT / "ginarea_live" / "params.csv"
+GEOM_RATIO_WARN = 1.3   # размах/ширина выше — окно узко для волы символа
+
+
+def border_geometry(start: datetime, end: datetime) -> dict[str, dict]:
+    """{alias: {width_pct, so, day_range_pct, ratio}} из истории границ.
+
+    Границы border.from/to ездят за ценой → середина = прокси цены, ширина =
+    рабочий коридор. ratio = дневной размах цены / ширина коридора: >1.3 =
+    окно узко, грид постоянно догоняет тренд и усредняется против (ETH-урок
+    2026-07-20: ratio 2.0, транзит −644$). Правило: so ≈ ½ дневного размаха."""
+    import json as _json
+    out: dict[str, dict] = {}
+    try:
+        df = pd.read_csv(PARAMS_CSV, usecols=["ts_utc", "bot_id",
+                                              "raw_params_json"])
+    except Exception:
+        return out
+    df["ts_utc"] = pd.to_datetime(df["ts_utc"], format="ISO8601", utc=True,
+                                  errors="coerce")
+    df = df.dropna(subset=["ts_utc"])
+    df = df[(df["ts_utc"] >= start) & (df["ts_utc"] < end)]
+    df["bot_key"] = df["bot_id"].astype("Int64").astype(str)
+    df = df[df["bot_key"].isin(DYN)].sort_values("ts_utc")
+    for bid, g in df.groupby("bot_key"):
+        rec = []
+        for _, r in g.iterrows():
+            try:
+                p = _json.loads(r["raw_params_json"])
+            except Exception:
+                continue
+            b = p.get("border") or {}
+            f, t = b.get("from"), b.get("to")
+            if f and t and t > f:
+                rec.append({"ts": r["ts_utc"], "mid": (f + t) / 2,
+                            "width": t - f, "so": p.get("so")})
+        if not rec:
+            continue
+        h = pd.DataFrame(rec).set_index("ts").sort_index()
+        width_pct = ((h["width"]) / h["mid"] * 100).median()
+        daily = h["mid"].resample("1D")
+        day_range = ((daily.max() - daily.min()) / daily.mean() * 100).dropna()
+        dr = day_range.median()
+        out[DYN[bid]] = {
+            "width_pct": round(width_pct, 2),
+            "so": h["so"].iloc[-1],
+            "day_range_pct": round(dr, 2),
+            "ratio": round(dr / width_pct, 1) if width_pct else None,
+        }
+    return out
+
+
 def bot_metrics(g: pd.DataFrame, days: float) -> dict:
     if g.empty:
         return {}
@@ -118,10 +170,17 @@ def bot_metrics(g: pd.DataFrame, days: float) -> dict:
     }
 
 
-def proposals(alias: str, w: dict, b: dict, ef: list[str]) -> list[str]:
+def proposals(alias: str, w: dict, b: dict, ef: list[str],
+              geom: dict | None = None) -> list[str]:
     out: list[str] = []
     if not w:
         return ["нет данных за неделю"]
+    if geom and geom.get("ratio") and geom["ratio"] > GEOM_RATIO_WARN:
+        so = geom.get("so")
+        sugg = f" → so≈{geom['day_range_pct'] / 2:.2f} (½ размаха)" if so else ""
+        out.append(f"границы узки: размах/ширина {geom['ratio']} "
+                   f"(размах {geom['day_range_pct']}%/д vs коридор "
+                   f"{geom['width_pct']}%), so={so}{sugg}")
     if b:
         if b.get("worst_bag", 0) < -BAG_NOISE_USD and \
                 w["worst_bag"] < 2.0 * b["worst_bag"]:
@@ -170,6 +229,7 @@ def main() -> int:
 
     snaps = load_snapshots(min(base_start, week_start), week_end)
     pings = exit_fast_pings(week_start, week_end)
+    geom = border_geometry(week_start, week_end)
     base_days = (week_start - base_start).total_seconds() / 86400
     week_days = 7.0
 
@@ -198,7 +258,18 @@ def main() -> int:
                   f"{w['wrong_side_pct']:>6.1f} {w['wrong_side_mean']:>8.1f} "
                   f"{w['out_fills_per_day']:>5.1f} {w['not_active_pct']:>5.1f} "
                   f"{ef_str:>12s}")
-        all_props[alias] = proposals(alias, w, b, ef_cls)
+        all_props[alias] = proposals(alias, w, b, ef_cls, geom.get(alias))
+
+    if geom:
+        print("\nГЕОМЕТРИЯ ГРАНИЦ (размах/ширина >1.3 = окно узко для символа):")
+        gh = f"{'бот':9s} {'коридор%':>8s} {'so':>5s} {'размах/д%':>9s} {'размах/шир':>10s}"
+        print(gh)
+        for alias in DYN.values():
+            gg = geom.get(alias)
+            if gg:
+                flag = " ⚠️" if gg.get("ratio") and gg["ratio"] > GEOM_RATIO_WARN else ""
+                print(f"{alias:9s} {gg['width_pct']:>8.2f} {str(gg['so']):>5s} "
+                      f"{gg['day_range_pct']:>9.2f} {str(gg['ratio']):>10s}{flag}")
 
     print("\nПРЕДЛОЖЕНИЯ (оператор одобряет, бот сам НЕ применяет):")
     for alias, props in all_props.items():
