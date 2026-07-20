@@ -34,13 +34,22 @@ def _cfg(tmp=None, **over):
     gat.CONFIG_PATH.write_text(json.dumps(cfg), encoding="utf-8")
 
 
+def _real_params(gs, tog, maxq, extra):
+    """НАСТОЯЩИЙ DefaultGridParams (frozen+slots) — ловит FrozenInstanceError,
+    которую SimpleNamespace-фейк пропускал (баг 2026-07-21)."""
+    from services.ginarea_api.models import DefaultGridParams
+    d = {"gs": gs, "side": 3, "p": True, "obap": True,
+         "gap": {"tog": tog, "minS": 0.01, "maxS": 0.1},
+         "q": {"minQ": None, "maxQ": maxq, "qr": 1.1},
+         "tr": {"tr": 0}}
+    d.update(extra or {})
+    return DefaultGridParams.from_dict(d)
+
+
 class FakeAPI:
     def __init__(self, gs=0.1, tog=0.85, p=True, extra=None, status=2,
                  maxq=None):
-        self.params = SimpleNamespace(gs=gs, gap=SimpleNamespace(tog=tog),
-                                      p=p, extra_raw=extra or {},
-                                      q=SimpleNamespace(minQ=None, maxQ=maxq,
-                                                        qr=None))
+        self.params = _real_params(gs, tog, maxq, extra)
         self.status = status
         self.set_calls: list[tuple] = []
         self.set_raises = None
@@ -50,10 +59,14 @@ class FakeAPI:
         return self.params
 
     def set_params(self, bot_id, params):
+        maxq = params.q.maxQ
         self.set_calls.append((round(params.gs, 4), round(params.gap.tog, 4),
-                               params.q.maxQ))
+                               float(maxq) if maxq is not None else None))
         if self.flip_otc_on_set and (params.extra_raw or {}).get("in"):
-            params.extra_raw["in"]["otcPassed"] = False
+            # extra_raw — dict, общий с исходным инстансом; мутируем содержимое
+            params.extra_raw["in"] = dict(params.extra_raw["in"],
+                                          otcPassed=False)
+        self.params = params    # re-read вернёт записанное (как реальный API)
         if self.set_raises:
             raise self.set_raises
 

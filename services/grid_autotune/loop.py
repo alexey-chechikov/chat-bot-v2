@@ -31,6 +31,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import time
@@ -271,32 +272,39 @@ def apply_widen(api, bot_id: str, alias: str, factor: float, stage,
         _journal({"event": "SKIP_NO_PARAMS", "bot_id": bot_id, "alias": alias})
         return False
 
+    # DefaultGridParams — frozen dataclass: строим НОВЫЙ инстанс через replace,
+    # присваивание полей падает FrozenInstanceError (баг 2026-07-21, fail-safe).
     orig = {"gs": params.gs, "tog": params.gap.tog}
     new_gs = round(params.gs * factor, 4)
     new_tog = round(params.gap.tog * factor, 4)
-    params.gs, params.gap.tog = new_gs, new_tog
     otc_before = _otc_passed(params) if otc_expected else None
     new_maxq = None
+    new_q = params.q
     if episode_maxq is not None and params.q.maxQ is not None:
         orig["maxQ"] = params.q.maxQ
         new_maxq = float(episode_maxq)
-        params.q.maxQ = new_maxq
+        new_q = dataclasses.replace(params.q, maxQ=new_maxq)
+    new_params = dataclasses.replace(
+        params, gs=new_gs, gap=dataclasses.replace(params.gap, tog=new_tog),
+        q=new_q)
 
     base = {"bot_id": bot_id, "alias": alias, "orig": orig, "gs": new_gs,
             "tog": new_tog, "maxQ": new_maxq, "trigger": stage,
             "bag": round(bag, 4)}
     try:
-        if not _set_and_verify(api, bot_id, params, new_gs, new_tog,
+        if not _set_and_verify(api, bot_id, new_params, new_gs, new_tog,
                                want_maxq=new_maxq,
                                want_otc_passed=otc_before):
             raise RuntimeError("verify failed")
     except Exception as e:
-        # откат на исходные и стоп-кран
+        # откат на исходные (из captured params) и стоп-кран
         try:
-            params.gs, params.gap.tog = orig["gs"], orig["tog"]
-            if "maxQ" in orig:
-                params.q.maxQ = orig["maxQ"]
-            api.set_params(int(bot_id), params)
+            rb_q = (dataclasses.replace(params.q, maxQ=orig["maxQ"])
+                    if "maxQ" in orig else params.q)
+            rb = dataclasses.replace(
+                params, gs=orig["gs"],
+                gap=dataclasses.replace(params.gap, tog=orig["tog"]), q=rb_q)
+            api.set_params(int(bot_id), rb)
         except Exception:
             logger.exception("grid_autotune.rollback_failed bot=%s", bot_id)
         freeze(f"apply_verify_failed: {e}", base)
@@ -329,17 +337,20 @@ def restore_params(api, bot_id: str, alias: str, rec: dict, bag: float,
     params = api.get_params(int(bot_id))
     orig = rec["orig"]
     cur = {"gs": params.gs, "tog": params.gap.tog}
-    params.gs, params.gap.tog = orig["gs"], orig["tog"]
     otc_before = _otc_passed(params) if otc_expected else None
     want_maxq = None
+    new_q = params.q
     if "maxQ" in orig:
         # тихий размер: quiet_maxQ конфига (актуален) > исходный на момент эпизода
         want_maxq = float(bcfg.get("quiet_maxQ", orig["maxQ"]))
-        params.q.maxQ = want_maxq
+        new_q = dataclasses.replace(params.q, maxQ=want_maxq)
+    new_params = dataclasses.replace(
+        params, gs=orig["gs"],
+        gap=dataclasses.replace(params.gap, tog=orig["tog"]), q=new_q)
     base = {"bot_id": bot_id, "alias": alias, "from": cur, "to": orig,
             "maxQ": want_maxq, "bag": round(bag, 4)}
     try:
-        if not _set_and_verify(api, bot_id, params, orig["gs"], orig["tog"],
+        if not _set_and_verify(api, bot_id, new_params, orig["gs"], orig["tog"],
                                want_maxq=want_maxq,
                                want_otc_passed=otc_before):
             raise RuntimeError("verify failed")
