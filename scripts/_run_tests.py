@@ -24,6 +24,7 @@ TEST_DIRS = [
     "tests/services/pre_cascade_alert/",
     "tests/services/reports/",
     "tests/services/grid_coordinator/",
+    "tests/services/grid_autotune/",
 ]
 
 def main():

@@ -194,8 +194,9 @@ def test_drift_ladder_pings_on_transitions():
     assert not any("DRIFT" in a for a in alerts2)
 
 
-def test_drift_stage3_hourly_remind():
-    """Stage-3 (actionable) напоминается раз в час, не чаще."""
+def test_drift_stage3_remind_4h_not_hourly():
+    """2026-07-20 (ETH-эпизод = 96 пингов): Stage-3 напоминается раз в 4 часа.
+    Через 65 мин — молчит, через 4ч05м — напоминает."""
     from datetime import timedelta
     bots = {"4306550166": _slot("XRP", profit=10.0, cur=-120.0)}
     params = {"4306550166": _params()}
@@ -204,11 +205,16 @@ def test_drift_stage3_hourly_remind():
     kw = _base(bots, params)
     kw["drift"] = {"4306550166": (3, "ЗАКРЫТЬ", mx)}
     _a, state = evaluate(**kw)
-    # +65 мин той же Stage 3 → напоминание
+    # +65 мин той же Stage 3 → МОЛЧИТ (было: напоминание каждый час = спам)
     kw["state"] = state
     kw["now"] = NOW + timedelta(minutes=65)
-    a2, _ = evaluate(**kw)
-    assert any("DRIFT Stage 3" in a for a in a2)
+    a2, state = evaluate(**kw)
+    assert not any("DRIFT Stage 3" in a for a in a2)
+    # +4ч05м → напоминание
+    kw["state"] = state
+    kw["now"] = NOW + timedelta(hours=4, minutes=5)
+    a3, _ = evaluate(**kw)
+    assert any("DRIFT Stage 3" in a for a in a3)
 
 
 def test_drift_recover_to_healthy_pings_once():
@@ -220,7 +226,7 @@ def test_drift_recover_to_healthy_pings_once():
     kw = _base(bots, params)
     kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target ×2", mx2)}
     a1, state = evaluate(**kw)
-    assert any("Stage 2" in a and "БЕЗ рестарта" in a for a in a1)
+    assert any("Stage 2" in a and "автоширитель" in a for a in a1)
     # восстановился в healthy
     kw["state"] = state
     kw["drift"] = {"5617871752": (0, "healthy", dict(mx2, bag_pct=0.1, total=20.0))}

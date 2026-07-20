@@ -49,7 +49,7 @@ PUMP_MOVE_1H_PCT = 3.0        # XRP +3%/час → памп уже идёт
 CASCADE_FRESH_MIN = 5.0
 
 COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
-              "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 0.5,
+              "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 4.0,
               "idio": 2.0, "exitfast": 2.0}
 DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
 BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
@@ -255,14 +255,22 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             dl = state.setdefault("drift_last", {})
             rec = dl.get(bid)
             prev_stage = int(rec["stage"]) if rec else 0
+            # 2026-07-20: ETH-эпизод 14-16.07 дал 96 пингов за 3 дня — Stage-3
+            # напоминал каждый час И каждый отскок 2↔3 эмитил заново. Теперь
+            # любой Stage-3 эмит (переход или напоминание) не чаще раза в 4ч.
+            drift3_gap = COOLDOWN_H.get("drift3", 4.0) * 3600
             emit = False
             if rec is None:
                 emit = stage >= 1
             elif stage > prev_stage:
-                emit = True
+                if stage >= 3:
+                    last_emit = _parse_ts((rec or {}).get("emit_ts"))
+                    emit = not last_emit or (now - last_emit).total_seconds() >= drift3_gap
+                else:
+                    emit = True
             elif stage >= 3:
                 last_emit = _parse_ts((rec or {}).get("emit_ts"))
-                emit = bool(last_emit and (now - last_emit).total_seconds() >= 3600)
+                emit = bool(last_emit and (now - last_emit).total_seconds() >= drift3_gap)
             if emit:
                 icons = {1: "🟡", 2: "🟠", 3: "🔴"}
                 alerts.append(
@@ -270,10 +278,11 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                     f"   мешок {mx['bag']:+,.0f}$ ({mx['bag_pct']:.0%} SL) · "
                     f"поза-pin {mx['pos_pin']:.2f} · total {mx['total']:+,.0f}$"
                     f" · пригвождён<0 {mx.get('pinned_neg_min', 0):.0f}м"
-                    + ("\n   step/target ×2 меняются на живом боте БЕЗ рестарта "
-                       "(доказано 10.06)" if stage == 2 else "")
-                    + ("\n   Stage 3 = закрыть СЕЙЧАС, не ждать −175 на дне "
-                       "(дискриминатор: знак total + длительность, не глубина мешка)" if stage == 3 else ""))
+                    + ("\n   ⚙️ автоширитель сам сделает gs/target +30% "
+                       "(grid_autotune)" if stage == 2 else "")
+                    + ("\n   Stage 3: истор. 2/2 эпизода бот сам восстановился "
+                       "(SOL 26.06, ETH 14.07) — закрытие оба раза было бы "
+                       "фиксацией дна. Решение за тобой." if stage == 3 else ""))
                 dl[bid] = {"stage": stage, "emit_ts": now.isoformat(timespec="seconds")}
             elif stage != prev_stage:
                 # стадия сменилась, но не эмитим (спад) — обновляем без emit_ts-сброса

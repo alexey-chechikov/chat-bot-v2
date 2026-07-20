@@ -1,0 +1,18 @@
+{
+  "_note": "Grid Autotune (2026-07-20, запрос оператора: «делай сам, я не у ПК»): при drift Stage >= 2 (лестница Win из alt_guard, валидирована 10.06) автоматически расширяет gs и target бота на widen_pct% через set_params (живой бот, без рестарта - доказано 10.06). Откат к исходным при stage 0 и мешке >= restore_bag_usd. TG сообщает о СДЕЛАННОМ. Freeze-файл state/grid_autotune_frozen.json останавливает сервис.",
+  "enabled": true,
+  "widen_pct": 30,
+  "trigger_stage": 2,
+  "restore_bag_usd": -20.0,
+  "max_episodes_per_day_per_bot": 2,
+  "min_gap_between_episodes_sec": 7200,
+  "bots": {
+    "4499423673": {"alias": "BTC-DYN"},
+    "6233908669": {"alias": "ETH-DYN"},
+    "6116013349": {"alias": "SOL-DYN"},
+    "4643987212": {"alias": "XRP-DYN"},
+    "4922851123": {"alias": "LTC-DYN"},
+    "5085651183": {"alias": "BCH-DYN"},
+    "5288594904": {"alias": "LINK-DYN"}
+  }
+}
