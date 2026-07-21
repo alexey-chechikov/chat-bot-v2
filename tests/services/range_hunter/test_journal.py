@@ -98,9 +98,11 @@ def test_pending_signals_filter(tmp_path: Path) -> None:
     r3["user_action"] = "skipped"
     append_signal(r3, path=p)
 
+    # 2026-07-21: теневой учёт — pending = ВСЕ без исхода, а не только
+    # «placed» (кнопки не жмут → из 428 сигналов исход был записан у одного)
     pending = pending_signals(path=p)
-    assert len(pending) == 1
-    assert pending[0]["signal_id"] == "rh_1"
+    assert [r["signal_id"] for r in pending] == ["rh_1", "rh_3"]
+    assert all(r.get("exit_reason") is None for r in pending)
 
 
 def test_update_record(tmp_path: Path) -> None:

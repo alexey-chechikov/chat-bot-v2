@@ -148,6 +148,7 @@ def check_and_emit(*, send_fn: Optional[Callable] = None,
 
 # BitMEX taker fee (linear XBTUSDT)
 TAKER_FEE_PCT = 0.075
+MAKER_REBATE_PCT = 0.04    # XBTUSDT linear: мейкер получает ребейт 0.04%/сторону
 
 
 def evaluate_outcome(record: dict, df: pd.DataFrame, *,
@@ -232,6 +233,11 @@ def evaluate_outcome(record: dict, df: pd.DataFrame, *,
         gross = size_usd * (entry - exit_price) / entry
     fees = size_usd * (TAKER_FEE_PCT / 100.0) * 2.0
     pnl_usd = gross - fees
+    # «Что было бы мейкером» — карточка велит Market (тейкер) по $1.50/сделку
+    # при среднем брутто ~$0.5, т.е. способ исполнения решает экономику семьи.
+    # ВЕРХНЯЯ ГРАНИЦА: те же входы/выходы, но по мейкер-ребейту; риск
+    # неисполнения лимитки (adverse selection) здесь НЕ учтён.
+    maker_fees = -size_usd * (MAKER_REBATE_PCT / 100.0) * 2.0
 
     return {
         "exit_ts": exit_ts.isoformat(timespec="seconds"),
@@ -240,6 +246,7 @@ def evaluate_outcome(record: dict, df: pd.DataFrame, *,
         "pnl_usd": round(pnl_usd, 2),          # НЕТТО: комиссии уже вычтены
         "gross_usd": round(gross, 2),
         "fees_usd": round(fees, 2),
+        "pnl_maker_usd": round(gross - maker_fees, 2),  # верхняя граница
         "tracked_as": ("placed" if record.get("user_action") == "placed"
                        else "shadow"),
     }

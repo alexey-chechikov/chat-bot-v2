@@ -60,11 +60,17 @@ def summarize(transition: str | None = None, *,
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     loss_sum = abs(sum(losses))
+    maker = [float(r["pnl_maker_usd"]) for r in rows
+             if r.get("pnl_maker_usd") is not None]
     return {
         "n": n,
         "wr_pct": round(len(wins) / n * 100, 0),
         "pf": round(sum(wins) / loss_sum, 2) if loss_sum else None,
         "total_usd": round(sum(pnls), 1),
+        # «если бы те же сделки шли мейкером» — верхняя граница, риск
+        # неисполнения лимитки не учтён
+        "total_maker_usd": round(sum(maker), 1) if maker else None,
+        "n_maker": len(maker),
     }
 
 

@@ -42,7 +42,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-JOURNAL_PATH = Path("state/range_hunter_signals.jsonl")
+# 2026-07-21: путь был ОТНОСИТЕЛЬНЫМ — в проде работал (cwd=bot7), но любой
+# инструмент из другой директории молча читал пустой журнал, а запись создала
+# бы второй файл в чужом месте (тот же дефект был в session_breakout).
+ROOT = Path(__file__).resolve().parents[2]
+JOURNAL_PATH = ROOT / "state" / "range_hunter_signals.jsonl"
 
 
 def journal_path_for(symbol: str, variant: str = "1m") -> Path:
@@ -195,9 +199,15 @@ def mark_hedge_action(signal_id: str, action: str, *,
 
 
 def pending_signals(*, path: Path = JOURNAL_PATH) -> list[dict]:
-    """Signals which user PLACED but outcome not yet evaluated."""
+    """Сигналы без записанного исхода — ВСЕ, не только «placed».
+
+    2026-07-21: раньше фильтр был user_action=="placed"; оператор кнопки не
+    жмёт → из 428 сигналов (BTC+ETH+XRP) исход записан ровно у ОДНОГО, и
+    живой статистики у семьи не было. Теперь считаем все (теневой учёт),
+    различая tracked_as; TG-подсказки хеджа по-прежнему только для placed.
+    """
     rows = read_all(path=path)
-    return [r for r in rows if r.get("user_action") == "placed" and r.get("exit_reason") is None]
+    return [r for r in rows if r.get("exit_reason") is None]
 
 
 def summarize(*, path: Path = JOURNAL_PATH, min_n: int = 5) -> dict:

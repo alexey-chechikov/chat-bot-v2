@@ -546,6 +546,9 @@ def check_outcomes(*, csv_path: Path = MARKET_1M_CSV,
     for rec in pendings:
         upd = evaluate_outcome(rec, df, now=now)
         if upd is not None:
+            # теневой vs реально размещённый — чтобы позже разделить статистику
+            upd["tracked_as"] = ("placed" if rec.get("user_action") == "placed"
+                                 else "shadow")
             update_record(rec["signal_id"], upd, path=journal_path)
             n_resolved += 1
             logger.info("range_hunter.outcome id=%s reason=%s pnl=%s",
