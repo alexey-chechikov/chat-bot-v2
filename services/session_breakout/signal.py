@@ -271,6 +271,13 @@ def format_tg_card(sig: SessionBreakoutSignal, *,
         f"  Size:  ${sig.size_usd:,.0f} (RR 1:{(tp_usd/max(sl_usd,1)):.1f})",
         "",
         f"⏱ Hold до {expiry_str} (+{sig.hold_h}h) или TP/SL раньше",
-        f"📊 Backtest: PF 1.85, WR 56%, 4/4 folds positive (N=1833 за 2y)",
     ]
+    # 2026-07-21: статичная строка «Backtest PF 1.85, WR 56% (N=1833 за 2y)»
+    # печаталась как живой эдж 2 месяца, пока живые 40 сигналов давали WR 48%
+    # / PF 1.21 (нетто минус после комиссий). Теперь — только свои исходы.
+    try:
+        from services.session_breakout.stats import live_line
+        lines.append(live_line(sig.transition))
+    except Exception:
+        lines.append("📊 Живой эдж: статистика недоступна")
     return "\n".join(lines)

@@ -189,7 +189,7 @@ def test_prior_map_covers_all_sessions():
     assert PRIOR_OF["london"] == "asia"
 
 
-def test_format_tg_card_contains_key_fields():
+def test_format_tg_card_contains_key_fields(monkeypatch):
     df = _df_from_prices({
         4: (80400, 80200, 80300),
         5: (80350, 79800, 79900),
@@ -197,9 +197,15 @@ def test_format_tg_card_contains_key_fields():
         8: (80500, 80050, 80450),
     })
     sig = compute_signal(df, now=_ts(8, 10))
+    # 2026-07-21: карточка печатает ЖИВОЙ эдж из своего журнала вместо мёртвой
+    # строки «Backtest PF 1.85» — изолируем от боевого журнала
+    import services.session_breakout.stats as sb_stats
+    monkeypatch.setattr(sb_stats, "live_line",
+                        lambda t, **kw: f"📊 Живой эдж [{t}]: WR 69%, PF 1.86 (n=13)")
     text = format_tg_card(sig)
     assert "SESSION BREAKOUT" in text
     assert "asia_to_london" in text
     assert "BUY" in text  # long
     assert "$80,450" in text or "$80,400" in text
-    assert "Backtest" in text
+    assert "Живой эдж" in text and "n=13" in text
+    assert "Backtest" not in text      # мёртвая строка удалена

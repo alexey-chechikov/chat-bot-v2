@@ -38,7 +38,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-JOURNAL_PATH = Path("state/session_breakout_signals.jsonl")
+# 2026-07-21: путь был ОТНОСИТЕЛЬНЫМ — в проде работал (cwd=bot7), но любой
+# скрипт/инструмент из другой директории молча читал пустой журнал, а
+# append_signal создал бы второй файл в чужом месте. Абсолютный, как везде.
+ROOT = Path(__file__).resolve().parents[2]
+JOURNAL_PATH = ROOT / "state" / "session_breakout_signals.jsonl"
 
 
 def signal_id_from_ts(ts: datetime, side: str) -> str:

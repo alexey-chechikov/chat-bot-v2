@@ -123,13 +123,19 @@ def check_and_emit(*, send_fn: Optional[Callable] = None,
     }
     append_signal(record, path=journal_path)
 
-    if send_fn is not None:
+    # Фильтр переходов (оператор 2026-07-21: «оставляй лондон») — остальные
+    # копятся в журнал молча и получают исход теневым учётом.
+    from services.session_breakout.stats import tg_allowed
+    if send_fn is not None and tg_allowed(sig.transition):
         expiry = now + timedelta(hours=sig.hold_h)
         try:
             text = format_tg_card(sig, expiry_ts=expiry)
             send_fn(text, reply_markup=_build_keyboard(record["signal_id"]))
         except Exception:
             logger.exception("session_breakout.send_failed")
+    elif send_fn is not None:
+        logger.info("session_breakout.silent_journal transition=%s (TG-фильтр)",
+                    sig.transition)
 
     logger.info("session_breakout.signal side=%s transition=%s entry=%.0f stop=%.0f tp=%.0f",
                 sig.side, sig.transition, sig.entry, sig.stop, sig.tp)
@@ -156,9 +162,10 @@ def evaluate_outcome(record: dict, df: pd.DataFrame, *,
         ts_sig = datetime.fromisoformat(record["ts_signal"])
     except (KeyError, ValueError):
         return None
-    if record.get("user_action") != "placed":
-        return None
-
+    # 2026-07-21: раньше исход считался ТОЛЬКО для user_action=="placed" —
+    # оператор кнопки не жмёт, поэтому за 2 месяца не записалось ни одного
+    # исхода и у семьи не было живой статистики. Теперь считаем ВСЕ сигналы
+    # (теневой учёт), различая их полем tracked_as.
     placed_at = record.get("placed_at")
     if placed_at:
         try:
@@ -230,7 +237,11 @@ def evaluate_outcome(record: dict, df: pd.DataFrame, *,
         "exit_ts": exit_ts.isoformat(timespec="seconds"),
         "exit_reason": exit_reason,
         "exit_price": round(float(exit_price), 2),
-        "pnl_usd": round(pnl_usd, 2),
+        "pnl_usd": round(pnl_usd, 2),          # НЕТТО: комиссии уже вычтены
+        "gross_usd": round(gross, 2),
+        "fees_usd": round(fees, 2),
+        "tracked_as": ("placed" if record.get("user_action") == "placed"
+                       else "shadow"),
     }
 
 
@@ -239,9 +250,9 @@ def check_outcomes(*, csv_path: Path = MARKET_1M_CSV,
                    send_fn: Optional[Callable] = None) -> int:
     """Check pending placed signals, update outcomes. Returns count updated."""
     rows = read_all(path=journal_path)
-    pending = [r for r in rows
-               if r.get("user_action") == "placed"
-               and r.get("exit_reason") is None]
+    # ВСЕ незакрытые сигналы, не только «placed» (теневой учёт — оператор
+    # 2026-07-21: «веди статистику, накопишь — подведём итоги»)
+    pending = [r for r in rows if r.get("exit_reason") is None]
     if not pending:
         return 0
     df = _load_recent_1m(needed_hours=12, csv_path=csv_path)
@@ -254,7 +265,9 @@ def check_outcomes(*, csv_path: Path = MARKET_1M_CSV,
             continue
         update_record(r["signal_id"], upd, path=journal_path)
         updated += 1
-        if send_fn is not None:
+        # TG — только по реально размещённым; теневые копятся молча
+        # (бюджет шума: 40 сигналов за 2 мес = 40 лишних сообщений)
+        if send_fn is not None and upd.get("tracked_as") == "placed":
             try:
                 msg = (f"📊 Session Breakout exit [{r['transition']} {r['side'].upper()}]\n"
                        f"  reason: {upd['exit_reason']}  exit: ${upd['exit_price']:,.2f}\n"
