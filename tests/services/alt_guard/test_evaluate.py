@@ -226,7 +226,7 @@ def test_drift_recover_to_healthy_pings_once():
     kw = _base(bots, params)
     kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target ×2", mx2)}
     a1, state = evaluate(**kw)
-    assert any("Stage 2" in a and "автоширитель" in a for a in a1)
+    assert any("Stage 2" in a and "сам сделает" in a for a in a1)
     # восстановился в healthy
     kw["state"] = state
     kw["drift"] = {"5617871752": (0, "healthy", dict(mx2, bag_pct=0.1, total=20.0))}
@@ -280,3 +280,19 @@ def test_managed_and_non_dynamic_ignored():
     params = {"6287583200": _params(side="2"), "5403878196": _params(side="2")}
     alerts, _ = evaluate(**_base(bots, params))
     assert alerts == []
+
+
+def test_drift_stage2_says_already_widened_when_episode_open(monkeypatch):
+    """2026-07-21: при откате 2->1->2 пинг повторно обещал «сделает +30%»,
+    хотя сетка уже расширена. Теперь текст честный."""
+    import services.alt_guard.loop as al
+    monkeypatch.setattr(al, "_autotune_active", lambda bid: True)
+    bots = {"5617871752": _slot("WLD", profit=50.0, cur=-52.0)}
+    params = {"5617871752": _params()}
+    mx = {"bag_pct": 0.58, "pos_pin": 1.0, "bag": -102.0, "total": -68.0,
+          "bag_accel": -9.0, "pinned_neg_min": 30}
+    kw = _base(bots, params)
+    kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target x2", mx)}
+    alerts, _ = evaluate(**kw)
+    assert any("уже расширен" in a for a in alerts)
+    assert not any("сам сделает" in a for a in alerts)

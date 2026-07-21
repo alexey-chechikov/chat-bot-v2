@@ -278,8 +278,10 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                     f"   мешок {mx['bag']:+,.0f}$ ({mx['bag_pct']:.0%} SL) · "
                     f"поза-pin {mx['pos_pin']:.2f} · total {mx['total']:+,.0f}$"
                     f" · пригвождён<0 {mx.get('pinned_neg_min', 0):.0f}м"
-                    + ("\n   ⚙️ автоширитель сам сделает gs/target +30% "
-                       "(grid_autotune)" if stage == 2 else "")
+                    + (("\n   ⚙️ автоширитель: уже расширен, жду восстановления"
+                        if _autotune_active(bid) else
+                        "\n   ⚙️ автоширитель сам сделает gs/target +30% "
+                        "(grid_autotune)") if stage == 2 else "")
                     + ("\n   Stage 3: истор. 2/2 эпизода бот сам восстановился "
                        "(SOL 26.06, ETH 14.07) — закрытие оба раза было бы "
                        "фиксацией дна. Решение за тобой." if stage == 3 else ""))
@@ -482,6 +484,18 @@ def _bot_symbol(name: str) -> str | None:
     """Имя бота → BitMEX-символ: 'SOL' → SOLUSDT. Кастомные имена — пропуск."""
     tok = "".join(ch for ch in (name or "").split()[0] if ch.isalpha()).upper() if name else ""
     return f"{tok}USDT" if 2 <= len(tok) <= 6 else None
+
+
+def _autotune_active(bot_id: str) -> bool:
+    """Открыт ли у бота эпизод расширения (grid_autotune). 2026-07-21:
+    Stage-2 повторно эмитится при откате 2→1→2, и пинг второй раз обещал
+    «сделает +30%», хотя сетка уже расширена — эпизод один на бота."""
+    try:
+        data = json.loads(
+            (ROOT / "state" / "grid_autotune_active.json").read_text(encoding="utf-8"))
+        return str(bot_id) in data
+    except Exception:
+        return False
 
 
 def _assess_exitfast(snap: dict, params: dict, managed_ids: set[str]) -> dict[str, tuple]:
