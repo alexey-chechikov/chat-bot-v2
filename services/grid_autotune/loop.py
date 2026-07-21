@@ -148,7 +148,7 @@ def read_bags(path: Path = SNAPSHOTS_CSV) -> dict[str, dict]:
         return out
     for ln in chunk.splitlines()[1:]:
         parts = ln.split(",")
-        if len(parts) < 8:
+        if len(parts) < 19:      # полная схема; иначе поля съехали — не гадаем
             continue
         try:
             bid = str(int(float(parts[1])))
@@ -157,8 +157,15 @@ def read_bags(path: Path = SNAPSHOTS_CSV) -> dict[str, dict]:
             bag = float(parts[7]) - float(parts[6])
         except (ValueError, IndexError):
             continue
+        try:
+            avg_price = float(parts[14])
+        except (ValueError, IndexError):
+            avg_price = None
+        notional = (abs(position) * avg_price
+                    if avg_price and avg_price > 0 else None)
         # последняя строка бота победит
-        out[bid] = {"bag": bag, "status": status, "position": position}
+        out[bid] = {"bag": bag, "status": status, "position": position,
+                    "avg_price": avg_price, "notional": notional}
     return out
 
 
@@ -444,15 +451,28 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
         # эпизод не открыт → ждём триггера
         if not fired or snap["status"] != STATUS_ACTIVE:
             continue
-        # ворота по размеру позиции (оператор 2026-07-20: BTC-LONG до ~$5-6k
-        # ещё «набирает позицию» — не трогаем, пока |поза| < min_abs_position).
+        # ворота по размеру позиции: пока бот «не набрал» — не трогаем.
         # Гейт только на ВХОД в эпизод; восстановление выше не гейтится.
+        #  * min_abs_position — в единицах position (BTC-LONG inverse: контракты
+        #    = USD; оператор 2026-07-20: до ~$5-6k не трогать);
+        #  * min_notional_usd — |поза| × avg_price (DYN: позиция в МОНЕТАХ;
+        #    оператор 2026-07-21: альты $2000, ETH $3000). Проверено на неделе:
+        #    в минуты худшего мешка нотионал был выше порогов у всех 7 ботов —
+        #    гейт режет холостые срабатывания, не реальные эпизоды.
         min_pos = float(bcfg.get("min_abs_position", 0) or 0)
         if min_pos > 0:
             pos = snap.get("position")
             if pos is None or abs(pos) < min_pos:
                 _journal({"event": "SKIP_SMALL_POS", "bot_id": bot_id,
                           "alias": alias, "position": pos, "min": min_pos})
+                continue
+        min_notional = float(bcfg.get("min_notional_usd", 0) or 0)
+        if min_notional > 0:
+            notional = snap.get("notional")
+            if notional is None or notional < min_notional:
+                _journal({"event": "SKIP_SMALL_POS", "bot_id": bot_id,
+                          "alias": alias, "notional": notional,
+                          "min_usd": min_notional})
                 continue
         if _episodes_today(bot_id, today) >= int(
                 cfg.get("max_episodes_per_day_per_bot", 2)):

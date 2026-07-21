@@ -134,15 +134,21 @@ def border_geometry(start: datetime, end: datetime) -> dict[str, dict]:
         if not rec:
             continue
         h = pd.DataFrame(rec).set_index("ts").sort_index()
-        width_pct = ((h["width"]) / h["mid"] * 100).median()
+        wser = (h["width"]) / h["mid"] * 100
+        # ratio считаем по ТЕКУЩЕМУ коридору, а не по медиане недели: после
+        # правки so медиана мешает старый и новый режим и врёт (урок
+        # 2026-07-21 — ETH показывал 1.00% при фактических 1.50%).
+        width_now = wser.iloc[-1]
+        width_med = wser.median()
         daily = h["mid"].resample("1D")
         day_range = ((daily.max() - daily.min()) / daily.mean() * 100).dropna()
         dr = day_range.median()
         out[DYN[bid]] = {
-            "width_pct": round(width_pct, 2),
+            "width_pct": round(width_now, 2),
+            "width_med_pct": round(width_med, 2),
             "so": h["so"].iloc[-1],
             "day_range_pct": round(dr, 2),
-            "ratio": round(dr / width_pct, 1) if width_pct else None,
+            "ratio": round(dr / width_now, 1) if width_now else None,
         }
     return out
 
@@ -261,14 +267,16 @@ def main() -> int:
         all_props[alias] = proposals(alias, w, b, ef_cls, geom.get(alias))
 
     if geom:
-        print("\nГЕОМЕТРИЯ ГРАНИЦ (размах/ширина >1.3 = окно узко для символа):")
-        gh = f"{'бот':9s} {'коридор%':>8s} {'so':>5s} {'размах/д%':>9s} {'размах/шир':>10s}"
+        print("\nГЕОМЕТРИЯ ГРАНИЦ (размах/ширина >1.3 = окно узко; коридор — ТЕКУЩИЙ):")
+        gh = (f"{'бот':9s} {'коридор%':>8s} {'(мед)':>6s} {'so':>5s} "
+              f"{'размах/д%':>9s} {'размах/шир':>10s}")
         print(gh)
         for alias in DYN.values():
             gg = geom.get(alias)
             if gg:
                 flag = " ⚠️" if gg.get("ratio") and gg["ratio"] > GEOM_RATIO_WARN else ""
-                print(f"{alias:9s} {gg['width_pct']:>8.2f} {str(gg['so']):>5s} "
+                print(f"{alias:9s} {gg['width_pct']:>8.2f} "
+                      f"{gg['width_med_pct']:>6.2f} {str(gg['so']):>5s} "
                       f"{gg['day_range_pct']:>9.2f} {str(gg['ratio']):>10s}{flag}")
 
     print("\nПРЕДЛОЖЕНИЯ (оператор одобряет, бот сам НЕ применяет):")

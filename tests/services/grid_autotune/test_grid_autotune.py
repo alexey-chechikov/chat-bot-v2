@@ -300,14 +300,74 @@ def test_read_btc_move_from_csv(tmp_path):
     assert old is None
 
 
-def test_read_bags_parses_snapshot_tail(tmp_path, monkeypatch):
+def test_notional_gate_blocks_small_position(tmp_path):
+    """Оператор 2026-07-21: альты — только от $2000 нотионала.
+    16.5 BCH × $100 = $1650 < $2000 → не трогаем."""
+    _cfg(bots={"42": {"alias": "BCH-DYN", "min_notional_usd": 2000}})
+    api = FakeAPI()
+    n = gat.tick(api=api, drift={"42": 3},
+                 bags={"42": {"bag": -150.0, "status": 2, "position": 16.5,
+                              "notional": 1650.0}})
+    assert n == 0
+    assert not api.set_calls
+    assert "SKIP_SMALL_POS" in _events()
+
+
+def test_notional_gate_allows_loaded_position(tmp_path):
+    """16.5 BCH × $226 = $3730 >= $2000 → расширяем."""
+    _cfg(bots={"42": {"alias": "BCH-DYN", "min_notional_usd": 2000}})
+    api = FakeAPI()
+    n = gat.tick(api=api, drift={"42": 3},
+                 bags={"42": {"bag": -150.0, "status": 2, "position": 16.5,
+                              "notional": 3730.0}})
+    assert n == 1
+    assert api.set_calls == [(0.13, 1.105, None)]
+
+
+def test_notional_gate_missing_price_is_failsafe(tmp_path):
+    """Нет avg_price → нотионал неизвестен → вслепую не действуем."""
+    _cfg(bots={"42": {"alias": "BCH-DYN", "min_notional_usd": 2000}})
+    api = FakeAPI()
+    assert gat.tick(api=api, drift={"42": 3},
+                    bags={"42": {"bag": -150.0, "status": 2, "position": 16.5,
+                                 "notional": None}}) == 0
+    assert not api.set_calls
+
+
+def test_read_bags_computes_notional(tmp_path):
+    """avg_price (поле 14) → нотионал = |поза| × цена."""
     csv = tmp_path / "snaps.csv"
+    head = ("ts_utc,bot_id,bot_name,alias,status,position,profit,"
+            "current_profit,in_c,in_q,out_c,out_q,tr_c,tr_q,average_price,"
+            "trade_volume,balance,liq,schema\n")
     csv.write_text(
-        "ts_utc,bot_id,bot_name,alias,status,position,profit,current_profit,x\n"
-        "2026-07-20T10:00:00+00:00,42,ETH,E,2,-1.5,100.0,40.0,z\n"
-        "2026-07-20T10:01:00+00:00,42,ETH,E,2,-1.5,100.0,55.0,z\n",
+        head +
+        "2026-07-20T10:01:00+00:00,42,BCH,B,2,16.5,100.0,55.0,1,,1,,0,,226.0,"
+        "1000,500,0,3\n", encoding="utf-8")
+    bags = gat.read_bags(csv)
+    assert abs(bags["42"]["avg_price"] - 226.0) < 1e-9
+    assert abs(bags["42"]["notional"] - 3729.0) < 1e-6
+    assert abs(bags["42"]["bag"] - (-45.0)) < 1e-9
+
+
+def test_read_bags_parses_snapshot_tail(tmp_path):
+    """Последняя строка бота побеждает; неполная схема (съехали поля) —
+    отбраковывается, вслепую не парсим."""
+    csv = tmp_path / "snaps.csv"
+    head = ("ts_utc,bot_id,bot_name,alias,status,position,profit,"
+            "current_profit,in_c,in_q,out_c,out_q,tr_c,tr_q,average_price,"
+            "trade_volume,balance,liq,schema\n")
+    csv.write_text(
+        head +
+        "2026-07-20T10:00:00+00:00,42,ETH,E,2,-1.5,100.0,40.0,1,,1,,0,,1800,"
+        "1000,500,0,3\n"
+        "2026-07-20T10:01:00+00:00,42,ETH,E,2,-1.5,100.0,55.0,1,,1,,0,,1800,"
+        "1000,500,0,3\n"
+        "2026-07-20T10:02:00+00:00,99,BAD,B,2,-1.5,100.0,55.0\n",  # обрезана
         encoding="utf-8")
     bags = gat.read_bags(csv)
     assert bags["42"]["status"] == 2
     assert abs(bags["42"]["bag"] - (-45.0)) < 1e-9    # последняя строка бота
     assert abs(bags["42"]["position"] - (-1.5)) < 1e-9
+    assert abs(bags["42"]["notional"] - 2700.0) < 1e-6
+    assert "99" not in bags                           # битую строку пропустили
