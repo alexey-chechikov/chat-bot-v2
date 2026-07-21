@@ -62,6 +62,10 @@ def summarize(transition: str | None = None, *,
     loss_sum = abs(sum(losses))
     maker = [float(r["pnl_maker_usd"]) for r in rows
              if r.get("pnl_maker_usd") is not None]
+    # честная мейкер-симуляция: сделки, где лимитку РЕАЛЬНО налили
+    real = [float(r["pnl_maker_real_usd"]) for r in rows
+            if r.get("maker_filled") and r.get("pnl_maker_real_usd") is not None]
+    n_eval = sum(1 for r in rows if r.get("maker_filled") is not None)
     return {
         "n": n,
         "wr_pct": round(len(wins) / n * 100, 0),
@@ -71,6 +75,13 @@ def summarize(transition: str | None = None, *,
         # неисполнения лимитки не учтён
         "total_maker_usd": round(sum(maker), 1) if maker else None,
         "n_maker": len(maker),
+        # честно: только реально налитые лимитки
+        "n_maker_filled": len(real),
+        "maker_fill_rate_pct": (round(len(real) / n_eval * 100, 0)
+                                if n_eval else None),
+        "total_maker_real_usd": round(sum(real), 1) if real else None,
+        "maker_wr_pct": (round(sum(1 for p in real if p > 0) / len(real) * 100, 0)
+                         if real else None),
     }
 
 

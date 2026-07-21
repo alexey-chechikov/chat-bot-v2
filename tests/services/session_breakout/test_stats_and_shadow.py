@@ -130,3 +130,27 @@ def test_live_line_reports_no_data(tmp_path):
     empty.write_text("", encoding="utf-8")
     line = sb_stats.live_line("london_to_ny_am", path=empty)
     assert "данных пока нет" in line
+
+
+def test_maker_sim_no_fill_when_price_runs_away():
+    """Честная мейкер-симуляция: цена ушла от уровня → лимитку не налили."""
+    from services.session_breakout.loop import simulate_maker
+    # шорт с входом 65000; цена сразу падает и НЕ возвращается к 65000
+    df = _bars([(m, 64900 - m, 64800 - m, 64850 - m) for m in range(1, 40)])
+    out = simulate_maker(_rec(), df, T0, T0 + timedelta(hours=3))
+    assert out["maker_filled"] is False
+    assert out["pnl_maker_real_usd"] is None
+
+
+def test_maker_sim_fills_on_retrace_and_uses_rebate():
+    """Цена вернулась к уровню → налив; вход мейкером (ребейт), выход тейкером."""
+    from services.session_breakout.loop import simulate_maker
+    bars = [(1, 64900, 64800, 64850),      # ушла вниз
+            (2, 65010, 64950, 65000),      # вернулась к 65000 → налив шорта
+            (3, 64500, 64400, 64415)]      # дошла до TP 64415
+    df = _bars(bars)
+    out = simulate_maker(_rec(), df, T0, T0 + timedelta(hours=3))
+    assert out["maker_filled"] is True
+    assert out["maker_exit_reason"] == "tp_hit"
+    # комиссии = тейкер-выход 0.075% минус мейкер-ребейт 0.04% = 0.035% -> $0.35
+    assert out["pnl_maker_real_usd"] > 0

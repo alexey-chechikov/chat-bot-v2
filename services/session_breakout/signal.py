@@ -264,6 +264,13 @@ def format_tg_card(sig: SessionBreakoutSignal, *,
         f"Prior {sig.prior_session}: H=${sig.prior_high:,.2f} / L=${sig.prior_low:,.2f}",
         f"Broken level: ${sig.breakout_level:,.2f}",
         "",
+        # 2026-07-21: пробовали заменить на maker-limit (наивный расчёт обещал
+        # +$55.7 вместо +$25.8 по Лондону). Честная симуляция с проверкой
+        # налива ОПРОВЕРГЛА: лимитка не наливается в 23% случаев, и не
+        # наливаются именно уехавшие=прибыльные — классический adverse
+        # selection. Лондон мейкером: 10 сделок +$21.0 против 13 сделок
+        # +$25.8 тейкером. Оставляем Market; мейкер-колонки продолжают
+        # считаться в журнале — вернёмся к вопросу на n=30.
         f"📋 Market {'BUY' if sig.side == 'long' else 'SELL'} {sig.contract}:",
         f"  Entry: ${sig.entry:,.2f}",
         f"  Stop:  ${sig.stop:,.2f}  (≈${sl_usd:.0f} risk)",

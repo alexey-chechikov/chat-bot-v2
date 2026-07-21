@@ -149,6 +149,76 @@ def check_and_emit(*, send_fn: Optional[Callable] = None,
 # BitMEX taker fee (linear XBTUSDT)
 TAKER_FEE_PCT = 0.075
 MAKER_REBATE_PCT = 0.04    # XBTUSDT linear: мейкер получает ребейт 0.04%/сторону
+MAKER_WAIT_MIN = 15        # сколько ждём налива лимитки на уровне входа
+
+
+def simulate_maker(record: dict, df, entry_ts, expiry) -> dict:
+    """Честная симуляция мейкер-исполнения: лимитка НА уровне входа.
+
+    Ключевое отличие от наивного «те же сделки дешевле»: лимитку наливают
+    только если цена вернётся к уровню (для шорта — вверх к entry, для лонга —
+    вниз). На пробое цена уходит ОТ уровня, поэтому часть сделок не состоится
+    вовсе — это и есть цена мейкер-исполнения, которую нельзя игнорировать.
+
+    Вход — мейкер (ребейт), выход — тейкер (консервативно).
+    """
+    side = record["side"]
+    entry = float(record["entry"])
+    stop = float(record["stop"])
+    tp = float(record["tp"])
+    size_usd = float(record["size_usd"])
+    out = {"maker_filled": False, "maker_fill_ts": None,
+           "maker_exit_reason": None, "pnl_maker_real_usd": None}
+
+    # окно ожидания налива — со следующего бара (на баре сигнала цена уже на
+    # уровне, засчитывать это как гарантированный налив нечестно)
+    wait = df[(df.index > entry_ts)
+              & (df.index <= entry_ts + timedelta(minutes=MAKER_WAIT_MIN))]
+    if wait.empty:
+        return out
+    if side == "long":
+        hits = wait.index[wait["low"] <= entry]
+    else:
+        hits = wait.index[wait["high"] >= entry]
+    if not len(hits):
+        return out                      # лимитку не налили — сделки не было
+
+    fill_ts = hits[0]
+    out["maker_filled"] = True
+    out["maker_fill_ts"] = fill_ts.isoformat(timespec="seconds")
+
+    path = df[(df.index > fill_ts) & (df.index <= expiry)]
+    exit_price, reason = None, None
+    for ts_bar, row in path.iterrows():
+        hi, lo = float(row["high"]), float(row["low"])
+        if side == "long":
+            if lo <= stop:
+                exit_price, reason = stop, "sl_hit"
+                break
+            if hi >= tp:
+                exit_price, reason = tp, "tp_hit"
+                break
+        else:
+            if hi >= stop:
+                exit_price, reason = stop, "sl_hit"
+                break
+            if lo <= tp:
+                exit_price, reason = tp, "tp_hit"
+                break
+    if exit_price is None:
+        if path.empty:
+            return out                  # ещё в процессе
+        exit_price, reason = float(path["close"].iloc[-1]), "timeout"
+
+    if side == "long":
+        gross = size_usd * (exit_price - entry) / entry
+    else:
+        gross = size_usd * (entry - exit_price) / entry
+    # вход мейкером (ребейт), выход тейкером
+    fees = size_usd * (TAKER_FEE_PCT / 100.0) - size_usd * (MAKER_REBATE_PCT / 100.0)
+    out["maker_exit_reason"] = reason
+    out["pnl_maker_real_usd"] = round(gross - fees, 2)
+    return out
 
 
 def evaluate_outcome(record: dict, df: pd.DataFrame, *,
@@ -247,6 +317,7 @@ def evaluate_outcome(record: dict, df: pd.DataFrame, *,
         "gross_usd": round(gross, 2),
         "fees_usd": round(fees, 2),
         "pnl_maker_usd": round(gross - maker_fees, 2),  # верхняя граница
+        **simulate_maker(record, df, entry_ts, expiry),  # честная симуляция
         "tracked_as": ("placed" if record.get("user_action") == "placed"
                        else "shadow"),
     }
