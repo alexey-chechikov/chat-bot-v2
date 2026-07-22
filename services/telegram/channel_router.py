@@ -57,6 +57,15 @@ def build_send_fn(telegram_app: Any, emitter: str):
     if telegram_app is None or not getattr(telegram_app, "allowed_chat_ids", None):
         return None
 
+    # 2026-07-22, оператор: «мешки, бот встал/упал меня в ТГ вообще не
+    # интересуют — ТГ создавался за контролем рынка». Служебные эмиттеры
+    # глушатся централизованно (state/silent_families.json): сервисы работают
+    # и пишут журналы как раньше, доступ по /card и /status.
+    from services.common.silent_families import tg_muted
+    if tg_muted(emitter):
+        logger.info("channel_router.%s muted (служебный эмиттер, см. /card)", emitter)
+        return None
+
     primary_chat_ids = list(telegram_app.allowed_chat_ids)
     routine_chat_ids = get_routine_chat_ids() or primary_chat_ids
     bot = telegram_app.bot

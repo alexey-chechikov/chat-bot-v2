@@ -55,3 +55,20 @@ def test_daily_digest_builds_dry_run_when_push_off(monkeypatch, tmp_path: Path) 
     assert dd.maybe_send_daily_digest(send_fn=sent.append, now=in_window) is True
     assert not sent      # dry_run: собрано в лог, в TG не ушло
     assert marked
+
+
+def test_channel_router_returns_none_for_muted_emitter(monkeypatch, tmp_path):
+    """2026-07-22: служебные эмиттеры глушатся централизованно —
+    build_send_fn отдаёт None, сервис работает и пишет журналы дальше."""
+    import json as _json
+    from types import SimpleNamespace
+    import services.common.silent_families as sf
+    from services.telegram.channel_router import build_send_fn
+
+    cfg = tmp_path / "silent.json"
+    cfg.write_text(_json.dumps({"muted": ["ALT_GUARD"]}), encoding="utf-8")
+    monkeypatch.setattr(sf, "CONFIG_PATH", cfg)
+    app = SimpleNamespace(allowed_chat_ids=[123], bot=SimpleNamespace())
+
+    assert build_send_fn(app, "ALT_GUARD") is None       # заглушен
+    assert build_send_fn(app, "SETUP_ON") is not None    # рыночный — работает
