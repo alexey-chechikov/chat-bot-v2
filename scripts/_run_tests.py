@@ -26,6 +26,7 @@ TEST_DIRS = [
     "tests/services/grid_coordinator/",
     "tests/services/grid_autotune/",
     "tests/services/alt_guard/",
+    "tests/tools/test_market_card.py",
 ]
 
 def main():
