@@ -2733,6 +2733,34 @@ class TelegramBotApp:
         # расписанию (BTC-режим + боты из трекера + альт-кандидаты + риск).
         # Альт-сканер ~30с (BitMEX) → сразу ⏳-ack, сборка в фоновом потоке.
         # `/card fast` — без сканера (~2с, без секции кандидатов).
+        # ── /rynok — структурная карточка рынка (2026-07-22, запрос оператора:
+        # «вышли из рейнджа / рост продолжается / цели / отмена сценария»).
+        # Без прогнозов: границы из свечей, цели = проекция высоты, отмена =
+        # уровень, механика потока = OI+тейкеры, ликвидации, раскорреляция.
+        @self.bot.message_handler(commands=['rynok', 'market_card', 'mc'])
+        def handle_rynok(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            parts = str(message.text or '').strip().split()
+            sym = parts[1].upper() if len(parts) > 1 else 'BTCUSDT'
+            if not sym.endswith('USDT'):
+                sym += 'USDT'
+
+            def _build_and_send() -> None:
+                try:
+                    from tools.market_card import alts_block, fmt
+                    text = fmt(sym) + alts_block()
+                except Exception as exc:
+                    logger.exception('handle_rynok.failed')
+                    self.bot.send_message(chat_id, f'❌ /rynok failed: {exc}')
+                    return
+                self.bot.send_message(chat_id, text)
+
+            threading.Thread(target=_build_and_send, name='rynok-builder',
+                             daemon=True).start()
+
         @self.bot.message_handler(commands=['card'])
         def handle_card(message) -> None:
             chat_id = int(message.chat.id)
