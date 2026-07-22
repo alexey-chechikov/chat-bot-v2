@@ -283,16 +283,46 @@ def test_managed_and_non_dynamic_ignored():
 
 
 def test_drift_stage2_says_already_widened_when_episode_open(monkeypatch):
-    """2026-07-21: при откате 2->1->2 пинг повторно обещал «сделает +30%»,
-    хотя сетка уже расширена. Теперь текст честный."""
+    """2026-07-21: пинг обещал «сделает +30%», хотя сетка уже расширена.
+    2026-07-22: при открытом эпизоде пинг вообще молчит до подхода к SL —
+    поэтому проверяем текст на мешке у SL (0.92), где он снова звучит."""
     import services.alt_guard.loop as al
     monkeypatch.setattr(al, "_autotune_active", lambda bid: True)
     bots = {"5617871752": _slot("WLD", profit=50.0, cur=-52.0)}
     params = {"5617871752": _params()}
-    mx = {"bag_pct": 0.58, "pos_pin": 1.0, "bag": -102.0, "total": -68.0,
+    mx = {"bag_pct": 0.92, "pos_pin": 1.0, "bag": -161.0, "total": -68.0,
           "bag_accel": -9.0, "pinned_neg_min": 30}
     kw = _base(bots, params)
     kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target x2", mx)}
     alerts, _ = evaluate(**kw)
     assert any("уже расширен" in a for a in alerts)
     assert not any("сам сделает" in a for a in alerts)
+
+
+def test_drift_muted_while_autotune_holds_episode(monkeypatch):
+    """2026-07-22: пинг просил «РАСШИРИТЬ», хотя автоширитель уже расширил —
+    чистый шум. Пока эпизод открыт и мешок не у SL, молчим."""
+    import services.alt_guard.loop as al
+    monkeypatch.setattr(al, "_autotune_active", lambda bid: True)
+    bots = {"5617871752": _slot("WLD", profit=50.0, cur=-52.0)}
+    params = {"5617871752": _params()}
+    mx = {"bag_pct": 0.57, "pos_pin": 0.95, "bag": -100.0, "total": -25.0,
+          "bag_accel": -5.0, "pinned_neg_min": 239}
+    kw = _base(bots, params)
+    kw["drift"] = {"5617871752": (2, "РАСШИРИТЬ step/target x2", mx)}
+    alerts, _ = evaluate(**kw)
+    assert not any("DRIFT" in a for a in alerts)
+
+
+def test_drift_speaks_again_near_sl_even_with_episode(monkeypatch):
+    """У SL рычаг автоширителя исчерпан — решение снова оператора."""
+    import services.alt_guard.loop as al
+    monkeypatch.setattr(al, "_autotune_active", lambda bid: True)
+    bots = {"5617871752": _slot("WLD", profit=50.0, cur=-52.0)}
+    params = {"5617871752": _params()}
+    mx = {"bag_pct": 0.95, "pos_pin": 1.0, "bag": -166.0, "total": -90.0,
+          "bag_accel": -12.0, "pinned_neg_min": 300}
+    kw = _base(bots, params)
+    kw["drift"] = {"5617871752": (3, "ЗАКРЫТЬ", mx)}
+    alerts, _ = evaluate(**kw)
+    assert any("DRIFT Stage 3" in a for a in alerts)

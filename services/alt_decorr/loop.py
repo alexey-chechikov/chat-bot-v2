@@ -233,11 +233,21 @@ async def alt_decorr_loop(stop_event: asyncio.Event, *, send_fn=None,
                     text = _format_card(alt, tf, ev)
                     logger.info("alt_decorr.fire %s %s side=%s corr=%.3f gate=%s",
                                 alt, tf, ev["side"], ev["corr"], ok)
-                    if ok and send_fn:
+                    # 2026-07-22: живой аудит — 12 сигналов за 2 мес, WR 58%,
+                    # +2.83% брутто (8 из 12 не дошли ни до TP, ни до стопа);
+                    # после комиссий ≈ ноль при n втрое ниже порога 30. Карточка
+                    # сама пишет «на paper-треке» = не actionable → в TG не шлём,
+                    # paper-трек ниже продолжает копить. Вернуть: n≥30 и эдж.
+                    from services.common.silent_families import tg_muted
+                    muted = tg_muted("alt_decorr")
+                    if ok and send_fn and not muted:
                         try:
                             send_fn(text)
                         except Exception:
                             logger.exception("alt_decorr.send_failed")
+                    elif muted:
+                        logger.info("alt_decorr.silent_journal %s %s (n<30, эдж не доказан)",
+                                    alt, tf)
                     elif not ok:
                         logger.info("alt_decorr.suppressed_gate %s %s %s", alt, tf, why)
                     # paper-track regardless of TG gate (so the edge keeps measuring)

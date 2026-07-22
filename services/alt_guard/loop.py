@@ -52,6 +52,9 @@ COOLDOWN_H = {"net": 4.0, "slwarn": 4.0, "xrp_pump": 4.0, "cascade": 2.0,
               "regime_leg": 4.0, "drift1": 2.0, "drift2": 2.0, "drift3": 4.0,
               "idio": 2.0, "exitfast": 2.0}
 DRIFT_SERIES_HOURS = 4.0      # глубина ряда для drift-монитора Win
+# пока автоширитель ведёт эпизод — drift-пинги молчат, кроме подхода к SL
+# (там рычаг бота исчерпан и решение снова за оператором)
+DRIFT_MUTE_UNTIL_SL_FRAC = 0.9
 BAG_JOURNAL = ROOT / "state" / "alt_guard_bag_journal.jsonl"  # worst-bag/день — калибровка порогов (Win Q3)
 # Задача 2 Вина [просадка]: ПРЕДОХРАНИТЕЛЬ СЕРИИ. 2 типизированных STOP-EVENT в окне
 # → ПАУЗА на новые альты до RESTART-условия (режим успокоился). Не пере-вооружаться
@@ -271,6 +274,20 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
             elif stage >= 3:
                 last_emit = _parse_ts((rec or {}).get("emit_ts"))
                 emit = bool(last_emit and (now - last_emit).total_seconds() >= drift3_gap)
+            # 2026-07-22 (оператор: «не нравится выдача телеграм»): пока
+            # автоширитель держит эпизод по этому боту, drift-пинг просит
+            # сделать то, что УЖЕ сделано — чистый шум. Молчим, пока мешок не
+            # подошёл к SL: там лever у бота исчерпан и решение снова твоё.
+            if emit and _autotune_active(bid):
+                near_sl = float(mx.get("bag_pct") or 0) >= DRIFT_MUTE_UNTIL_SL_FRAC
+                if not near_sl:
+                    emit = False
+                    logger.info("alt_guard.drift_muted bot=%s stage=%s bag_pct=%.2f "
+                                "(автоширитель ведёт эпизод)", bid, stage,
+                                mx.get("bag_pct") or 0)
+                    dl[bid] = {"stage": stage,
+                               "emit_ts": (rec or {}).get("emit_ts")
+                               or now.isoformat(timespec="seconds")}
             if emit:
                 icons = {1: "🟡", 2: "🟠", 3: "🔴"}
                 alerts.append(
