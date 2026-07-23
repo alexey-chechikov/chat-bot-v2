@@ -7,25 +7,15 @@
   "max_episodes_per_day_per_bot": 2,
   "min_gap_between_episodes_sec": 7200,
   "_note_thresholds": "оператор 2026-07-21: расширяем таргет/шаг только когда позиция набрана — альты $2000, ETH $3000 нотионала (|поза|×avg_price, у DYN позиция в монетах). BTC-DYN $3000 — мой выбор по симметрии с ETH (мажор, медиана нотионала $2472); скажи слово, если надо иначе. Проверка на неделе 14-21.07: в минуты худшего мешка нотионал был выше порога у ВСЕХ 7 ботов → гейт режет холостые срабатывания, не реальные эпизоды.",
+  "_migration_2026_07_23": "BitMEX закрывается, переезд на OKX (exchangeId=3). Все боты BitMEX (exchangeId=4) остановлены — автоматика смотрела на 8 мёртвых ID и не видела живых. Новые: 5330789037 BTC USDT DYNAMIC, 4812772488 ETH USDT DYNAMIC — оба линейные USDT (позиция в МОНЕТАХ, мешок в USD), in.otc нет => otc_expected не нужен, пауза и set_params безопасны. Пороги нотионала оставлены прежними ($3000): валидация 14-21.07 показала, что в минуты худшего мешка нотионал был выше порога. Боты только запущены (BTC $327, ETH $0) — автотюнер молчит, пока не наберут.",
   "bots": {
-    "4499423673": {"alias": "BTC-DYN", "min_notional_usd": 3000},
-    "6233908669": {"alias": "ETH-DYN", "min_notional_usd": 3000},
-    "6116013349": {"alias": "SOL-DYN", "min_notional_usd": 2000},
-    "4643987212": {"alias": "XRP-DYN", "min_notional_usd": 2000},
-    "4922851123": {"alias": "LTC-DYN", "min_notional_usd": 2000},
-    "5085651183": {"alias": "BCH-DYN", "min_notional_usd": 2000},
-    "5288594904": {"alias": "LINK-DYN", "min_notional_usd": 2000},
-    "5317457827": {
-      "alias": "BTC-LONG",
-      "_note": "оператор 2026-07-20: спокойно maxQ=$300, сильное движение maxQ=$100 + шире шаг/таргет. НО пока не набрал позицию (|поза| < ~$5-6k контрактов) — не трогаем (min_abs_position). Инверсный XBTUSD: позиция в USD-контрактах, мешок в XBT (restore_bag -0.0003 XBT ~ -$19). otc_expected: in.otc есть, правки параметров его НЕ сбрасывают (история 16-20.07), но проверяется после каждой записи.",
-      "trigger": "btc_move_1h",
-      "move_pct_1h": 0.8,
-      "calm_hours": 4,
-      "min_abs_position": 5500,
-      "episode_maxQ": 100,
-      "quiet_maxQ": 300,
-      "restore_bag": -0.0003,
-      "otc_expected": true
-    }
+    "5330789037": {"alias": "BTC-OKX", "min_notional_usd": 3000},
+    "4812772488": {"alias": "ETH-OKX", "min_notional_usd": 3000}
+  },
+  "_bitmex_archive": {
+    "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",
+    "4643987212": "XRP-DYN", "4922851123": "LTC-DYN", "5085651183": "BCH-DYN",
+    "5288594904": "LINK-DYN",
+    "5317457827": "BTC-LONG (inverse XBTUSD, btc_move_1h/maxQ 300-100, min_abs_position 5500)"
   }
 }

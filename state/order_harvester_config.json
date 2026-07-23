@@ -1,15 +1,16 @@
 {
   "_note": "Order Harvester: фиксация отдельных плюсовых ордеров DYN-ботов (obap=true — выход по средней не закрывает отдельные плюсовые). Батч: все ордера выше порога за одну паузу. Порог по боту, hot-reload каждый тик. Freeze-файл state/order_harvester_frozen.json останавливает сервис.",
   "_enabled_2026_07_15": "Оператор: включить автоматом — BTC ордер ≥ $2.5, альты ≥ $1. До этого руками закрывал батчами (см. трекер 10:08-10:33 МСК 15.07).",
+  "_migration_2026_07_23": "BitMEX закрывается, переезд на OKX (exchangeId=3). Все боты BitMEX (exchangeId=4) остановлены — их ID убраны, автоматика смотрела на 7 мёртвых. Новые OKX-боты: 5330789037 BTC USDT DYNAMIC, 4812772488 ETH USDT DYNAMIC (клоны старых, in.otc нет => пауза безопасна). Порог BTC $2.5 сохранён: закрытие ордера = тейкер, на OKX это 0.05%/сторону против 0.075% на BitMEX, т.е. запас только вырос.",
   "enabled": true,
   "bots": {
-    "4499423673": {"alias": "BTC-DYN", "min_order_profit_usd": 2.5},
-    "6233908669": {"alias": "ETH-DYN", "min_order_profit_usd": 1.0},
-    "6116013349": {"alias": "SOL-DYN", "min_order_profit_usd": 1.0},
-    "4643987212": {"alias": "XRP-DYN", "min_order_profit_usd": 1.0},
-    "4922851123": {"alias": "LTC-DYN", "min_order_profit_usd": 1.0},
-    "5085651183": {"alias": "BCH-DYN", "min_order_profit_usd": 1.0},
-    "5288594904": {"alias": "LINK-DYN", "min_order_profit_usd": 1.0}
+    "5330789037": {"alias": "BTC-OKX", "min_order_profit_usd": 2.5},
+    "4812772488": {"alias": "ETH-OKX", "min_order_profit_usd": 1.0}
+  },
+  "_bitmex_archive": {
+    "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",
+    "4643987212": "XRP-DYN", "4922851123": "LTC-DYN", "5085651183": "BCH-DYN",
+    "5288594904": "LINK-DYN"
   },
   "max_orders_per_cycle": 10,
   "max_orders_per_day_per_bot": 40,
