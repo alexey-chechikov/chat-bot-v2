@@ -133,8 +133,15 @@ def _run_bybit_ws(stop_event: threading.Event) -> None:
                         for liq in liq_data:
                             if not isinstance(liq, dict):
                                 continue
+                            # 2026-07-23: у топика allLiquidation поле S — это
+                            # сторона ПОЗИЦИИ, а не ордера. Прежний маппинг
+                            # (sell→long, как для старого топика liquidation)
+                            # переворачивал метки. Проверено на 7д/150ч: с ним
+                            # метка «long» доминировала на РОСТЕ цены (+0.167%),
+                            # хотя лонги выносит на падении; у okx (корректный
+                            # маппинг) — ровно наоборот (−0.186%).
                             raw_side = liq.get("S") or liq.get("side", "")
-                            side = "long" if str(raw_side).lower() == "sell" else "short"
+                            side = "short" if str(raw_side).lower() == "sell" else "long"
                             qty = liq.get("v") or liq.get("size", "")
                             price = liq.get("p") or liq.get("price", "")
                             _write_liq(symbol, {
