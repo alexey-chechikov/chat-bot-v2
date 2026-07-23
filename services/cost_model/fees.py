@@ -18,20 +18,24 @@ VENUES: dict[str, dict[str, float]] = {
         "taker_fee_pct": 0.05,
     },
     # 2026-07-23: BitMEX закрывается, гриды переехали на OKX (exchangeId=3).
-    # Ставки стандартного тира OKX perp (VIP0) — ПРОВЕРИТЬ по своему тиру в
-    # кабинете, при объёмах тир мог вырасти.
-    # ГЛАВНОЕ ОТЛИЧИЕ: на BitMEX мейкер получал РЕБЕЙТ (−0.025%), на OKX
-    # мейкер ПЛАТИТ (+0.02%). Для грида, который живёт лимитками, это
-    # −0.045% на сторону и ≈ −0.09% на полный оборот in→out.
+    # База VIP0 perp: мейкер 0.02% / тейкер 0.05%; у оператора скидка 20%
+    # (OKX_FEE_DISCOUNT_PCT) → 0.016% / 0.04%.
+    # ГЛАВНОЕ ОТЛИЧИЕ ОТ BITMEX: там мейкер получал РЕБЕЙТ (−0.025%), здесь
+    # мейкер ПЛАТИТ. Для грида, живущего лимитками, это ≈ −0.082% на полный
+    # оборот in→out даже со скидкой.
     "okx_linear": {
-        "maker_fee_pct": 0.02,
-        "taker_fee_pct": 0.05,
+        "maker_fee_pct": 0.016,
+        "taker_fee_pct": 0.04,
     },
     "okx_inverse": {
-        "maker_fee_pct": 0.02,
-        "taker_fee_pct": 0.05,
+        "maker_fee_pct": 0.016,
+        "taker_fee_pct": 0.04,
     },
 }
+
+# скидка оператора на OKX, % от базовой ставки (2026-07-23)
+OKX_FEE_DISCOUNT_PCT = 20.0
+OKX_BASE = {"maker_fee_pct": 0.02, "taker_fee_pct": 0.05}
 
 
 def compute_fee(venue: str, side: str, notional_usd: float, is_maker: bool) -> float:
