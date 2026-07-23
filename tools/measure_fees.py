@@ -56,11 +56,15 @@ def measure(api, bot_id: str) -> dict | None:
             n += 1
     if not n or notional_one <= 0:
         return None
+    # поле fee = комиссия ОДНОЙ стороны (у открытого ордера, где исполнен
+    # только вход, fee уже равна 0.035% нотионала — значит выход тарифицируется
+    # отдельно). Полный цикл грида = вдвое.
+    side_pct = fees / notional_one * 100
     return {
         "orders": n,
         "fees": fees,
-        "cycle_pct": fees / notional_one * 100,     # за полный цикл
-        "per_volume_pct": fees / notional_both * 100,  # от оборота обеих сторон
+        "side_pct": side_pct,
+        "cycle_pct": side_pct * 2,
     }
 
 
@@ -85,10 +89,10 @@ def main() -> int:
                   f"замерить позже")
             continue
         print(f"{alias:26s} n={r['orders']:4d}  "
+              f"за сторону {r['side_pct']:.4f}%  "
               f"за цикл {r['cycle_pct']:.4f}%  "
-              f"от оборота {r['per_volume_pct']:.4f}%  "
               f"(всего {r['fees']:.2f})")
-    print("\nЗа цикл = комиссия / нотионал позиции (то, что видно в отчётах).")
+    print("\nЗа сторону = поле fee / нотионал. Цикл (вход+выход) = вдвое.")
     return 0
 
 
