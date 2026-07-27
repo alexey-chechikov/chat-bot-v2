@@ -13,7 +13,7 @@
     "5288594904": "LINK-DYN"
   },
   "max_orders_per_cycle": 10,
-  "max_orders_per_day_per_bot": 40,
+  "max_orders_per_day_per_bot": 150,
   "min_gap_between_harvests_sec": 60,
   "fail_backoff_sec": 600
 }
