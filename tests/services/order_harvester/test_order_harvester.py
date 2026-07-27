@@ -296,16 +296,19 @@ def test_tick_ignores_non_active_bot(monkeypatch):
     assert ("get_orders", "42") not in api.calls  # до сканирования не дошли
 
 
-def test_tick_daily_cap(monkeypatch):
+def test_tick_daily_cap_zero_means_unlimited(monkeypatch):
+    """2026-07-27: max_orders_per_day_per_bot=0 = БЕЗ лимита — плюсовой ордер
+    закрывается (раньше 0 глушил харвест). mark=95, ордер +$5 > порог $1."""
     _patch_control(monkeypatch)
     oh.CONFIG_PATH.write_text(json.dumps({
         "enabled": True,
-        "bots": {"42": {"alias": "X", "min_order_profit_usd": 7.0}},
+        "bots": {"42": {"alias": "X", "min_order_profit_usd": 1.0}},
         "max_orders_per_day_per_bot": 0,
     }), encoding="utf-8")
-    api = FakeAPI([_order()])
-    assert oh.tick(api=api) == 0
-    assert all(c[0] != "close_order" for c in api.calls)
+    api = FakeAPI([_open_order("a", 100.0)],  # SELL @100, mark 95 → +$5
+                  statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
+    assert oh.tick(api=api) == 1
+    assert any(c[0] == "close_order" for c in api.calls)
 
 
 def test_tick_batch_respects_cycle_budget(monkeypatch):

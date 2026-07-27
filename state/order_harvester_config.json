@@ -13,7 +13,8 @@
     "5288594904": "LINK-DYN"
   },
   "max_orders_per_cycle": 10,
-  "max_orders_per_day_per_bot": 150,
+  "max_orders_per_day_per_bot": 0,
+  "_max_orders_per_day_note": "0 = без суточного лимита (2026-07-27). Плюсовой ордер выгодно закрывать всегда; API бережёт gap между циклами и батч max_orders_per_cycle, суточный потолок не нужен.",
   "min_gap_between_harvests_sec": 60,
   "fail_backoff_sec": 600
 }

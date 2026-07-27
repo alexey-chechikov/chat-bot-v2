@@ -350,9 +350,12 @@ def tick(send_fn=None, api=None) -> int:
         alias = bcfg.get("alias", bot_id)
         min_profit = float(bcfg.get("min_order_profit_usd", 7.0))
 
-        day_cap = int(cfg.get("max_orders_per_day_per_bot", 40))
-        day_used = _day_count(bot_id, today)
-        if day_used >= day_cap:
+        # дневной кап: 0 / отсутствует = БЕЗ ЛИМИТА (оператор 2026-07-27:
+        # «какой ещё лимит?» — закрыть плюсовой ордер выгодно всегда, квота
+        # бессмысленна; API бережёт gap между циклами, не суточный потолок).
+        day_cap = int(cfg.get("max_orders_per_day_per_bot", 0) or 0)
+        day_used = _day_count(bot_id, today) if day_cap > 0 else 0
+        if day_cap > 0 and day_used >= day_cap:
             continue
         last = _last_harvest_mono.get(bot_id)
         if last is not None and (time.monotonic() - last) < _next_gap.get(bot_id, 0):
@@ -369,7 +372,8 @@ def tick(send_fn=None, api=None) -> int:
         if not cands:
             continue
 
-        budget = min(int(cfg.get("max_orders_per_cycle", 10)), day_cap - day_used)
+        cycle_cap = int(cfg.get("max_orders_per_cycle", 10))
+        budget = cycle_cap if day_cap <= 0 else min(cycle_cap, day_cap - day_used)
         n = harvest_orders(api, bot_id, alias, cands[:budget], send_fn=send_fn)
         harvested += n
         # успешный цикл → обычный gap (оператор: раз в минуту достаточно);
