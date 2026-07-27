@@ -136,17 +136,25 @@ MIN_MARK_NOTIONAL_USD = 200.0
 def derive_mark(stat) -> float | None:
     """Текущая цена, восстановленная из stat бота (линейные USDT-контракты).
 
-    У открытых ордеров API profit=null, поэтому считаем сами. Нереализованный
-    мешок = currentProfit − profit = (mark − averagePrice) · position
-    (currentProfit ВКЛЮЧАЕТ реализованный profit — проверено 2026-07-18:
-    без вычитания mark выходит абсурдный, с вычитанием совпадает с рынком).
+    У открытых ордеров API отдаёт profit=null (UI GinArea считает на клиенте),
+    поэтому воспроизводим тот же расчёт.
+
+    OKX (замер 2026-07-27): `currentProfit` = ЧИСТЫЙ нереализованный PnL
+    текущей позиции = (mark − averagePrice) · position, БЕЗ реализованного.
+    Значит mark = avg + currentProfit/pos. Сверено с колонкой «Прибыль» в
+    GinArea до цента (топ-ордер +$2.00, следующий +$1.82).
+
+    Прежняя формула `(currentProfit − profit)` — семантика BitMEX, где
+    currentProfit включал реализованный; на OKX она завышала mark на
+    profit/pos (для ETH-OKX: +$21.9 → все ордера ложно в минусе, харвестер
+    не находил кандидатов). BitMEX закрыт, оставляем OKX-семантику.
     """
     pos = float(stat.position or 0)
     avg = float(stat.averagePrice or 0)
     if avg <= 0 or abs(pos * avg) < MIN_MARK_NOTIONAL_USD:
         return None
-    bag = float(stat.currentProfit or 0) - float(stat.profit or 0)
-    return avg + bag / pos
+    unrealized = float(stat.currentProfit or 0)
+    return avg + unrealized / pos
 
 
 def order_profit_usd(mark: float, f: dict) -> float | None:

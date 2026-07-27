@@ -25,10 +25,13 @@ def _isolate_paths(monkeypatch, tmp_path):
     oh._api_cache.clear()
 
 
-# stat, из которого derive_mark даёт mark=95.0:
-# bag = 55−5 = 50; mark = 100 + 50/(−10) = 95; нотионал |−10·100|=1000 ≥ floor
+# stat, из которого derive_mark даёт mark=95.0 (OKX-семантика 2026-07-27:
+# currentProfit = нереализованный PnL, mark = avg + currentProfit/pos):
+# mark = 100 + (−50)/(−10)... нет: нужен mark=95 → currentProfit=50,
+# mark = 100 + 50/(−10) = 95; нотионал |−10·100|=1000 ≥ floor.
+# profit нерелевантен для mark, оставлен для реалистичности stat.
 DEFAULT_STAT = dict(position=-10.0, averagePrice=100.0,
-                    currentProfit=55.0, profit=5.0)
+                    currentProfit=50.0, profit=5.0)
 
 
 class FakeAPI:
@@ -149,17 +152,18 @@ def test_order_fields_real_open_order():
     assert f["qty"] == 0.01 and f["price_in"] == 1835.45 and f["side"] == 1
 
 
-def test_derive_mark_real_ltc_numbers():
-    """Живой снимок LTC-DYN 2026-07-18: pos=−34.6 avg=45.24
-    currentProfit=41.98 profit=49.44 → mark ≈ 45.456 (реальная цена LTC).
-    Без вычитания profit mark выходил абсурдный (44.02 → ETH давал 316)."""
-    st = SimpleNamespace(position=-34.6, averagePrice=45.24,
-                         currentProfit=41.98, profit=49.44)
+def test_derive_mark_real_okx_eth_numbers():
+    """Живой снимок ETH-OKX 2026-07-27, сверен с колонкой «Прибыль» в GinArea:
+    pos=−1.572 avg=1955.14 currentProfit=13.68 (нереализ.) → mark ≈ 1946.44.
+    SELL 0.1 @ 1966.47 при этом mark → +$2.00 (ровно как в UI оператора).
+    currentProfit — уже чистый нереализованный PnL, вычитать profit НЕЛЬЗЯ
+    (иначе mark завышается на profit/pos и все ордера ложно в минусе)."""
+    st = SimpleNamespace(position=-1.572, averagePrice=1955.14,
+                         currentProfit=13.68, profit=34.36)
     mark = oh.derive_mark(st)
-    assert abs(mark - 45.4556) < 0.001
-    # SELL 5 LTC @ 45.56 при этом mark → ~+$0.52
-    p = oh.order_profit_usd(mark, {"side": 2, "price_in": 45.56, "qty": 5})
-    assert abs(p - 0.522) < 0.01
+    assert abs(mark - 1946.44) < 0.02
+    p = oh.order_profit_usd(mark, {"side": 2, "price_in": 1966.47, "qty": 0.1})
+    assert abs(p - 2.00) < 0.02
 
 
 def test_derive_mark_rejects_tiny_position():

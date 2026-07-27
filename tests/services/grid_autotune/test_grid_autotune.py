@@ -347,7 +347,8 @@ def test_read_bags_computes_notional(tmp_path):
     bags = gat.read_bags(csv)
     assert abs(bags["42"]["avg_price"] - 226.0) < 1e-9
     assert abs(bags["42"]["notional"] - 3729.0) < 1e-6
-    assert abs(bags["42"]["bag"] - (-45.0)) < 1e-9
+    # OKX-семантика: bag = current_profit (поле 7) напрямую, без вычитания
+    assert abs(bags["42"]["bag"] - 55.0) < 1e-9
 
 
 def test_read_bags_parses_snapshot_tail(tmp_path):
@@ -367,7 +368,7 @@ def test_read_bags_parses_snapshot_tail(tmp_path):
         encoding="utf-8")
     bags = gat.read_bags(csv)
     assert bags["42"]["status"] == 2
-    assert abs(bags["42"]["bag"] - (-45.0)) < 1e-9    # последняя строка бота
+    assert abs(bags["42"]["bag"] - 55.0) < 1e-9       # current_profit последней строки
     assert abs(bags["42"]["position"] - (-1.5)) < 1e-9
     assert abs(bags["42"]["notional"] - 2700.0) < 1e-6
     assert "99" not in bags                           # битую строку пропустили
