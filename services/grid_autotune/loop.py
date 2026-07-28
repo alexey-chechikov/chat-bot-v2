@@ -154,10 +154,12 @@ def read_bags(path: Path = SNAPSHOTS_CSV) -> dict[str, dict]:
             bid = str(int(float(parts[1])))
             status = int(float(parts[4]))
             position = float(parts[5])
-            # OKX (2026-07-27): current_profit (parts[7]) = уже чистый
-            # нереализованный мешок, вычитать profit НЕЛЬЗЯ (та же ошибка,
-            # что ломала харвестер — см. derive_mark). BitMEX закрыт.
-            bag = float(parts[7])
+            # мешок = нереализованный PnL = current_profit − profit.
+            # 2026-07-28: проверено на OKX — когда позиция 0, current_profit ==
+            # profit (оба = реализованный), их разность = 0; при позиции
+            # разность = живой мешок. (В этой сессии была ошибочная правка
+            # bag=current_profit — она ломала и харвестер, откачено.)
+            bag = float(parts[7]) - float(parts[6])
         except (ValueError, IndexError):
             continue
         try:

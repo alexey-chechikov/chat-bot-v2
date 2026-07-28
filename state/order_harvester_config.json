@@ -4,8 +4,8 @@
   "_thresholds_2026_07_27": "Оператор: BTC ордер >= $2, альты >= $1.5. Комиссия закрытия на OKX 0.05% (замер 27.07): BTC-ордер ~$1650 -> $0.83, ETH-ордер ~$190 -> $0.10 — пороги проходят с запасом.",
   "enabled": true,
   "bots": {
-    "5330789037": {"alias": "BTC-OKX", "min_order_profit_usd": 2.0},
-    "4812772488": {"alias": "ETH-OKX", "min_order_profit_usd": 1.5}
+    "5330789037": {"alias": "BTC-OKX", "symbol": "BTCUSDT", "min_order_profit_usd": 2.0},
+    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "min_order_profit_usd": 1.5}
   },
   "_bitmex_archive": {
     "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",

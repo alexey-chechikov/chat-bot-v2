@@ -128,33 +128,40 @@ def order_fields(o: dict) -> dict:
     }
 
 
-# ниже этого нотионала |pos|·avg деление bag/pos ненадёжно; и боли от мешка
-# при таком pos нет — просто пропускаем тик
-MIN_MARK_NOTIONAL_USD = 200.0
+DERIV_LIVE_PATH = ROOT / "state" / "deriv_live.json"
+MARK_STALE_SEC = 300.0     # цена старше 5 мин → не действуем
 
 
-def derive_mark(stat) -> float | None:
-    """Текущая цена, восстановленная из stat бота (линейные USDT-контракты).
+def market_mark(symbol: str, *, path: Path = DERIV_LIVE_PATH,
+                now: datetime | None = None) -> float | None:
+    """РЕАЛЬНАЯ текущая цена символа из рыночных данных (deriv_live mark_price).
 
-    У открытых ордеров API отдаёт profit=null (UI GinArea считает на клиенте),
-    поэтому воспроизводим тот же расчёт.
-
-    OKX (замер 2026-07-27): `currentProfit` = ЧИСТЫЙ нереализованный PnL
-    текущей позиции = (mark − averagePrice) · position, БЕЗ реализованного.
-    Значит mark = avg + currentProfit/pos. Сверено с колонкой «Прибыль» в
-    GinArea до цента (топ-ордер +$2.00, следующий +$1.82).
-
-    Прежняя формула `(currentProfit − profit)` — семантика BitMEX, где
-    currentProfit включал реализованный; на OKX она завышала mark на
-    profit/pos (для ETH-OKX: +$21.9 → все ордера ложно в минусе, харвестер
-    не находил кандидатов). BitMEX закрыт, оставляем OKX-семантику.
+    2026-07-28: НЕ выводим mark из stat бота (currentProfit/position) — на
+    малой позиции это давало абсурд (BTC-OKX pos 0.005: $22 профита / 0.005 =
+    сдвиг +$4400 → все ордера ложно +$22 → харвестер закрывал их в РЕАЛЬНЫЙ
+    минус). Оператор: «бери данные где прибыльный ордер и закрывай, не
+    пересчитывай». Реальная цена рынка не зависит от размера позиции.
     """
-    pos = float(stat.position or 0)
-    avg = float(stat.averagePrice or 0)
-    if avg <= 0 or abs(pos * avg) < MIN_MARK_NOTIONAL_USD:
+    now = now or datetime.now(timezone.utc)
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("order_harvester.deriv_read_failed")
         return None
-    unrealized = float(stat.currentProfit or 0)
-    return avg + unrealized / pos
+    upd = d.get("last_updated")
+    try:
+        age = (now - datetime.fromisoformat(upd)).total_seconds()
+        if age > MARK_STALE_SEC:
+            logger.warning("order_harvester.mark_stale %s age=%.0fs", symbol, age)
+            return None
+    except (TypeError, ValueError):
+        return None
+    px = (d.get(symbol) or {}).get("mark_price")
+    try:
+        px = float(px)
+        return px if px > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def order_profit_usd(mark: float, f: dict) -> float | None:
@@ -171,11 +178,10 @@ def order_profit_usd(mark: float, f: dict) -> float | None:
         return None
 
 
-def _candidates(api, bot_id: str, min_profit: float) -> list[dict]:
-    stat = api.get_stat(int(bot_id))
-    mark = derive_mark(stat)
+def _candidates(api, bot_id: str, min_profit: float, symbol: str) -> list[dict]:
+    mark = market_mark(symbol)
     if mark is None:
-        return []
+        return []          # нет свежей цены — не гадаем, не действуем
     data = api.get_orders(int(bot_id), only_opened=True)
     orders = data.get("orders") or []
     out = []
@@ -349,6 +355,11 @@ def tick(send_fn=None, api=None) -> int:
     for bot_id, bcfg in (cfg.get("bots") or {}).items():
         alias = bcfg.get("alias", bot_id)
         min_profit = float(bcfg.get("min_order_profit_usd", 7.0))
+        symbol = bcfg.get("symbol")
+        if not symbol:
+            logger.warning("order_harvester.no_symbol bot=%s — пропуск "
+                           "(нужна реальная цена)", bot_id)
+            continue
 
         # дневной кап: 0 / отсутствует = БЕЗ ЛИМИТА (оператор 2026-07-27:
         # «какой ещё лимит?» — закрыть плюсовой ордер выгодно всегда, квота
@@ -365,7 +376,7 @@ def tick(send_fn=None, api=None) -> int:
             bot = api.get_bot(int(bot_id))
             if int(bot.status) != STATUS_ACTIVE:
                 continue  # трогаем только работающего (Working) бота
-            cands = _candidates(api, bot_id, min_profit)
+            cands = _candidates(api, bot_id, min_profit, symbol)
         except Exception:
             logger.exception("order_harvester.scan_failed bot=%s", bot_id)
             continue

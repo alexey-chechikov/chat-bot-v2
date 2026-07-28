@@ -12,6 +12,10 @@ import pytest
 
 from services.order_harvester import loop as oh
 
+# реальная market_mark, захваченная ДО autouse-подмены на mark=95 —
+# для тестов самой функции чтения цены
+_REAL_MARKET_MARK = oh.market_mark
+
 
 @pytest.fixture(autouse=True)
 def _isolate_paths(monkeypatch, tmp_path):
@@ -20,6 +24,10 @@ def _isolate_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(oh, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(oh, "STATUS_POLL_SEC", 0.01)
     monkeypatch.setattr(oh, "STATUS_WAIT_MAX_SEC", 0.05)
+    # 2026-07-28: цена берётся из рынка (deriv_live), не из stat. По умолчанию
+    # mark=95 — при нём _open_order(SELL @ price) даёт профит (price − 95).
+    # Тест-цена ниже переопределяется через monkeypatch там, где нужно None.
+    monkeypatch.setattr(oh, "market_mark", lambda symbol, **kw: 95.0)
     oh._last_harvest_mono.clear()
     oh._next_gap.clear()
     oh._api_cache.clear()
@@ -152,26 +160,38 @@ def test_order_fields_real_open_order():
     assert f["qty"] == 0.01 and f["price_in"] == 1835.45 and f["side"] == 1
 
 
-def test_derive_mark_real_okx_eth_numbers():
-    """Живой снимок ETH-OKX 2026-07-27, сверен с колонкой «Прибыль» в GinArea:
-    pos=−1.572 avg=1955.14 currentProfit=13.68 (нереализ.) → mark ≈ 1946.44.
-    SELL 0.1 @ 1966.47 при этом mark → +$2.00 (ровно как в UI оператора).
-    currentProfit — уже чистый нереализованный PnL, вычитать profit НЕЛЬЗЯ
-    (иначе mark завышается на profit/pos и все ордера ложно в минусе)."""
-    st = SimpleNamespace(position=-1.572, averagePrice=1955.14,
-                         currentProfit=13.68, profit=34.36)
-    mark = oh.derive_mark(st)
-    assert abs(mark - 1946.44) < 0.02
-    p = oh.order_profit_usd(mark, {"side": 2, "price_in": 1966.47, "qty": 0.1})
-    assert abs(p - 2.00) < 0.02
+def test_market_mark_reads_real_price(tmp_path, monkeypatch):
+    """2026-07-28: цена берётся из deriv_live (реальный рынок), НЕ из stat.
+    Урок: mark из stat (currentProfit/pos) на малой позиции давал абсурд —
+    BTC-OKX $22 профита / 0.005 → сдвиг +$4400 → закрывал ордера в минус."""
+    import json
+    from datetime import datetime, timezone
+    now = datetime(2026, 7, 28, 9, 0, tzinfo=timezone.utc)
+    p = tmp_path / "deriv.json"
+    p.write_text(json.dumps({
+        "last_updated": now.isoformat(),
+        "BTCUSDT": {"mark_price": 63514.6},
+    }), encoding="utf-8")
+    monkeypatch.setattr(oh, "DERIV_LIVE_PATH", p)
+    assert _REAL_MARKET_MARK("BTCUSDT", path=p, now=now) == 63514.6
+    assert _REAL_MARKET_MARK("ETHUSDT", path=p, now=now) is None      # нет символа
 
 
-def test_derive_mark_rejects_tiny_position():
-    assert oh.derive_mark(SimpleNamespace(
-        position=0.0, averagePrice=100.0, currentProfit=5.0, profit=0.0)) is None
-    # нотионал ниже пола $200
-    assert oh.derive_mark(SimpleNamespace(
-        position=-0.5, averagePrice=100.0, currentProfit=5.0, profit=0.0)) is None
+def test_market_mark_rejects_stale(tmp_path, monkeypatch):
+    """Цена старше 5 мин → None (не действуем по протухшей)."""
+    import json
+    from datetime import datetime, timedelta, timezone
+    old = datetime(2026, 7, 28, 9, 0, tzinfo=timezone.utc)
+    p = tmp_path / "deriv.json"
+    p.write_text(json.dumps({
+        "last_updated": old.isoformat(),
+        "BTCUSDT": {"mark_price": 63514.6},
+    }), encoding="utf-8")
+    monkeypatch.setattr(oh, "DERIV_LIVE_PATH", p)
+    fresh = old + timedelta(minutes=2)
+    stale = old + timedelta(minutes=10)
+    assert _REAL_MARKET_MARK("BTCUSDT", path=p, now=fresh) == 63514.6
+    assert _REAL_MARKET_MARK("BTCUSDT", path=p, now=stale) is None
 
 
 def test_order_profit_direction():
@@ -182,20 +202,19 @@ def test_order_profit_direction():
 
 
 def test_candidates_threshold_and_sorting():
-    """Профит вычисляется по mark (95): a=+1, b=+10, c=+8, d закрыт."""
+    """Профит по реальной цене (market_mark=95 из фикстуры): b=+10, c=+8."""
     api = FakeAPI([_open_order("a", 96.0), _open_order("b", 105.0),
                    _open_order("c", 103.0), _order("d", 20.0, opened=False)])
-    cands = oh._candidates(api, "123", 7.0)
+    cands = oh._candidates(api, "123", 7.0, "BTCUSDT")
     assert [c["order_id"] for c in cands] == ["b", "c"]  # d закрыт, a ниже порога
     assert cands[0]["profit_usd"] == 10.0
 
 
-def test_candidates_skip_when_mark_underivable():
-    """pos≈0 → mark не выводится → пропуск без запроса ордеров."""
-    api = FakeAPI([_open_order("a", 105.0)],
-                  stat=dict(position=0.0, averagePrice=100.0,
-                            currentProfit=0.0, profit=0.0))
-    assert oh._candidates(api, "123", 1.0) == []
+def test_candidates_skip_when_no_fresh_price(monkeypatch):
+    """Нет свежей цены рынка → пропуск без запроса ордеров (не гадаем)."""
+    monkeypatch.setattr(oh, "market_mark", lambda symbol, **kw: None)
+    api = FakeAPI([_open_order("a", 105.0)])
+    assert oh._candidates(api, "123", 1.0, "BTCUSDT") == []
     assert all(c[0] != "get_orders" for c in api.calls)
 
 
@@ -289,7 +308,7 @@ def test_tick_ignores_non_active_bot(monkeypatch):
     _patch_control(monkeypatch)
     oh.CONFIG_PATH.write_text(json.dumps({
         "enabled": True,
-        "bots": {"42": {"alias": "X", "min_order_profit_usd": 7.0}},
+        "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 7.0}},
     }), encoding="utf-8")
     api = FakeAPI([_order()], statuses=[oh.STATUS_STOPPED])
     assert oh.tick(api=api) == 0
@@ -302,7 +321,7 @@ def test_tick_daily_cap_zero_means_unlimited(monkeypatch):
     _patch_control(monkeypatch)
     oh.CONFIG_PATH.write_text(json.dumps({
         "enabled": True,
-        "bots": {"42": {"alias": "X", "min_order_profit_usd": 1.0}},
+        "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
         "max_orders_per_day_per_bot": 0,
     }), encoding="utf-8")
     api = FakeAPI([_open_order("a", 100.0)],  # SELL @100, mark 95 → +$5
@@ -316,7 +335,7 @@ def test_tick_batch_respects_cycle_budget(monkeypatch):
     _patch_control(monkeypatch)
     oh.CONFIG_PATH.write_text(json.dumps({
         "enabled": True,
-        "bots": {"42": {"alias": "X", "min_order_profit_usd": 1.0}},
+        "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
         "max_orders_per_cycle": 2,
         "max_orders_per_day_per_bot": 40,
         "min_gap_between_harvests_sec": 600,
@@ -339,7 +358,7 @@ def test_tick_gap_short_on_success_long_on_failure(monkeypatch):
     _patch_control(monkeypatch)
     cfg = {
         "enabled": True,
-        "bots": {"42": {"alias": "X", "min_order_profit_usd": 1.0}},
+        "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
         "min_gap_between_harvests_sec": 60,
         "fail_backoff_sec": 600,
     }
