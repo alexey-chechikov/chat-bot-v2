@@ -260,7 +260,17 @@ async def cascade_followup_signal_loop(stop_event: asyncio.Event, *,
                         else:
                             logger.info("cascade_followup.signal variant=%s qty=%.2f price=%.0f sid=%s",
                                         variant, qty_btc, last_price, sig.signal_id)
-                            if send_fn is not None:
+                            # 2026-07-29 (оператор: «это спам, нужен более
+                            # надёжный сигнал»): карточка требует решения за
+                            # ≤60с — нереалистично для человека; из 269
+                            # сигналов исход не записан ни у одного, эдж
+                            # семьи не подтверждён живьём. В журнал пишем,
+                            # в TG молчим до подтверждения на форварде.
+                            from services.common.silent_families import tg_muted
+                            if tg_muted("CASCADE_FOLLOWUP"):
+                                logger.info("cascade_followup.silent_journal id=%s",
+                                            sig.signal_id)
+                            elif send_fn is not None:
                                 try:
                                     send_fn(format_tg_card(sig), reply_markup=_build_keyboard(sig.signal_id))
                                 except TypeError:

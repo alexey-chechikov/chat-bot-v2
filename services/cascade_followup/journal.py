@@ -154,7 +154,11 @@ def pending_outcomes(*, path: Path) -> list[dict]:
     """Placed signals without realized_4h_pct yet."""
     rows = read_all(path=path)
     return [r for r in rows
-            if r.get("user_action") == "placed" and r.get("realized_4h_pct") is None]
+            # 2026-07-29: было user_action == "placed" — оператор кнопки не
+            # жмёт, поэтому из 269 сигналов исход записан у НУЛЯ, и эдж семьи
+            # не мерился вообще. Теневой учёт: считаем ВСЕ (третий случай
+            # того же бага — session_breakout, range_hunter, теперь этот).
+            if r.get("realized_4h_pct") is None]
 
 
 def summarize(*, path: Path, min_n: int = 5) -> dict:

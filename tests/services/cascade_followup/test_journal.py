@@ -95,8 +95,12 @@ def test_pending_outcomes_filter(tmp_path: Path, monkeypatch) -> None:
     append_signal(r3)
     path = tmp_path / "cascade_followup_short_5btc.jsonl"
     pending = pending_outcomes(path=path)
-    assert len(pending) == 1
-    assert pending[0]["signal_id"] == r1["signal_id"]
+    # 2026-07-29: теневой учёт — исход считается для ВСЕХ без realized_4h_pct,
+    # а не только для «placed». Оператор кнопки не жмёт: из 269 живых сигналов
+    # исход был записан у нуля, эдж семьи не мерился (третий случай того же
+    # бага — session_breakout, range_hunter, cascade_followup).
+    assert [p["signal_id"] for p in pending] == [r1["signal_id"], r3["signal_id"]]
+    assert all(p.get("realized_4h_pct") is None for p in pending)
 
 
 def test_update_record_routes_by_signal_id(tmp_path: Path, monkeypatch) -> None:

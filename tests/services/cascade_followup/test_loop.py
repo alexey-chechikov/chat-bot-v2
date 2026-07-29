@@ -160,11 +160,25 @@ def test_signal_loop_sends_tg_when_no_drift(tmp_path, monkeypatch) -> None:
         stop.set()
         await asyncio.wait_for(task, timeout=2.0)
 
+    # 2026-07-29: семья заглушена в silent_families (оператор: «спам, нужен
+    # более надёжный сигнал»). Для проверки самого send-пути снимаем глушение —
+    # поведение глушения покрыто отдельным тестом ниже.
     with patch("services.cascade_alert.loop._liquidation_window_breakdown",
                 side_effect=fake_breakdown), \
          patch("services.cascade_alert.edge_drift_guard.is_drifted",
-                return_value=False):
+                return_value=False), \
+         patch("services.common.silent_families.tg_muted", return_value=False):
         asyncio.run(_run_once())
 
     # TG send должен вызваться хотя бы один раз (для одного из вариантов)
     assert len(send_calls) >= 1, "drift=False — TG send должен сработать"
+
+
+def test_signal_loop_silent_when_family_muted(tmp_path, monkeypatch) -> None:
+    """Заглушённая семья не шлёт в TG, но журнал пишется (эдж копится)."""
+    from services.common import silent_families as sf
+    cfg = tmp_path / "silent.json"
+    cfg.write_text('{"muted": ["CASCADE_FOLLOWUP"]}', encoding="utf-8")
+    monkeypatch.setattr(sf, "CONFIG_PATH", cfg)
+    assert sf.tg_muted("CASCADE_FOLLOWUP") is True
+    assert sf.tg_muted("TREND_SIGNAL") is False
