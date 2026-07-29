@@ -27,6 +27,7 @@ TEST_DIRS = [
     "tests/services/grid_autotune/",
     "tests/services/alt_guard/",
     "tests/tools/test_market_card.py",
+    "tests/services/trend_signals/",
 ]
 
 def main():

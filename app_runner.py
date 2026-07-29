@@ -664,6 +664,16 @@ async def _run_order_harvester(stop_event: asyncio.Event, *, telegram_app=None) 
     await order_harvester_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_trend_signals(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Трендовые сигналы ETH/XRP (2026-07-29): валидированный на 2 годах эдж
+    (+109%/+113%, PF 1.68/1.48). Пингует вход / выход по Chandelier-стопу /
+    истощение 3+ из 4 — ~7 входов в месяц. Исполняет оператор. PRIMARY."""
+    from services.telegram.channel_router import build_send_fn
+    from services.trend_signals.loop import trend_signals_loop
+    send_fn = build_send_fn(telegram_app, "TREND_SIGNAL") if telegram_app else None
+    await trend_signals_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_grid_autotune(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Grid Autotune (2026-07-20): оператор «делай сам, я не у ПК» — при drift
     Stage >= 2 расширяет gs/target DYN-бота на 30% через set_params (живой бот,
@@ -1416,6 +1426,7 @@ async def main(
     scalp_liq_task = asyncio.create_task(_run_scalp_liq(stop_event, telegram_app=app), name="scalp_liq")
     order_harvester_task = asyncio.create_task(_run_order_harvester(stop_event, telegram_app=app), name="order_harvester")
     grid_autotune_task = asyncio.create_task(_run_grid_autotune(stop_event, telegram_app=app), name="grid_autotune")
+    trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
     regime_shadow_task = asyncio.create_task(_run_regime_shadow(stop_event), name="regime_shadow")
@@ -1463,7 +1474,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
