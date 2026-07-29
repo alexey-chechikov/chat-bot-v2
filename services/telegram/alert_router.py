@@ -45,26 +45,38 @@ ROUTINE = "ROUTINE"   # 2026-05-11: low-signal grid/layer events, sent to a sepa
 # Unlisted emitters default to PRIMARY (conservative — operator opts out via
 # explicit suppression, not silent default).
 _EMITTER_CHANNEL: dict[str, str] = {
-    # PRIMARY (high-signal, regulation-relevant)
-    "LIQ_CASCADE":        PRIMARY,
-    "BOUNDARY_BREACH":    PRIMARY,
-    "PNL_EVENT":          PRIMARY,
-    "PNL_EXTREME":        PRIMARY,
-    "POSITION_CHANGE":    PRIMARY,
-    "PARAM_CHANGE":       PRIMARY,
-    "BOT_STATE_CHANGE":   PRIMARY,
-    "REGIME_CHANGE":      PRIMARY,
-    "MARGIN_ALERT":       PRIMARY,
-    "ENGINE_ALERT":       PRIMARY,
-    "LIQ_CLUSTER_BUILD":  PRIMARY,
-    "SETUP_ON":           PRIMARY,    # setup_detector primary edge events
-    "SETUP_OFF":          PRIMARY,
-    "GRID_EXHAUSTION":    PRIMARY,    # ВЕРХ/НИЗ ИСТОЩАЕТСЯ — operator decision input
-    "P15_OPEN":           PRIMARY,    # начало цикла P-15 — оператор должен видеть
-    "P15_CLOSE":          PRIMARY,    # завершение цикла P-15
-    "ALT_GUARD":          PRIMARY,    # 2026-06-10: сторож живых альт-гридов (net-0/SL/памп)
-    "MA_CROSS":           PRIMARY,    # 2026-06-13: H5-кросс сигналы (~5/мес, оператор видит)
-    "SCALP_LIQ":          PRIMARY,    # 2026-06-19: liq-свип для скальпинга (actionable, личка)
+    # ═══ PRIMARY (личка) ═══════════════════════════════════════════════════
+    # 2026-07-29, ревизия по правилу оператора: в личку идёт ТОЛЬКО то, что
+    # требует его решения ПРЯМО СЕЙЧАС и касается денег. Остальное — в
+    # ROUTINE (фон, смотрит когда хочет) или молчит (silent_families.json).
+    "TREND_SIGNAL":       PRIMARY,    # 2026-07-29: вход/выход ETH-XRP по
+                                      # валидированному эджу (+109%/+113%),
+                                      # ~7 входов/мес — главный actionable
+    "LIQ_CASCADE":        PRIMARY,    # каскад — угроза открытым позициям
+    "PNL_EXTREME":        PRIMARY,    # экстремум PnL
+    "MARGIN_ALERT":       PRIMARY,    # маржа — риск ликвидации
+    "ENGINE_ALERT":       PRIMARY,    # движок встал
+    "SETUP_ON":           PRIMARY,    # сетапы с доказанным эджем (n>=30,
+                                      # гейт в watchlist/play_templates)
+    "BOT_STATE_CHANGE":   PRIMARY,    # бот упал/встал — деньги стоят
+    # ── переведено в ROUTINE 2026-07-29 (было PRIMARY): фон, не требует
+    #    немедленного решения; оператор: «мешает увидеть важное»
+    "REGIME_CHANGE":      ROUTINE,    # смена режима: контекст, не действие
+    "PARAM_CHANGE":       ROUTINE,    # правка параметров бота
+    "POSITION_CHANGE":    ROUTINE,    # изменение позиции
+    "PNL_EVENT":          ROUTINE,    # рядовое PnL-событие
+    "BOUNDARY_BREACH":    ROUTINE,    # пробой границы грида
+    "LIQ_CLUSTER_BUILD":  ROUTINE,    # набор ликвидационного кластера
+    "SETUP_OFF":          ROUTINE,    # закрытие сетапа
+    "GRID_EXHAUSTION":    ROUTINE,    # ВЕРХ/НИЗ истощается — теперь есть
+                                      # честный чек-лист в /rynok и trend_state
+    "P15_OPEN":           ROUTINE,
+    "P15_CLOSE":          ROUTINE,
+    "MA_CROSS":           ROUTINE,    # ~5/мес, эдж не подтверждён форвардом
+    "SCALP_LIQ":          ROUTINE,    # liq-свип: фон
+    "ALT_GUARD":          PRIMARY,    # риск-сторож (мешок у SL, бот встал);
+                                      # целиком заглушён в silent_families —
+                                      # запись оставлена на случай возврата
     # ROUTINE (low-signal noise, separate chat by default)
     "P15_REENTRY":        ROUTINE,    # повторное открытие слоя после harvest
     "P15_HARVEST":        ROUTINE,    # частичное закрытие 50%
