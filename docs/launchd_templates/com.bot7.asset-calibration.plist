@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bot7.asset-calibration</string>
+    <!-- Перекалибровка профилей активов (трендовый эдж + пороги истощения).
+         2026-07-29: оператор — «раз в квартал вручную» не годится, нужно само.
+         Раз в неделю, вс 06:00: пересчитывает state/asset_profiles.json на
+         свежих 2 годах. Если у актива эдж пропал — trend_bot_ok станет false
+         и trend_signals перестанет по нему сигналить АВТОМАТИЧЕСКИ. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/alexeychechikov/code/bot7/.venv/bin/python3</string>
+        <string>tools/calibrate_assets.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/alexeychechikov/code/bot7</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key><integer>0</integer>
+        <key>Hour</key><integer>6</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/alexeychechikov/code/bot7/logs/launchd_asset_calibration.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/alexeychechikov/code/bot7/logs/launchd_asset_calibration.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/alexeychechikov/code/bot7/.venv/bin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
