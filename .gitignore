@@ -294,3 +294,17 @@ state/paper_grid_*.jsonl
 # 2026-05-22: pump-research feature data (120MB master CSV + sources —
 # regenerable by scripts/pump_research/*.py, never committed)
 data/pump_research/
+
+# -- Рантайм-состояние сервисов (2026-07-29) -----------------------------
+# Меняется каждую минуту: в diff это шум и источник merge-конфликтов между
+# Mac и Win. КОНФИГИ (*_config.json, asset_profiles, silent_families,
+# report_delivery) остаются в git — они описывают ПОВЕДЕНИЕ, не состояние.
+state/*_state.json
+state/*_journal.jsonl
+state/*_heartbeat.json
+state/*_dedup.json
+state/*_cooldown.json
+state/*_sent.json
+state/_reports_last_sent.json
+state/pipeline_metrics_*.jsonl
+state/*.bak
