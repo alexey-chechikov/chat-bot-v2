@@ -60,9 +60,10 @@ def test_orchestrator_loop_sends_alerts_on_change(monkeypatch):
     monkeypatch.setattr("core.orchestrator.orchestrator_loop.send_daily_report", AsyncMock())
 
     asyncio.run(loop._tick())
-    assert send_mock.await_count == 2
-    first_text = send_mock.await_args_list[0].args[0]
-    assert "btc_long_l1" in first_text
+    # 2026-07-29: дубль «ОРКЕСТРАТОР: ИЗМЕНЕНИЕ» убран — он повторял карточку
+    # действия из _build_alerts (на одну смену режима уходило 3 сообщения).
+    assert send_mock.await_count == 1
+    assert send_mock.await_args_list[0].args[0] == "extra alert"
 
 
 def test_orchestrator_loop_format_change_alert():

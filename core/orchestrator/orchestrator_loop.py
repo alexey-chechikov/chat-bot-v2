@@ -94,7 +94,13 @@ class OrchestratorLoop:
                         getattr(change, "to_action", "?"),
                     )
                     continue
-                await send_telegram_alert(self._format_change_alert(change, regime))
+                # 2026-07-29 (оператор: «в оба канала приходят разные и
+                # одинаковые сообщения»): это сообщение ДУБЛИРОВАЛО карточку
+                # действия из _build_alerts — на одну смену режима уходило 3
+                # сообщения («ИЗМЕНЕНИЕ» + «СМЕНА РЕЖИМА» + карточка действия).
+                # Карточка действия информативнее (в ней «ДЕЙСТВИЕ В GinArea»
+                # и метрики), поэтому дубль убран. Изменение по-прежнему
+                # фиксируется в record_change для истории.
                 record_change(
                     cat_key,
                     getattr(change, "from_action", ""),

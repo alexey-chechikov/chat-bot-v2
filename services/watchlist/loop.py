@@ -170,7 +170,23 @@ async def watchlist_loop(stop_event: asyncio.Event, *, send_fn=None, interval_se
                                 "supp_label=%s supp_dir=%s",
                                 rule.id, value, rule.label, dir_key,
                                 suppressed_label, suppressed_dir)
-                    if is_skip:
+                    # 2026-07-29: гейт по размеру выборки. n<30 = статистически
+                    # неотличимо от монетки (n=10 при 70% → ДИ ~35-93%).
+                    # В журнал пишем, в ленту не шлём.
+                    underpowered = False
+                    if rule.label:
+                        try:
+                            from .play_templates import play_sample_n, play_underpowered
+                            underpowered = play_underpowered(rule.label)
+                            if underpowered:
+                                logger.info("watchlist.underpowered label=%s n=%s < 30",
+                                            rule.label, play_sample_n(rule.label))
+                        except Exception:
+                            logger.exception("watchlist.sample_gate_failed")
+                    if underpowered:
+                        _log_suppressed(rule.id, rule.label or "",
+                                        f"underpowered_n{play_sample_n(rule.label)}", now)
+                    elif is_skip:
                         _log_suppressed(rule.id, rule.label or "", "skip_card_not_actionable", now)
                     elif suppressed_label:
                         _log_suppressed(rule.id, rule.label or "",

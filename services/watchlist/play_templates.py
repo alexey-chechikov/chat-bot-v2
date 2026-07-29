@@ -217,6 +217,28 @@ def _verdict(play: dict, rr_primary: float, ctx_warnings: int,
     return f"🔴 SKIP (issues: {', '.join(flags)}) — wait for cleaner setup"
 
 
+# 2026-07-29 (оператор: «много воды, мешает увидеть важное»): минимальный
+# размер выборки для отправки сетапа в PRIMARY. Тот же порог, что у
+# edge_drift_guard и trend-профилей — 30 наблюдений. Плей с n=10 («~5 раз в
+# год») статистически неотличим от монетки: при 70% на n=10 доверительный
+# интервал примерно 35–93%. Такие карточки идут в журнал, но не в ленту.
+MIN_SAMPLE_N = 30
+
+
+def play_sample_n(label: str) -> int | None:
+    """Размер выборки плея из строки edge («n=10 (за 2 года)…»)."""
+    import re
+    meta = PLAYS.get(label) or {}
+    m = re.search(r"n\s*=\s*(\d+)", str(meta.get("edge", "")))
+    return int(m.group(1)) if m else None
+
+
+def play_underpowered(label: str) -> bool:
+    """True = выборка мала, в PRIMARY не слать (в журнал — да)."""
+    n = play_sample_n(label)
+    return n is not None and n < MIN_SAMPLE_N
+
+
 PLAYS: dict[str, dict] = {
     "funding_squeeze_long": {
         "title": "📈 FUNDING SQUEEZE → LONG",
