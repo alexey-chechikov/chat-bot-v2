@@ -308,3 +308,16 @@ state/*_sent.json
 state/_reports_last_sent.json
 state/pipeline_metrics_*.jsonl
 state/*.bak
+state/*_signals.jsonl
+state/*_signals_*.jsonl
+state/*_shadow.jsonl
+state/*_suppressed.jsonl
+state/*_fires.jsonl
+state/*_active.json
+state/*_offset.json
+state/*_dwell.json
+state/*_pushed.json
+state/*_last_daily_report.json
+state/edge_live_stats.json
+state/paper_signals.jsonl
+state/paper_trades.jsonl
