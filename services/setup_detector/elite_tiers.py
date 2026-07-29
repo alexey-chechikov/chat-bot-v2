@@ -59,6 +59,23 @@ _RULES: list[tuple] = [
      "STRONG",  92.5, 53,  1.5, "LMD_BTC_range_any-session"),
     ("long_multi_divergence", "range_wide", None,     None,
      "STRONG",  92.5, 53,  1.3, "LMD_range_any-pair"),
+
+    # ── Dead signals — PF<1 in honest precision data (setup_regime_edge.json).
+    # Blocked globally (None = any regime/session/pair).
+    # Source: setup_regime_edge.json computed from setup_precision_outcomes.jsonl.
+    ("long_double_bottom",  None, None, None,
+     "WEAK",  36.1, 108, 0.0, "PF054_dead"),
+    ("short_double_top",    None, None, None,
+     "WEAK",  43.2, 118, 0.0, "PF073_dead"),
+    ("short_div_bos_15m",   None, None, None,
+     "WEAK",  26.5,  34, 0.0, "PF053_dead"),
+
+    # short_pdh_rejection: PF 0.54 overall, BUT PF 2.43 WR 62% in trend_up.
+    # Keep alive only when regime is trend_up; block in all other regimes.
+    ("short_pdh_rejection", "trend_up", None, None,
+     "STRONG", 62.5, 16, 1.0, "PRej_trend_up_alive"),
+    ("short_pdh_rejection", None,       None, None,
+     "WEAK",   25.4, 67, 0.0, "PRej_dead_non_trend_up"),
 ]
 
 

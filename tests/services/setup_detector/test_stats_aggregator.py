@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,12 @@ import pytest
 from services.setup_detector.models import SetupBasis, SetupStatus, SetupType, make_setup
 from services.setup_detector.stats_aggregator import compute_setup_stats, format_stats_card
 from services.setup_detector.storage import SetupStorage
+
+# Use a recent, *relative* timestamp so fixtures always fall inside the
+# lookback window (compute_setup_stats filters setups by detected_at). A
+# hardcoded absolute date here is a time-bomb: once "now" advances past the
+# lookback horizon the setups get filtered out and every aggregation reads 0.
+_RECENT_DETECTED_AT = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
 
 def _write_setups(path: Path, setups: list[dict]) -> None:
@@ -31,7 +37,7 @@ def _setup_dict(
     session: str = "NY_AM",
     regime: str = "consolidation",
     strength: int = 8,
-    detected_at: str = "2026-04-30T10:00:00+00:00",
+    detected_at: str = _RECENT_DETECTED_AT,
 ) -> dict:
     return {
         "setup_id": setup_id,

@@ -19,9 +19,20 @@ MARKET_1M = ROOT / "market_live" / "market_1m.csv"
 
 WINDOW_MIN = 3          # окно кластера
 THRESHOLD_BTC = 1.5     # ∑ ликвидаций одной стороны за окно = свип (выше grid-порога 0.5)
-COOLDOWN_SEC = 900      # 15 мин на сторону
+COOLDOWN_SEC = 900      # 15 мин на сторону — журналирование (данные копим полностью)
 POLL_INTERVAL_SEC = 90
 HORIZONS_MIN = {"15м": 15, "30м": 30, "60м": 60}   # отбой через сколько мерим
+
+# TG-гейт (2026-07-07): при пороге 1.5 уходило до 47 карточек/день с медианой 18 мин —
+# оператор читал это как «одно и то же каждые полчаса». Журналим по-прежнему всё ≥1.5
+# (исследовательские данные), но в TG шлём только крупняк и нечасто; эскалация ≥2×
+# пробивает cooldown, чтобы 20 BTC после 10 BTC не молчал.
+# 2026-07-14: оператор — «карточек и так перебор»; гейт 5.0/2ч давал 5.1/день на
+# свипастой неделе → поднято до 10 BTC / 3ч (~2.5-3/день, только крупные каскады).
+SEND_MIN_QTY_BTC = 10.0
+SEND_COOLDOWN_SEC = 10800
+SEND_ESCALATION_MULT = 2.0
+STATS_MIN_N = 30        # живая стата в карточке только при достаточной выборке
 
 
 def _read_recent(now: datetime) -> list[tuple[str, float, float]]:
@@ -82,16 +93,51 @@ def _deriv_ctx() -> dict:
             "taker": f("taker_buy_pct"), "ls": f("global_ls_ratio")}
 
 
-def build_card(side: str, qty: float, price: float, ctx: dict) -> str:
-    # long-liq = лонги выбиты (форс-продажи, цена вниз) → свип ПОДДЕРЖКИ, жди отбой ВВЕРХ
-    # short-liq = шорты выбиты (форс-покупки, цена вверх) → свип СОПРОТИВЛЕНИЯ, жди откат ВНИЗ
+def _live_stats(side: str) -> dict | None:
+    """Живой эдж стороны из собственного журнала: доля ПРОДОЛЖЕНИЯ @30м.
+
+    Исход в журнале записан со знаком «в пользу отбоя», поэтому continuation = v < 0.
+    2026-07-07, 222 свипа: отбой после long-liq всего 37% @30м, после short-liq 42% —
+    классическое чтение «свип → разворот» живыми данными опровергнуто, свип = continuation.
+    """
+    try:
+        lines = JOURNAL.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    vals = []
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if r.get("side") != side:
+            continue
+        v = (r.get("outcomes") or {}).get("30м")
+        if isinstance(v, (int, float)):
+            vals.append(v)
+    if len(vals) < STATS_MIN_N:
+        return None
+    cont = sum(1 for v in vals if v < 0)
+    return {"n": len(vals), "cont_wr": cont / len(vals) * 100.0,
+            "avg_move": -sum(vals) / len(vals)}
+
+
+def build_card(side: str, qty: float, price: float, ctx: dict,
+               stats: dict | None = None) -> str:
+    # long-liq = лонги выбиты (форс-продажи) — по живому журналу цена ЧАЩЕ ПРОДОЛЖАЕТ вниз
+    # short-liq = шорты выбиты (сквиз) — чаще продолжает вверх. Continuation, не reversal.
     if side == "long":
         head = f"💥 LIQ-СВИП: {qty:.2f} BTC ЛОНГОВ выбито @ ${price:,.0f}"
-        read = "свип ПОДДЕРЖКИ (форс-продажи) → классич. зона отбоя ВВЕРХ"
+        read = "лонги горят → давление ВНИЗ обычно ПРОДОЛЖАЕТСЯ (это НЕ зона лонга)"
+        move = "вниз"
     else:
         head = f"💥 LIQ-СВИП: {qty:.2f} BTC ШОРТОВ выбито @ ${price:,.0f}"
-        read = "свип СОПРОТИВЛЕНИЯ (форс-покупки) → классич. зона отката ВНИЗ"
+        read = "шорты горят (сквиз) → движение ВВЕРХ обычно ПРОДОЛЖАЕТСЯ (это НЕ зона шорта)"
+        move = "вверх"
     L = [head, read]
+    if stats:
+        L.append(f"   живой журнал ({stats['n']} свипов): продолжение {move} "
+                 f"{stats['cont_wr']:.0f}% @30м, в среднем ещё {stats['avg_move']:+.2f}%")
     oi = ctx.get("oi_1h"); fund = ctx.get("funding"); tk = ctx.get("taker")
     cbits = []
     if oi is not None:
@@ -102,7 +148,8 @@ def build_card(side: str, qty: float, price: float, ctx: dict) -> str:
         cbits.append(f"taker buy {tk:.0f}%")
     if cbits:
         L.append("   " + " · ".join(cbits))
-    L.append("   сверь с /levels (какая 🧱 свипнута); вход — по стакану CScalp, не по пингу.")
+    L.append("   это предупреждение для гридов/мешков, НЕ сигнал входа; контр-тренд — "
+             "только ПОСЛЕ разворота дельты в стакане CScalp. Сверь с /levels.")
     return "\n".join(L)
 
 
@@ -208,18 +255,33 @@ def detect(send_fn, now: datetime | None = None) -> list[str]:
                 pass
         if ctx is None:
             ctx = _deriv_ctx()
-        text = build_card(side, qsum, vwap, ctx)
         logger.warning("scalp_liq.sweep %s %.2fBTC @%.0f", side, qsum, vwap)
-        if send_fn:
-            try:
-                send_fn(text)
-            except Exception:
-                logger.exception("scalp_liq.send_failed")
         state[f"last_{side}"] = now.isoformat(timespec="seconds")
         _journal_append({"id": f"sl_{int(now.timestamp())}_{side}",
                          "ts": now.isoformat(timespec="seconds"), "side": side,
                          "qty": round(qsum, 3), "price": round(vwap, 1),
                          "ctx": ctx, "outcomes": {}})
+
+        # TG-гейт: только крупняк, не чаще SEND_COOLDOWN_SEC на сторону;
+        # эскалация ≥2× последней отправленной qty пробивает cooldown
+        if qsum < SEND_MIN_QTY_BTC:
+            continue
+        last_sent = state.get(f"last_sent_{side}")
+        if last_sent:
+            try:
+                in_cd = (now - datetime.fromisoformat(last_sent)).total_seconds() < SEND_COOLDOWN_SEC
+            except ValueError:
+                in_cd = False
+            if in_cd and qsum < SEND_ESCALATION_MULT * (state.get(f"last_sent_qty_{side}") or 0):
+                continue
+        text = build_card(side, qsum, vwap, ctx, stats=_live_stats(side))
+        if send_fn:
+            try:
+                send_fn(text)
+            except Exception:
+                logger.exception("scalp_liq.send_failed")
+        state[f"last_sent_{side}"] = now.isoformat(timespec="seconds")
+        state[f"last_sent_qty_{side}"] = round(qsum, 3)
         fired.append(text)
     _write_state(state)
     return fired

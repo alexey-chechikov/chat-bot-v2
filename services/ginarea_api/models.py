@@ -38,6 +38,7 @@ class BotStatus(IntEnum):
 class Side(IntEnum):
     LONG = 1
     SHORT = 2
+    BOTH = 3  # dynamic-грид с двумя ногами (пачка DYN 2026-06; side=3 у btc DINAMIK и др.)
 
 
 @dataclass(frozen=True, slots=True)
