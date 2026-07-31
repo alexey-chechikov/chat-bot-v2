@@ -35,6 +35,18 @@ MSK = timezone(timedelta(hours=3))
 
 NET_CLOSE_USD = 70.0          # net-0/+$70 → закрыть руками
 SL_DEFAULT_USD = 175.0
+# 2026-07-31: у ботов на OKX стоп-лосс в GinArea НЕ выставлен (slt=false, tsl=null),
+# и вся drift-лестница мерилась от зашитых $175 — одно и то же число для бота на
+# $300 и на $30 000. Замер по 33 дням / 145k снимков / 12 ботов: −$96 (Stage 2)
+# = 2.7% позиции у BCH (срабатывал 55% времени) и 124% позиции у SOL (недостижимо
+# физически: мешок должен превысить всю позицию). Правило значило разное.
+# Теперь при отсутствии реального SL порог считается от РАЗМЕРА ПОЗИЦИИ:
+#   tsl = max($50, 5.5% нотионала) → ступени лестницы дают −2.2% / −3.0% / −4.1%.
+# Калибровка ступеней на тех же 33 днях: после −3% отыграли за сутки 58% эпизодов
+# (углубились вдвое 14%), после −4% отыграли лишь 27% — ступени разделяют «пила
+# отскочит» и «вынос». Реальный tsl из GinArea, если он выставлен, имеет приоритет.
+SL_FLOOR_USD = 50.0           # ниже — шум на копеечной позиции
+SL_FRAC_OF_NOTIONAL = 0.055
 # 2026-06-11 SOL-урок: Dynamic-Auto при закрытии цикла уходит в статус 13 на
 # ~1 мин (поза 0) и возвращается в 2 — это НЕ остановка. Пинг «остановился»
 # только после N минут подряд не-активности + пинг «возобновился» после него.
@@ -123,7 +135,13 @@ def _alt_bots(snap: dict, params: dict, managed_ids: set[str]) -> list[tuple[str
     return out
 
 
-def _sl_usd(p: dict) -> float:
+def _sl_usd(p: dict, notional: float | None = None) -> float:
+    """База drift-лестницы в $. Приоритет — реальный tsl из GinArea.
+
+    Если стоп у бота НЕ выставлен (все боты OKX на 31.07), берём не зашитые
+    $175, а долю от текущего нотионала: одинаковый СМЫСЛ порога для бота любого
+    размера. notional=None (нет позиции/цены) → прежний дефолт, как было.
+    """
     try:
         raw = json.loads(p.get("raw_params_json") or "{}")
         tsl = raw.get("tsl")
@@ -131,7 +149,19 @@ def _sl_usd(p: dict) -> float:
             return abs(float(tsl))
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
+    if notional and notional > 0:
+        return max(SL_FLOOR_USD, float(notional) * SL_FRAC_OF_NOTIONAL)
     return SL_DEFAULT_USD
+
+
+def _notional(latest: dict) -> float:
+    """|позиция| × средняя цена входа. DYN на OKX: позиция в монетах."""
+    try:
+        pos = abs(float(latest.get("position") or 0))
+        avg = float(latest.get("average_price") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return pos * avg
 
 
 def _xrp_px_1h_ago(now: datetime, path: Path = DERIV_HIST_PATH,
@@ -242,10 +272,10 @@ def evaluate(*, snap: dict, params: dict, managed_ids: set[str], deriv: dict,
                           f"правило: закрыть руками (мешок {bag:+,.0f}$)")
             _mark(state, f"{bid}:net", now)
 
-        sl = _sl_usd(p)
+        sl = _sl_usd(p, _notional(latest))
         if bag <= -SL_WARN_FRAC * sl and _cooldown_ok(state, f"{bid}:slwarn", now, COOLDOWN_H["slwarn"]):
             alerts.append(f"⚠️ ALT-GUARD {name}: мешок {bag:+,.0f}$ — {abs(bag)/sl*100:.0f}% "
-                          f"от SL −${sl:.0f}. Решай: дождаться SL / закрыть раньше")
+                          f"от порога −${sl:.0f}. Решай: держать / закрыть раньше")
             _mark(state, f"{bid}:slwarn", now)
 
         # drift-лестница Win (tools/_grid_drift_monitor.py, валидирована на 10.06):
@@ -479,8 +509,11 @@ def _assess_drift(snap: dict, params: dict, managed_ids: set[str],
     except Exception:
         logger.exception("alt_guard.drift_import_failed")
         return {}
-    alt_ids = {bid for bid, slot, _p in _alt_bots(snap, params, managed_ids)
-               if slot["latest"]["status"] == 2}
+    alt_ids, notionals = set(), {}
+    for bid, slot, _p in _alt_bots(snap, params, managed_ids):
+        if slot["latest"]["status"] == 2:
+            alt_ids.add(bid)
+            notionals[bid] = _notional(slot["latest"])
     if not alt_ids:
         return {}
     series = tr.read_series(alt_ids, hours=DRIFT_SERIES_HOURS, now=now)
@@ -490,7 +523,7 @@ def _assess_drift(snap: dict, params: dict, managed_ids: set[str],
             continue
         try:
             df = pd.DataFrame(rows)
-            tsl = -_sl_usd(params.get(bid) or {})
+            tsl = -_sl_usd(params.get(bid) or {}, notionals.get(bid))
             out[bid] = gdm.assess(df, tsl=tsl)
         except Exception:
             logger.exception("alt_guard.drift_assess_failed bot=%s", bid)

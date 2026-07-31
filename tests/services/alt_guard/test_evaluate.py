@@ -46,10 +46,12 @@ def test_net_close_ping_and_cooldown():
 
 def test_sl_warn_uses_tsl():
     # мешок −150 при tsl=-175 → 86% от SL → предупреждение
+    # 2026-07-31: выставленный tsl по-прежнему главнее пропорционального порога
+    # (формулировка «от SL» → «от порога»: у ботов OKX стопа нет вообще)
     bots = {"4306550166": _slot("XRP", profit=10.0, cur=-140.0)}
     params = {"4306550166": _params(tsl=-175)}
     alerts, _ = evaluate(**_base(bots, params))
-    assert any("от SL −$175" in a for a in alerts)
+    assert any("от порога −$175" in a for a in alerts)
 
 
 def test_stopped_bot_debounced_then_pinged_with_status():
