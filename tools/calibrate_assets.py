@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 OUT = ROOT / "state" / "asset_profiles.json"
-ASSETS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT"]
+ASSETS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "AVAXUSDT"]
 ZZ_PCT = 5.0          # порог ноги для ZigZag
 FWD_BARS = 12         # горизонт «скоро развернётся» = 2 суток на 4h
 FEE_RT = 0.10         # комиссии OKX за круг, %

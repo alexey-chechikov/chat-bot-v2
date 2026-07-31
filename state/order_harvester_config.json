@@ -5,7 +5,10 @@
   "enabled": true,
   "bots": {
     "5330789037": {"alias": "BTC-OKX", "symbol": "BTCUSDT", "min_order_profit_usd": 2.0},
-    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "min_order_profit_usd": 1.5}
+    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "min_order_profit_usd": 1.5},
+    "4711140331": {"alias": "XRP-OKX", "symbol": "XRPUSDT", "min_order_profit_usd": 1.5},
+    "5253063096": {"alias": "SOL-OKX", "symbol": "SOLUSDT", "min_order_profit_usd": 1.5},
+    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "min_order_profit_usd": 1.5}
   },
   "_bitmex_archive": {
     "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",

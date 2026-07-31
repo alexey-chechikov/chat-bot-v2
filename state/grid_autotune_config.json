@@ -10,7 +10,10 @@
   "_migration_2026_07_23": "BitMEX закрывается, переезд на OKX (exchangeId=3). Все боты BitMEX (exchangeId=4) остановлены — автоматика смотрела на 8 мёртвых ID и не видела живых. Новые: 5330789037 BTC USDT DYNAMIC, 4812772488 ETH USDT DYNAMIC — оба линейные USDT (позиция в МОНЕТАХ, мешок в USD), in.otc нет => otc_expected не нужен, пауза и set_params безопасны. Пороги нотионала оставлены прежними ($3000): валидация 14-21.07 показала, что в минуты худшего мешка нотионал был выше порога. Боты только запущены (BTC $327, ETH $0) — автотюнер молчит, пока не наберут.",
   "bots": {
     "5330789037": {"alias": "BTC-OKX", "min_notional_usd": 3000},
-    "4812772488": {"alias": "ETH-OKX", "min_notional_usd": 3000}
+    "4812772488": {"alias": "ETH-OKX", "min_notional_usd": 3000},
+    "4711140331": {"alias": "XRP-OKX", "min_notional_usd": 2000},
+    "5253063096": {"alias": "SOL-OKX", "min_notional_usd": 2000},
+    "5900351455": {"alias": "AVAX-OKX", "min_notional_usd": 2000}
   },
   "_bitmex_archive": {
     "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",

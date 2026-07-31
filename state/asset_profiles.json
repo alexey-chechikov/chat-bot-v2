@@ -1,5 +1,5 @@
 {
-  "calibrated_at": "2026-07-29T08:11:24+00:00",
+  "calibrated_at": "2026-07-31T12:01:56+00:00",
   "method": "4h бары, ZigZag 5% для ног; трендовый эдж = пробой 30 баров при ADX>=20 с выходом Chandelier ATR x3, комиссии 0.1%/круг",
   "assets": {
     "BTCUSDT": {
@@ -26,8 +26,8 @@
         "avg_win": 5.11,
         "avg_loss": -2.92
       },
-      "bars": 4832,
-      "period": "2024-05-15 → 2026-07-29",
+      "bars": 4845,
+      "period": "2024-05-15 → 2026-07-31",
       "trend_bot_ok": false
     },
     "ETHUSDT": {
@@ -54,8 +54,8 @@
         "avg_win": 8.44,
         "avg_loss": -3.58
       },
-      "bars": 4832,
-      "period": "2024-05-15 → 2026-07-29",
+      "bars": 4845,
+      "period": "2024-05-15 → 2026-07-31",
       "trend_bot_ok": true
     },
     "XRPUSDT": {
@@ -82,8 +82,8 @@
         "avg_win": 10.21,
         "avg_loss": -4.11
       },
-      "bars": 4832,
-      "period": "2024-05-15 → 2026-07-29",
+      "bars": 4845,
+      "period": "2024-05-15 → 2026-07-31",
       "trend_bot_ok": true
     },
     "SOLUSDT": {
@@ -98,20 +98,48 @@
       "rsi_med": 63,
       "rsi_p75": 70,
       "vol_med": 1.16,
-      "vol_p75": 1.68,
+      "vol_p75": 1.64,
       "after_small_pct": 10,
       "after_deep_pct": 42,
       "after_full_reversal_pct": 48,
       "trend_edge": {
-        "n": 76,
-        "wr_pct": 44.7,
-        "pf": 1.13,
-        "total_pct": 29.1,
-        "avg_win": 7.39,
+        "n": 75,
+        "wr_pct": 44.0,
+        "pf": 1.12,
+        "total_pct": 26.3,
+        "avg_win": 7.53,
         "avg_loss": -5.29
       },
       "bars": 4380,
-      "period": "2024-07-29 → 2026-07-29",
+      "period": "2024-07-31 → 2026-07-31",
+      "trend_bot_ok": false
+    },
+    "AVAXUSDT": {
+      "legs": 208,
+      "leg_move_pct_med": 11.4,
+      "leg_bars_med": 16,
+      "leg_days_med": 2.7,
+      "stretch_pct_med": 4.46,
+      "stretch_pct_p75": 6.34,
+      "stretch_atr_med": 1.68,
+      "stretch_atr_p75": 2.47,
+      "rsi_med": 65,
+      "rsi_p75": 71,
+      "vol_med": 1.14,
+      "vol_p75": 1.75,
+      "after_small_pct": 9,
+      "after_deep_pct": 44,
+      "after_full_reversal_pct": 47,
+      "trend_edge": {
+        "n": 78,
+        "wr_pct": 33.3,
+        "pf": 0.71,
+        "total_pct": -70.1,
+        "avg_win": 6.71,
+        "avg_loss": -4.71
+      },
+      "bars": 4380,
+      "period": "2024-07-31 → 2026-07-31",
       "trend_bot_ok": false
     }
   }

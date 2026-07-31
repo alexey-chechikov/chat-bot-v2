@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 DERIV_LIVE_PATH = Path("state/deriv_live.json")
 HISTORY_PATH = Path("state/deriv_live_history.jsonl")  # append-only за час для расчёта delta
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "XRPUSDT"]
+# 2026-07-31: добавлены SOL и AVAX — оператор запустил по ним боты на OKX,
+# а харвестеру нужна РЕАЛЬНАЯ цена (market_mark из этого файла), иначе он
+# по ним просто молчит (fail-safe). Без цены = без фиксации плюсовых ордеров.
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "AVAXUSDT"]
 POLL_INTERVAL_SEC = 300  # 5 min
 
 
@@ -204,7 +207,7 @@ def _fetch_bybit_long_short(symbol: str) -> dict | None:
 
 
 def build_snapshot() -> dict:
-    """Build single snapshot of all 3 symbols. Returns dict ready to write."""
+    """Build single snapshot of all SYMBOLS. Returns dict ready to write."""
     out = {
         "last_updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
