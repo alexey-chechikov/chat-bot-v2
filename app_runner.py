@@ -1318,7 +1318,23 @@ async def _run_bitmex_account(stop_event: asyncio.Event) -> None:
     свежий между manual override и auto.
 
     Если ключ не настроен в .env.local — loop тихо завершается.
+
+    2026-07-31: ОТКЛЮЧЁН. BitMEX закрывается, гриды переехали на OKX
+    (см. project_okx_migration). Аккаунт BitMEX практически пуст —
+    поллер писал available_margin_usd=$4.52, и эта цифра шла в /status,
+    daily_self_report, bot_brain и audit_view ВМЕСТО реального баланса
+    OKX ($9 828). Плюс 1811 строк в логе за сутки и http_failed на
+    умирающем API. Killswitch не затронут — он берёт балансы ботов из
+    PortfolioStore (GinArea), а не отсюда.
+
+    Включить обратно (или переписать под OKX) — снять флаг ниже.
     """
+    if os.getenv("BITMEX_ACCOUNT_ENABLED", "0").lower() not in ("1", "true", "yes"):
+        logger.info("bitmex_account.disabled — BitMEX закрывается, "
+                    "источник маржи устарел (см. app_runner docstring)")
+        await stop_event.wait()
+        return
+
     from services.bitmex_account import bitmex_poll_loop
 
     await bitmex_poll_loop(stop_event=stop_event)
