@@ -117,7 +117,7 @@ def sim(close, side="long", step=0.04, target=0.30, min_stop=0.008, size0=0.001,
 
 def sim_dg(close, step=0.3, target=0.55, size0=0.005, max_order=0.02, mult=1.1,
            max_orders=200, exit_at_average=True, fee_bps=3.5, both_sides=True,
-           per_order_tp=False, multi_fill=False):
+           per_order_tp=False, multi_fill=False, high=None, low=None):
     """GinArea DYNAMIC GRID: симметричная сетка + ВЫХОД ПО СРЕДНЕЙ (obap).
 
     Добавлено 2026-08-02 для калибровки по 20 якорям Вина (v2). Прежний sim()
@@ -153,6 +153,11 @@ def sim_dg(close, step=0.3, target=0.55, size0=0.005, max_order=0.02, mult=1.1,
     """
     c = np.asarray(close, dtype=float)
     n = len(c)
+    # Внутрибарное исполнение (гипотеза Вина 02.08, подтвердилась): лимитная
+    # заявка исполняется по ХАЮ/ЛОУ бара, а не по закрытию. Фитиль, задевший
+    # уровень, у close-модели не заливался — отсюда и недобор объёма.
+    hi = np.asarray(high, dtype=float) if high is not None else c
+    lo = np.asarray(low, dtype=float) if low is not None else c
     st, tg = step / 100.0, target / 100.0
     fee = fee_bps / 1e4
     books = {1: {"pos": [], "ref": c[0], "lvl": 0},        # +1 = лонг
@@ -179,13 +184,15 @@ def sim_dg(close, step=0.3, target=0.55, size0=0.005, max_order=0.02, mult=1.1,
                     else:
                         keep.append(p)
                 bk["pos"] = keep
-            # 2) ВЫХОД ПО СРЕДНЕЙ — весь мешок стороны разом
+            # 2) ВЫХОД ПО СРЕДНЕЙ — весь мешок стороны разом.
+            # Уровень флаша тоже может быть задет фитилём внутри бара.
             if exit_at_average and bk["pos"]:
                 tot = sum(p["s"] for p in bk["pos"])
                 avg = sum(p["s"] * p["e"] for p in bk["pos"]) / tot
                 goal = avg * (1 + tg) if d > 0 else avg * (1 - tg)
-                crossed = (px >= goal) if d > 0 else (px <= goal)
+                crossed = (hi[i] >= goal) if d > 0 else (lo[i] <= goal)
                 if crossed:
+                    px = goal          # исполнение по уровню, а не по закрытию
                     for p in bk["pos"]:
                         realized += p["s"] * (px - p["e"]) * d - fee * p["s"] * px
                     bk["pos"] = []
@@ -204,7 +211,9 @@ def sim_dg(close, step=0.3, target=0.55, size0=0.005, max_order=0.02, mult=1.1,
             # по четырём величинам сразу (PnL, место обрыва, размер мешка, яма).
             while len(bk["pos"]) < max_orders:
                 lvl_px = (bk["ref"] * (1 - st)) if d > 0 else (bk["ref"] * (1 + st))
-                if (px > lvl_px) if d > 0 else (px < lvl_px):
+                # заявка стоит на уровне: её задевает ЛОУ (лонг) / ХАЙ (шорт)
+                reached = (lo[i] <= lvl_px) if d > 0 else (hi[i] >= lvl_px)
+                if not reached:
                     break
                 size = min(size0 * (mult ** bk["lvl"]), max_order)
                 bk["pos"].append({"e": lvl_px, "s": size})
