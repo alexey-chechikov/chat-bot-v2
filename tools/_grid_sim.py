@@ -115,6 +115,119 @@ def sim(close, side="long", step=0.04, target=0.30, min_stop=0.008, size0=0.001,
                 edge=edge, max_bag=max_bag, open_pos=len(positions))
 
 
+def sim_dg(close, step=0.3, target=0.55, size0=0.005, max_order=0.02, mult=1.1,
+           max_orders=200, exit_at_average=True, fee_bps=3.5, both_sides=True,
+           per_order_tp=False, multi_fill=False):
+    """GinArea DYNAMIC GRID: симметричная сетка + ВЫХОД ПО СРЕДНЕЙ (obap).
+
+    Добавлено 2026-08-02 для калибровки по 20 якорям Вина (v2). Прежний sim()
+    моделирует INDICATOR GRID (односторонний, вход по просадке) и выход по
+    средней НЕ умеет — закрывает только по таргету позиции и force-close.
+
+    Механика, снятая с живых ботов и конфигов якорей:
+      * две независимые лестницы. ЛОНГ добавляется, когда цена ушла на `step`
+        НИЖЕ последнего входа лонга; ШОРТ — когда на `step` ВЫШЕ последнего
+        входа шорта. Отсчёт от последнего залива, а не от центра (сетка
+        «динамическая» — границы едут за ценой);
+      * размер ордера растёт: size0 · mult^level, но не выше max_order.
+        ВАЖНО: в конфиге якорей max_size=0.02 — это потолок ОДНОГО ордера, а не
+        всей позиции. Иначе «мешок завис 1.5 BTC» был бы невозможен. Совпадает
+        с живыми ботами OKX (minQ 0.005 → maxQ 0.025, qr 1.1);
+      * при ВЫКЛЮЧЕННОМ выходе по средней каждая позиция закрывается по своему
+        тейку `target`. При ВКЛЮЧЁННОМ — НЕТ: закрывается весь мешок разом.
+        Проверено на реальных ордерах: у ботов с obap=true 78–99% закрытий
+        идут ПАЧКАМИ (BTC 14 ордеров в одну секунду с входами 60 534…62 965,
+        итог +$34 при 7 плюсовых из 14; XRP 33 ордера разом, 3 плюсовых из 33).
+        У LTC/BCH, где obap выключен, наоборот 61–74% закрытий поодиночке;
+      * ВЫХОД ПО СРЕДНЕЙ: ВЕСЬ мешок стороны закрывается, когда цена доходит до
+        уровня СРЕДНЯЯ · (1 ± target) — не до самой средней. Снято с живого
+        бота: stat.extension даёт avgPL 63941.79 → tapb 64242.32 (+0.470%) и
+        avgPS 63040.89 → taps 62744.60 (−0.470%) при его tog=0.47. Отношение
+        совпадает с целевым в точности. Отсюда же и «обрыв целевого»: чем
+        больше target, тем дальше отодвинут уровень флаша, и на глубоком
+        обвале цена до него не дотягивается — мешок остаётся висеть.
+        После флаша лестница сбрасывается и начинает заново.
+
+    Возвращает и `max_bag` — худшую нереализованную просадку внутри окна
+    («транзитная яма»), и `stuck` — что осталось висеть на конец окна.
+    """
+    c = np.asarray(close, dtype=float)
+    n = len(c)
+    st, tg = step / 100.0, target / 100.0
+    fee = fee_bps / 1e4
+    books = {1: {"pos": [], "ref": c[0], "lvl": 0},        # +1 = лонг
+             -1: {"pos": [], "ref": c[0], "lvl": 0}}       # -1 = шорт
+    if not both_sides:
+        books.pop(-1)
+    realized = volume = 0.0
+    max_bag = 0.0
+    flushes = target_closes = 0
+
+    for i in range(n):
+        px = c[i]
+        for d, bk in books.items():
+            # 1) свой тейк у каждой позиции («помол» сетки). Работает вместе с
+            # выходом по средней: помол даёт оборот, средняя — флаш мешка.
+            if per_order_tp or not exit_at_average:
+                keep = []
+                for p in bk["pos"]:
+                    hit = ((px >= p["e"] * (1 + tg)) if d > 0
+                           else (px <= p["e"] * (1 - tg)))
+                    if hit:
+                        realized += p["s"] * (px - p["e"]) * d - fee * p["s"] * px
+                        target_closes += 1
+                    else:
+                        keep.append(p)
+                bk["pos"] = keep
+            # 2) ВЫХОД ПО СРЕДНЕЙ — весь мешок стороны разом
+            if exit_at_average and bk["pos"]:
+                tot = sum(p["s"] for p in bk["pos"])
+                avg = sum(p["s"] * p["e"] for p in bk["pos"]) / tot
+                goal = avg * (1 + tg) if d > 0 else avg * (1 - tg)
+                crossed = (px >= goal) if d > 0 else (px <= goal)
+                if crossed:
+                    for p in bk["pos"]:
+                        realized += p["s"] * (px - p["e"]) * d - fee * p["s"] * px
+                    bk["pos"] = []
+                    bk["ref"] = px
+                    bk["lvl"] = 0
+                    flushes += 1
+            # 3) добор против движения. ВАЖНО: за один бар цена может пройти
+            # НЕСКОЛЬКО ступеней сетки — на обвале заливаются все, а не одна.
+            # С «одним доливом за минуту» сим давал объём 0.05x от реального
+            # (сверка с якорями 02.08) — форма верна, масштаб занижен в 15-20 раз.
+            # multi_fill=True физичнее (цена реально проходит несколько уровней),
+            # НО на калибровке ломает обрыв: молодая лестница успевает флашиться
+            # на мелких отскоках внутри падения и глубокий мешок не набирается.
+            # Реальность (якорь 5234319055) — мешок ДА набрался, 1.5 BTC.
+            # Поэтому по умолчанию один долив за бар: он воспроизводит форвард
+            # по четырём величинам сразу (PnL, место обрыва, размер мешка, яма).
+            while len(bk["pos"]) < max_orders:
+                lvl_px = (bk["ref"] * (1 - st)) if d > 0 else (bk["ref"] * (1 + st))
+                if (px > lvl_px) if d > 0 else (px < lvl_px):
+                    break
+                size = min(size0 * (mult ** bk["lvl"]), max_order)
+                bk["pos"].append({"e": lvl_px, "s": size})
+                volume += size * lvl_px
+                realized -= fee * size * lvl_px
+                bk["ref"] = lvl_px
+                bk["lvl"] += 1
+                if not multi_fill:
+                    break
+        bag = sum(p["s"] * (px - p["e"]) * d
+                  for d, bk in books.items() for p in bk["pos"])
+        if bag < max_bag:
+            max_bag = bag
+
+    stuck = sum(p["s"] * (c[-1] - p["e"]) * d
+                for d, bk in books.items() for p in bk["pos"])
+    open_pos = sum(len(bk["pos"]) for bk in books.values())
+    open_qty = sum(p["s"] for bk in books.values() for p in bk["pos"])
+    return dict(total=realized + stuck, realized=realized, stuck=stuck,
+                volume=volume, max_bag=max_bag, open_pos=open_pos,
+                open_qty=open_qty, flushes=flushes, target_closes=target_closes)
+
+
 def run_ab(label, a, b, side="long", warm_days=50, **kw):
     a_ts = pd.Timestamp(a, tz="UTC")
     warm = (a_ts - pd.Timedelta(days=warm_days)).strftime("%Y-%m-%d")
