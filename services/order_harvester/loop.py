@@ -115,17 +115,50 @@ def order_fields(o: dict) -> dict:
     quantity, price (вход), side (1=BUY, 2=SELL), openedAt, trigger{...}.
 
     profit: у ЗАКРЫТЫХ — USD float; у ОТКРЫТЫХ — null (UI считает на клиенте).
-    Для открытых profit_usd заполняет _candidates() по mark-цене."""
+    Для открытых profit_usd заполняет _candidates() по mark-цене.
+
+    2026-08-02 (оператор поймал закрытия в минус, разбор по данным GinArea:
+    133 закрытых ордера, 63 из них УБЫТОЧНЫЕ на −$24.63):
+    - вход берём из `closedPrice` — это РЕАЛЬНАЯ цена исполнения. Раньше брали
+      `price` (лимитная заявка), она с фактом не совпадает;
+    - `fee` — фактическая комиссия входа, списанная биржей. Раньше её не
+      вычитали вовсе, хотя выход стоит примерно столько же.
+    """
     oid = o.get("id")
     profit = o.get("profit")
+
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    # цена исполнения приоритетнее лимитной; если её нет — ордер не считаем
+    fill = _f(o.get("closedPrice"))
     return {
         "order_id": str(oid) if oid is not None else None,
         "profit_usd": float(profit) if profit is not None else None,
         "opened": bool(o.get("isOpen")),
         "qty": o.get("quantity"),
-        "price_in": o.get("price"),
+        "price_in": fill if fill and fill > 0 else None,
+        "limit_price": _f(o.get("price")),
+        "fee": _f(o.get("fee")),
+        "trigger_price": _f((o.get("trigger") or {}).get("price")),
         "side": o.get("side"),
     }
+
+
+def profit_cap_usd(f: dict) -> float | None:
+    """Потолок правдоподобия: сколько ордер даёт на СВОЁМ тейке (trigger.price).
+
+    Если бы рынок реально дошёл до тейка, бот закрыл бы ордер сам — значит
+    открытый ордер не может стоить существенно больше. Это проверка моей
+    арифметики данными GinArea: расчёт выше потолка = цена рынка неверна.
+    """
+    try:
+        return abs(float(f["price_in"]) - float(f["trigger_price"])) * float(f["qty"])
+    except (TypeError, ValueError, KeyError):
+        return None
 
 
 DERIV_LIVE_PATH = ROOT / "state" / "deriv_live.json"
@@ -165,15 +198,28 @@ def market_mark(symbol: str, *, path: Path = DERIV_LIVE_PATH,
 
 
 def order_profit_usd(mark: float, f: dict) -> float | None:
-    """(mark − вход) · qty · направление; side 1=BUY → +1, 2=SELL → −1."""
+    """ЧИСТАЯ прибыль ордера: (mark − цена исполнения) · qty · направление − комиссии.
+
+    side 1=BUY → +1, 2=SELL → −1.
+    Комиссия: `fee` — фактически списанная за вход; выход стоит примерно
+    столько же, поэтому вычитаем удвоенную. Не знаем комиссию — не гадаем,
+    ордер пропускаем (2026-08-02: без этого вычета половина закрытий уходила
+    в минус на копеечном плюсе).
+    """
     if f["side"] == 1:
         direction = 1.0
     elif f["side"] == 2:
         direction = -1.0
     else:
         return None
+    if f.get("price_in") is None:
+        return None                     # нет цены исполнения — не гадаем
+    fee = f.get("fee")
+    if fee is None:
+        return None                     # нет комиссии — не гадаем
     try:
-        return (mark - float(f["price_in"])) * float(f["qty"]) * direction
+        gross = (mark - float(f["price_in"])) * float(f["qty"]) * direction
+        return gross - 2.0 * abs(float(fee))
     except (TypeError, ValueError):
         return None
 
@@ -192,7 +238,20 @@ def _candidates(api, bot_id: str, min_profit: float, symbol: str) -> list[dict]:
         profit = order_profit_usd(mark, f)
         if profit is None or profit < min_profit:
             continue
+        # проверка правдоподобия данными GinArea: выше собственного тейка
+        # ордер стоить не может — бот бы его уже закрыл. Расчёт выше потолка
+        # означает неверную рыночную цену, а не удачный ордер.
+        cap = profit_cap_usd(f)
+        if cap is None:
+            continue
+        if profit > cap:
+            logger.warning(
+                "order_harvester.profit_above_cap bot=%s order=%s расчёт=%.2f "
+                "потолок_по_тейку=%.2f mark=%s — цена рынка недостоверна, пропуск",
+                bot_id, f["order_id"], profit, cap, mark)
+            continue
         f["profit_usd"] = round(profit, 2)
+        f["profit_cap_usd"] = round(cap, 2)
         out.append(f)
     out.sort(key=lambda f: -(f["profit_usd"] or 0))
     return out

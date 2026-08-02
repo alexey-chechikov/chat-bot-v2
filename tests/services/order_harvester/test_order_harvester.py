@@ -112,11 +112,21 @@ def _order(oid="o1", profit=8.5, opened=True, **extra):
     return o
 
 
-def _open_order(oid, price, qty=1.0, side=2):
+def _open_order(oid, price, qty=1.0, side=2, fee=0.0, cap_room=1000.0):
     """Открытый ордер в живой форме: profit=null, профит считается по mark.
-    С DEFAULT_STAT (mark=95) SELL qty=1 @ price даёт профит (price − 95)."""
+    С DEFAULT_STAT (mark=95) SELL qty=1 @ price даёт профит (price − 95).
+
+    2026-08-02: у настоящего ордера GinArea есть цена ИСПОЛНЕНИЯ (closedPrice),
+    комиссия (fee) и собственный тейк (trigger.price) — расчёт идёт по ним.
+    cap_room задаёт запас тейка: по умолчанию широкий, чтобы старые проверки
+    порога/сортировки не упирались в потолок правдоподобия.
+    """
+    direction = -1 if side == 2 else 1
     return {"id": oid, "profit": None, "quantity": qty, "price": price,
-            "isOpen": True, "side": side, "botId": 42}
+            "closedPrice": price, "fee": fee, "isOpen": True, "side": side,
+            "botId": 42,
+            "trigger": {"price": price + direction * cap_room / max(qty, 1e-9),
+                        "quantity": qty, "initPrice": price}}
 
 
 def _patch_control(monkeypatch, pause_action="paused", resume_action="resumed"):
@@ -134,9 +144,11 @@ def _patch_control(monkeypatch, pause_action="paused", resume_action="resumed"):
 
 
 def test_order_fields_normalizes_open_order():
-    f = oh.order_fields(_order())
+    f = oh.order_fields(_order(closedPrice=61540.0))
     assert f["order_id"] == "o1" and f["opened"] and f["profit_usd"] == 8.5
-    assert f["qty"] == 0.0117 and f["price_in"] == 61540.2
+    # вход = цена ИСПОЛНЕНИЯ; лимитная остаётся отдельно (2026-08-02)
+    assert f["qty"] == 0.0117 and f["price_in"] == 61540.0
+    assert f["limit_price"] == 61540.2
 
 
 def test_order_fields_closed_order_not_opened():
@@ -150,14 +162,17 @@ def test_order_fields_real_api_shape():
     assert f["order_id"] == "076b894b-78ae-4594-96b5-39e36245bf18"
     assert not f["opened"]
     assert abs(f["profit_usd"] - 1.3050450212) < 1e-9
-    assert f["qty"] == 0.0066 and f["price_in"] == 62087.9 and f["side"] == 1
+    # 2026-08-02: вход — closedPrice (факт исполнения), не price (заявка)
+    assert f["qty"] == 0.0066 and f["price_in"] == 62087.7 and f["side"] == 1
+    assert f["limit_price"] == 62087.9
 
 
 def test_order_fields_real_open_order():
     """Verbatim ОТКРЫТЫЙ ордер живого API (2026-07-18): profit=null."""
     f = oh.order_fields(REAL_OPEN_ORDER)
     assert f["opened"] and f["profit_usd"] is None
-    assert f["qty"] == 0.01 and f["price_in"] == 1835.45 and f["side"] == 1
+    assert f["qty"] == 0.01 and f["price_in"] == 1835.23 and f["side"] == 1
+    assert f["limit_price"] == 1835.45
 
 
 def test_market_mark_reads_real_price(tmp_path, monkeypatch):
@@ -195,10 +210,15 @@ def test_market_mark_rejects_stale(tmp_path, monkeypatch):
 
 
 def test_order_profit_direction():
-    # mark=95: SELL @100 в плюсе, BUY @100 в минусе
-    assert oh.order_profit_usd(95.0, {"side": 2, "price_in": 100.0, "qty": 1.0}) == 5.0
-    assert oh.order_profit_usd(95.0, {"side": 1, "price_in": 100.0, "qty": 1.0}) == -5.0
-    assert oh.order_profit_usd(95.0, {"side": 99, "price_in": 100.0, "qty": 1.0}) is None
+    # mark=95: SELL @100 в плюсе, BUY @100 в минусе (комиссия 0 для наглядности)
+    s = {"side": 2, "price_in": 100.0, "qty": 1.0, "fee": 0.0}
+    b = {"side": 1, "price_in": 100.0, "qty": 1.0, "fee": 0.0}
+    assert oh.order_profit_usd(95.0, s) == 5.0
+    assert oh.order_profit_usd(95.0, b) == -5.0
+    assert oh.order_profit_usd(95.0, dict(s, side=99)) is None
+    # 2026-08-02: без комиссии и без цены исполнения НЕ ГАДАЕМ
+    assert oh.order_profit_usd(95.0, {"side": 2, "price_in": 100.0, "qty": 1.0}) is None
+    assert oh.order_profit_usd(95.0, dict(s, price_in=None)) is None
 
 
 def test_candidates_threshold_and_sorting():
