@@ -9,17 +9,25 @@
     "base": {
       "start": "2026-02-05",
       "end": "2026-05-05",
-      "regime": "BTC drift up / range — TUNING window (fits look best here, incl. the cliff trap)"
+      "regime": "TUNING window. LEVELS: grid avg-sell in screenshots = 80.5-81.6k → BTC ~80k area, choppy/range (NOT ~70k). Fits look best here, incl. the cliff trap. Win's earlier '~70k' prose was wrong — trust screenshot levels + Mac candles."
     },
     "forward": {
       "start": "2026-05-10",
       "end": "2026-06-28",
-      "regime": "OUT-OF-SAMPLE. BTC 70k->52k crash 06.06 -> bounce 60k (round-trip, avg entry above close). ETH -34% capitulation ~1500 + bounce."
+      "regime": "OUT-OF-SAMPLE. LEVELS (per Mac candles, likely correct): BTC ~80.7k -> 58.3k -> 59.6k (round-trip, avg entry above close). Win's earlier '70k->52k->60k' prose was OFF by ~10k — trust Mac candles. ETH -34% capitulation + bounce."
     }
   },
-  "calibration_target": "exit_at_average ('Выход по средней цене'): whole bag closes flat when price crosses the weighted-average entry, then banks the grind. tools/_grid_sim.py (Jun-8) does NOT model this — it closes only per-position target (line 65) or force-close (line 79). These points are the anchors to (a) build exit-at-average into the sim and (b) validate it reproduces GinArea before trusting any 2y sweep.",
+  "calibration_target": "exit_at_average ('Выход по средней цене'): whole bag closes flat when price reaches avg_entry × (1 ± target_pct) — NOT the bare average. CORRECTED + VERIFIED from a live BTC bot stat.extension (Mac, 2026-07-18): avgPL 63941.79→tapb 64242.32 = +0.470%, avgPS 63040.89→taps 62744.60 = −0.470%, at tog=0.47 — exact match. This mechanically EXPLAINS the cliff: higher target pushes the flush level further from the average, so at high target the bag can never reach it → hangs. closeReason=1 = BATCH flush of the whole bag (Mac verified on 3753 orders: 78-99% of closes batch on exit-ON bots vs 61-74% individual on OFF bots), NOT a per-order take. tools/_grid_sim.py (Jun-8) does NOT model this.",
   "precision_note": "realized_pnl_usd is exact (to cents) where captured from the latest batch; older points were rounded to whole USD in Win memory (marked precision=rounded). transient_bag_low_usd is operator-reported approximate, not per-run isolated. Volume 'null' = not transcribed for that run.",
   "provenance_caveat": "GinArea is amnesiac (no export, no history). These screenshots are the ONLY surviving record of these runs. Transcribed by Win from operator screenshots; not cross-checked vs GinArea API. Small risk of ID/PnL typos — verify against originals before decision-grade use.",
+  "reconciliation_note_2026-07-18": {
+    "by": "Mac independent calibration attempt + Win corrections",
+    "converged": "FORWARD positive part matches well: 0.44→894 vs 922, 0.49→1177 vs 1072, 0.55→1238 vs 1185; sign 100%, corr +0.95.",
+    "did_not_converge": "The CLIFF reproduces ONLY under market-fill (entry = bar price): sim 0.67→−9814 vs anchor −9269, bag 1.36 vs ~1.5 BTC, yama −9057 vs ~−10000 (4 quantities at once). Under limit-fill (entry = grid level, physically correct for a limit grid) the cliff DISAPPEARS: 0.67→+1698. Mac correctly refused to tune-to-match and did NOT run the 2y sweep on an unvalidated sim.",
+    "fill_model_hypothesis_win": "The cliff-under-market-fill AND the volume gap are likely the SAME issue: GinArea fills finer/more-aggressively than Mac's 1h limit-fill sim. Base volume: anchor 1.9M vs Mac 140k = 13× under-fill; forward only ~2× under-fill. A 1h limit-fill sim under-fills AND under-cliffs. TRY 1m-resolution fill sim before concluding the cliff is/ isn't real. IMPLICATION: the целевой-0.6 ceiling may be softer than Win asserted — keep 0.6 as a conservative risk boundary (cheap), but the cliff MAGNITUDE is fill-model-dependent and UNCONFIRMED. Ultimate arbiter = a LIVE bot at high target (does the bag actually hang?), which Mac can read from live stat.extension.",
+    "data_blocker": "Mac's frozen candles differ from GinArea's price series (levels + volume). Base converges poorly, forward better, same config → different underlying market. Needs: (a) BITMEX BTCUSDT USDT_FUTURES series at matching dates (GinArea ran on BitMEX, per screenshots), (b) operator to read off the forward window's actual avg-entry / price-axis from GinArea to confirm ~58k vs ~52k bottom.",
+    "semantics_fix": "flush at avg×(1±target) — see calibration_target. This was Win's error in the original file; corrected here."
+  },
   "common_params": {
     "btc_dg": {
       "symbol": "BTCUSDT",
