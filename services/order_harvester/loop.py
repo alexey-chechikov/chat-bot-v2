@@ -148,17 +148,21 @@ def order_fields(o: dict) -> dict:
     }
 
 
-def profit_cap_usd(f: dict) -> float | None:
-    """Потолок правдоподобия: сколько ордер даёт на СВОЁМ тейке (trigger.price).
+def past_own_trigger(mark: float, f: dict) -> bool | None:
+    """Прошёл ли рынок собственный тейк ордера, а бот его так и не закрыл.
 
-    Если бы рынок реально дошёл до тейка, бот закрыл бы ордер сам — значит
-    открытый ордер не может стоить существенно больше. Это проверка моей
-    арифметики данными GinArea: расчёт выше потолка = цена рынка неверна.
+    ИМЕННО ЭТО ищет оператор. У ботов obap=true (выход по СРЕДНЕЙ цене):
+    бот не обязан закрывать отдельный ордер на его тейке — он ждёт, пока к
+    цели придёт средняя всей позиции (tapb/taps в stat.extension). Поэтому
+    цена уходит за тейк отдельного ордера, а тот висит в плюсе.
+
+    2026-08-02: сначала я сделал из тейка ПОТОЛОК и отбрасывал всё, что выше —
+    то есть резал ровно те ордера, ради которых механизм и нужен. Ошибка.
     """
-    try:
-        return abs(float(f["price_in"]) - float(f["trigger_price"])) * float(f["qty"])
-    except (TypeError, ValueError, KeyError):
+    trig, side = f.get("trigger_price"), f.get("side")
+    if trig is None or side not in (1, 2):
         return None
+    return (mark > float(trig)) if side == 1 else (mark < float(trig))
 
 
 DERIV_LIVE_PATH = ROOT / "state" / "deriv_live.json"
@@ -197,6 +201,64 @@ def market_mark(symbol: str, *, path: Path = DERIV_LIVE_PATH,
         return None
 
 
+OKX_HOSTS = ("https://www.okx.com", "https://aws.okx.com")
+OKX_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+PRICE_MAX_DIVERGENCE_PCT = 0.3    # расхождение двух источников → не действуем
+
+
+def okx_price(inst_id: str, *, timeout: float = 10.0) -> float | None:
+    """Цена с ТОЙ ЖЕ биржи, где стоят боты. GinArea считает профит по ней.
+
+    2026-08-02: раньше брали цену из deriv_live (сводка по Binance/Bybit) —
+    там нет отметки времени на КАЖДЫЙ символ, только общая на файл, поэтому
+    протухшая цена одного альта проходила проверку свежести и давала ложный
+    плюс. OKX-тикер отдаёт цену того инструмента, которым торгует бот.
+    """
+    import urllib.request
+
+    if not inst_id:
+        return None
+    for host in OKX_HOSTS:
+        try:
+            req = urllib.request.Request(
+                f"{host}/api/v5/market/ticker?instId={inst_id}",
+                headers={"User-Agent": OKX_UA, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                j = json.loads(r.read().decode("utf-8"))
+            px = float((j.get("data") or [{}])[0].get("last"))
+            return px if px > 0 else None
+        except Exception:
+            continue
+    logger.warning("order_harvester.okx_price_failed inst=%s", inst_id)
+    return None
+
+
+def agreed_price(inst_id: str, symbol: str) -> float | None:
+    """Цена, подтверждённая ДВУМЯ независимыми источниками.
+
+    Одиночный источник уже подводил дважды (28.07 и 02.08) и каждый раз это
+    стоило денег. Берём цену OKX (основная, биржа бота) и сверяем со сводной
+    из deriv_live: расходятся больше чем на PRICE_MAX_DIVERGENCE_PCT — значит
+    один из источников врёт, и мы НЕ ДЕЙСТВУЕМ.
+    """
+    okx = okx_price(inst_id)
+    if okx is None:
+        return None
+    ref = market_mark(symbol)
+    if ref is None:
+        logger.warning("order_harvester.no_second_source symbol=%s — не действуем",
+                       symbol)
+        return None
+    div = abs(okx - ref) / ref * 100
+    if div > PRICE_MAX_DIVERGENCE_PCT:
+        logger.warning("order_harvester.price_divergence %s okx=%.6f ref=%.6f "
+                       "расхождение %.2f%% > %.2f%% — не действуем",
+                       symbol, okx, ref, div, PRICE_MAX_DIVERGENCE_PCT)
+        return None
+    return okx
+
+
 def order_profit_usd(mark: float, f: dict) -> float | None:
     """ЧИСТАЯ прибыль ордера: (mark − цена исполнения) · qty · направление − комиссии.
 
@@ -224,35 +286,85 @@ def order_profit_usd(mark: float, f: dict) -> float | None:
         return None
 
 
-def _candidates(api, bot_id: str, min_profit: float, symbol: str) -> list[dict]:
-    mark = market_mark(symbol)
+WATCH_PATH = ROOT / "state" / "order_harvester_watch.json"
+HOLD_MIN_DEFAULT = 15.0   # минут подряд в плюсе, прежде чем закрывать
+
+
+def _read_watch() -> dict:
+    try:
+        return json.loads(WATCH_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_watch(w: dict) -> None:
+    try:
+        WATCH_PATH.write_text(json.dumps(w, ensure_ascii=False, indent=1),
+                              encoding="utf-8")
+    except OSError:
+        logger.exception("order_harvester.watch_write_failed")
+
+
+def _candidates(api, bot_id: str, min_profit: float, symbol: str,
+                inst_id: str = "", hold_min: float = HOLD_MIN_DEFAULT,
+                now: datetime | None = None) -> list[dict]:
+    """Кандидаты на закрытие: ЗАВИСШИЕ прибыльные ордера.
+
+    ТЗ оператора (02.08, дословно): «иногда почему-то GinArea не закрывает
+    такие ордера — задача не моментально, а с каким-то кулдауном
+    анализировать и если есть такие зависшие, реально прибыльные — закрывать».
+
+    Кулдаун здесь же и защита: ордер должен держать прибыль выше порога
+    hold_min минут ПОДРЯД. Ложная цена живёт секунды-минуты и не подтвердится,
+    а реально зависший ордер стоит часами. Именно этой проверки не было, когда
+    харвестер закрыл 70 ордеров в минус.
+    """
+    now = now or datetime.now(timezone.utc)
+    mark = agreed_price(inst_id, symbol) if inst_id else market_mark(symbol)
     if mark is None:
-        return []          # нет свежей цены — не гадаем, не действуем
+        return []          # цена не подтверждена — не гадаем, не действуем
     data = api.get_orders(int(bot_id), only_opened=True)
     orders = data.get("orders") or []
+    watch = _read_watch()
+    seen: set[str] = set()
     out = []
     for o in orders:
         f = order_fields(o)
         if not (f["order_id"] and f["opened"]):
             continue
         profit = order_profit_usd(mark, f)
-        if profit is None or profit < min_profit:
+        if profit is None:
             continue
-        # проверка правдоподобия данными GinArea: выше собственного тейка
-        # ордер стоить не может — бот бы его уже закрыл. Расчёт выше потолка
-        # означает неверную рыночную цену, а не удачный ордер.
-        cap = profit_cap_usd(f)
-        if cap is None:
+        oid = f["order_id"]
+        if profit < min_profit:
+            watch.pop(oid, None)       # упал ниже порога — отсчёт заново
             continue
-        if profit > cap:
-            logger.warning(
-                "order_harvester.profit_above_cap bot=%s order=%s расчёт=%.2f "
-                "потолок_по_тейку=%.2f mark=%s — цена рынка недостоверна, пропуск",
-                bot_id, f["order_id"], profit, cap, mark)
-            continue
+        seen.add(oid)
+        rec = watch.get(oid)
+        if not rec:
+            rec = {"since": now.isoformat(timespec="seconds"), "bot": bot_id}
+            watch[oid] = rec
+            if hold_min > 0:
+                logger.info("order_harvester.watch_start bot=%s order=%s "
+                            "профит=%.2f$ — жду %.0f мин подтверждения",
+                            bot_id, oid, profit, hold_min)
+        try:
+            held = (now - datetime.fromisoformat(rec["since"])).total_seconds() / 60
+        except (KeyError, ValueError):
+            rec["since"] = now.isoformat(timespec="seconds")
+            held = 0.0
+        rec["profit"] = round(profit, 2)
+        if held < hold_min:
+            continue                   # ещё не выдержан кулдаун
         f["profit_usd"] = round(profit, 2)
-        f["profit_cap_usd"] = round(cap, 2)
+        f["held_min"] = round(held)
+        f["past_trigger"] = past_own_trigger(mark, f)
         out.append(f)
+    # чистим ордера, которых уже нет среди открытых
+    for oid in [k for k, v in watch.items()
+                if v.get("bot") == bot_id and k not in seen]:
+        watch.pop(oid, None)
+    _write_watch(watch)
     out.sort(key=lambda f: -(f["profit_usd"] or 0))
     return out
 
@@ -435,7 +547,10 @@ def tick(send_fn=None, api=None) -> int:
             bot = api.get_bot(int(bot_id))
             if int(bot.status) != STATUS_ACTIVE:
                 continue  # трогаем только работающего (Working) бота
-            cands = _candidates(api, bot_id, min_profit, symbol)
+            cands = _candidates(api, bot_id, min_profit, symbol,
+                                inst_id=bcfg.get("inst_id", ""),
+                                hold_min=float(cfg.get("min_hold_minutes",
+                                                       HOLD_MIN_DEFAULT)))
         except Exception:
             logger.exception("order_harvester.scan_failed bot=%s", bot_id)
             continue

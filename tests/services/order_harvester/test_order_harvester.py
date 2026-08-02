@@ -225,7 +225,7 @@ def test_candidates_threshold_and_sorting():
     """Профит по реальной цене (market_mark=95 из фикстуры): b=+10, c=+8."""
     api = FakeAPI([_open_order("a", 96.0), _open_order("b", 105.0),
                    _open_order("c", 103.0), _order("d", 20.0, opened=False)])
-    cands = oh._candidates(api, "123", 7.0, "BTCUSDT")
+    cands = oh._candidates(api, "123", 7.0, "BTCUSDT", hold_min=0)
     assert [c["order_id"] for c in cands] == ["b", "c"]  # d закрыт, a ниже порога
     assert cands[0]["profit_usd"] == 10.0
 
@@ -343,6 +343,7 @@ def test_tick_daily_cap_zero_means_unlimited(monkeypatch):
         "enabled": True,
         "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
         "max_orders_per_day_per_bot": 0,
+        "min_hold_minutes": 0,
     }), encoding="utf-8")
     api = FakeAPI([_open_order("a", 100.0)],  # SELL @100, mark 95 → +$5
                   statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED, oh.STATUS_ACTIVE])
@@ -358,7 +359,8 @@ def test_tick_batch_respects_cycle_budget(monkeypatch):
         "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
         "max_orders_per_cycle": 2,
         "max_orders_per_day_per_bot": 40,
-        "min_gap_between_harvests_sec": 600,
+        "min_hold_minutes": 0,
+            "min_gap_between_harvests_sec": 600,
     }), encoding="utf-8")
     # get_bot: ACTIVE (скан) → STOPPED (pause-wait) → ACTIVE (resume-wait)
     # mark=95 → профиты: a=+1.5, b=+9, c=+4
@@ -379,7 +381,8 @@ def test_tick_gap_short_on_success_long_on_failure(monkeypatch):
     cfg = {
         "enabled": True,
         "bots": {"42": {"alias": "X", "symbol": "BTCUSDT", "min_order_profit_usd": 1.0}},
-        "min_gap_between_harvests_sec": 60,
+        "min_hold_minutes": 0,
+            "min_gap_between_harvests_sec": 60,
         "fail_backoff_sec": 600,
     }
     oh.CONFIG_PATH.write_text(json.dumps(cfg), encoding="utf-8")

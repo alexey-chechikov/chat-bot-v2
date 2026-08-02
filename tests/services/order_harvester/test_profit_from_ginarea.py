@@ -15,7 +15,7 @@ profit самой GinArea: харвестер закрыл 133 ордера, 63 
 import pytest
 
 from services.order_harvester.loop import (order_fields, order_profit_usd,
-                                           profit_cap_usd)
+                                           past_own_trigger)
 
 # реальный открытый ордер AVAX-бота (шорт), снят 2026-08-02
 OPEN_SHORT = {
@@ -58,23 +58,19 @@ def test_no_fill_price_means_no_guessing():
     assert order_profit_usd(6.488, order_fields(o)) is None
 
 
-def test_cap_equals_profit_at_own_take_profit():
-    """Потолок = сколько ордер даёт на своём тейке."""
-    f = order_fields(OPEN_SHORT)
-    assert profit_cap_usd(f) == pytest.approx(abs(6.588 - 6.5557188) * 23.5)
-    assert profit_cap_usd(f) < 0.76      # реально это меньше доллара
+def test_past_own_trigger_is_the_wanted_case():
+    """Ордер ушёл ЗА свой тейк, а бот держит — это НЕ повод отбрасывать.
 
-
-def test_wrong_market_price_is_caught_by_cap():
-    """Ровно тот отказ, что стоил денег: цена рынка неверна → расчёт выше потолка.
-
-    Настоящий случай: записано +$22.58 при потолке $1.49, факт по GinArea −$0.52.
+    У ботов obap=true (выход по средней цене позиции), поэтому отдельный ордер
+    законно стоит больше своего тейка. Ранняя версия резала такие как
+    «недостоверные» — то есть выбрасывала ровно то, что оператор просил ловить.
     """
     f = order_fields(OPEN_SHORT)
-    absurd = order_profit_usd(5.6, f)     # «рынок» ниже входа на целый доллар
-    cap = profit_cap_usd(f)
-    assert absurd > cap                    # значит будет отброшен в _candidates
-    assert cap < 1.0
+    assert past_own_trigger(6.40, f) is True      # шорт: рынок ниже тейка
+    assert past_own_trigger(6.58, f) is False
+    # и прибыль у такого ордера ВЫШЕ, чем даёт его тейк — это нормально
+    at_trigger = abs(6.588 - 6.5557188) * 23.5 - 2 * 0.077409
+    assert order_profit_usd(6.40, f) > at_trigger
 
 
 def test_long_side_direction():

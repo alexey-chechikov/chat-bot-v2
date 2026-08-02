@@ -2,13 +2,16 @@
   "_note": "Order Harvester: фиксация отдельных плюсовых ордеров DYN-ботов (obap=true — выход по средней не закрывает отдельные плюсовые). Батч: все ордера выше порога за одну паузу. Порог по боту, hot-reload каждый тик. Freeze-файл state/order_harvester_frozen.json останавливает сервис.",
   "_enabled_2026_07_15": "Оператор: включить автоматом — до этого руками закрывал батчами (см. трекер 10:08-10:33 МСК 15.07).",
   "_thresholds_2026_07_27": "Оператор: BTC ордер >= $2, альты >= $1.5. Комиссия закрытия на OKX 0.05% (замер 27.07): BTC-ордер ~$1650 -> $0.83, ETH-ордер ~$190 -> $0.10 — пороги проходят с запасом.",
+  "_task_2026_08_02": "ТЗ оператора дословно: «иногда почему-то GinArea не закрывает ордера, которые уже набрали профит — задача не моментально, а с каким-то кулдауном анализировать, и если есть такие зависшие реально прибыльные ордера — закрывать их». Причина, почему бот их держит: obap=true, выход по СРЕДНЕЙ цене позиции (цели tapb/taps в stat.extension) — отдельный ордер может уйти далеко за свой тейк, а бот всё ещё ждёт среднюю. Порог по BTC оператор подтвердил: не меньше $2.",
+  "_safety_2026_08_02": "Три защиты после того, как харвестер закрыл 70 ордеров в минус (−$27.19 по данным GinArea): (1) прибыль считается от closedPrice — РЕАЛЬНОЙ цены исполнения, минус 2×fee; (2) цена берётся с OKX (биржа ботов) и сверяется со сводной deriv_live, расхождение >0.3% = не действуем; (3) min_hold_minutes — ордер обязан держать плюс выше порога подряд, кривая цена столько не живёт. Пункт 3 — это и есть кулдаун из ТЗ, которого в первой версии не было.",
   "enabled": true,
+  "min_hold_minutes": 15,
   "bots": {
-    "5330789037": {"alias": "BTC-OKX", "symbol": "BTCUSDT", "min_order_profit_usd": 2.0},
-    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "min_order_profit_usd": 1.5},
-    "4711140331": {"alias": "XRP-OKX", "symbol": "XRPUSDT", "min_order_profit_usd": 1.5},
-    "5253063096": {"alias": "SOL-OKX", "symbol": "SOLUSDT", "min_order_profit_usd": 1.5},
-    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "min_order_profit_usd": 1.5}
+    "5330789037": {"alias": "BTC-OKX", "symbol": "BTCUSDT", "inst_id": "BTC-USDT-SWAP", "min_order_profit_usd": 2.0},
+    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "inst_id": "ETH-USDT-SWAP", "min_order_profit_usd": 1.5},
+    "4711140331": {"alias": "XRP-OKX", "symbol": "XRPUSDT", "inst_id": "XRP-USDT-SWAP", "min_order_profit_usd": 1.5},
+    "5253063096": {"alias": "SOL-OKX", "symbol": "SOLUSDT", "inst_id": "SOL-USDT-SWAP", "min_order_profit_usd": 1.5},
+    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "inst_id": "AVAX-USDT-SWAP", "min_order_profit_usd": 1.5}
   },
   "_bitmex_archive": {
     "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",
