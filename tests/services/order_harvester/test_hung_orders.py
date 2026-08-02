@@ -98,14 +98,23 @@ def test_unconfirmed_price_blocks_everything(monkeypatch):
 def test_price_divergence_rejected(monkeypatch):
     """Сверка двух источников: расхождение больше 0.3% = цена недостоверна."""
     monkeypatch.setattr(oh, "okx_price", lambda inst, **kw: 6.40)
-    monkeypatch.setattr(oh, "market_mark", lambda sym, **kw: 6.50)   # +1.6%
+    monkeypatch.setattr(oh, "binance_price", lambda sym, **kw: 6.50)   # +1.6%
     assert oh.agreed_price("AVAX-USDT-SWAP", "AVAXUSDT") is None
-    monkeypatch.setattr(oh, "market_mark", lambda sym, **kw: 6.41)   # +0.16%
+    monkeypatch.setattr(oh, "binance_price", lambda sym, **kw: 6.41)   # +0.16%
+    assert oh.agreed_price("AVAX-USDT-SWAP", "AVAXUSDT") == 6.40
+
+
+def test_falls_back_to_deriv_when_binance_down(monkeypatch):
+    """Живой сверочный источник недоступен → берём файл deriv_live."""
+    monkeypatch.setattr(oh, "okx_price", lambda inst, **kw: 6.40)
+    monkeypatch.setattr(oh, "binance_price", lambda sym, **kw: None)
+    monkeypatch.setattr(oh, "market_mark", lambda sym, **kw: 6.41)
     assert oh.agreed_price("AVAX-USDT-SWAP", "AVAXUSDT") == 6.40
 
 
 def test_no_second_source_means_no_action(monkeypatch):
     monkeypatch.setattr(oh, "okx_price", lambda inst, **kw: 6.40)
+    monkeypatch.setattr(oh, "binance_price", lambda sym, **kw: None)
     monkeypatch.setattr(oh, "market_mark", lambda sym, **kw: None)
     assert oh.agreed_price("AVAX-USDT-SWAP", "AVAXUSDT") is None
 

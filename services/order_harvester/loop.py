@@ -234,18 +234,39 @@ def okx_price(inst_id: str, *, timeout: float = 10.0) -> float | None:
     return None
 
 
+def binance_price(symbol: str, *, timeout: float = 10.0) -> float | None:
+    """Второй ЖИВОЙ источник цены для сверки (публичный тикер, без ключей)."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
+            headers={"User-Agent": OKX_UA, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            px = float(json.loads(r.read().decode("utf-8"))["price"])
+        return px if px > 0 else None
+    except Exception:
+        return None
+
+
 def agreed_price(inst_id: str, symbol: str) -> float | None:
     """Цена, подтверждённая ДВУМЯ независимыми источниками.
 
     Одиночный источник уже подводил дважды (28.07 и 02.08) и каждый раз это
-    стоило денег. Берём цену OKX (основная, биржа бота) и сверяем со сводной
-    из deriv_live: расходятся больше чем на PRICE_MAX_DIVERGENCE_PCT — значит
-    один из источников врёт, и мы НЕ ДЕЙСТВУЕМ.
+    стоило денег. Основная — OKX (биржа бота), сверочная — живой тикер Binance,
+    запасная — deriv_live. Расходятся больше чем на PRICE_MAX_DIVERGENCE_PCT —
+    значит один источник врёт, и мы НЕ ДЕЙСТВУЕМ.
+
+    2026-08-02: сверочным сначала стоял только файл deriv_live — он пишется
+    раз в ~5 мин и постоянно упирался в проверку свежести (mark_stale в логе),
+    то есть глушил механизм целиком. Живой тикер снимает эту зависимость.
     """
     okx = okx_price(inst_id)
     if okx is None:
         return None
-    ref = market_mark(symbol)
+    ref = binance_price(symbol)
+    if ref is None:
+        ref = market_mark(symbol)          # запасной сверочный источник
     if ref is None:
         logger.warning("order_harvester.no_second_source symbol=%s — не действуем",
                        symbol)

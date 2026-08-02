@@ -22,12 +22,16 @@ def _isolate_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(oh, "JOURNAL_PATH", tmp_path / "journal.jsonl")
     monkeypatch.setattr(oh, "FROZEN_PATH", tmp_path / "frozen.json")
     monkeypatch.setattr(oh, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(oh, "WATCH_PATH", tmp_path / "watch.json")
     monkeypatch.setattr(oh, "STATUS_POLL_SEC", 0.01)
     monkeypatch.setattr(oh, "STATUS_WAIT_MAX_SEC", 0.05)
     # 2026-07-28: цена берётся из рынка (deriv_live), не из stat. По умолчанию
     # mark=95 — при нём _open_order(SELL @ price) даёт профит (price − 95).
     # Тест-цена ниже переопределяется через monkeypatch там, где нужно None.
     monkeypatch.setattr(oh, "market_mark", lambda symbol, **kw: 95.0)
+    # 2026-08-02: сеть в тестах не трогаем — оба живых источника подменены
+    monkeypatch.setattr(oh, "okx_price", lambda inst, **kw: 95.0)
+    monkeypatch.setattr(oh, "binance_price", lambda sym, **kw: 95.0)
     oh._last_harvest_mono.clear()
     oh._next_gap.clear()
     oh._api_cache.clear()
