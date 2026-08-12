@@ -34,7 +34,12 @@ CARD_STATE = ROOT / "state" / "regime_card_sent.json"
 TREND_STATE = ROOT / "state" / "trend_entry_sent.json"
 LIVE_1M = ROOT / "market_live" / "market_1m.csv"
 
-CARD_HOUR_START_UTC, CARD_HOUR_END_UTC = 4, 6   # 07:00-09:00 мск
+# Окно карточки — по МЕСТНОМУ времени мака (Варшава), чтобы не плавать
+# при переходе на зимнее. Замер 2 лет часовых баров BTC: сессия США
+# 13-21 UTC даёт 41.7% суточного хода, пик 14:00 UTC (1.85x нормы),
+# 57% затяжных эпизодов стартуют в 12-21 UTC. 11:00 Варшавы — за 4.5 часа
+# до этого окна и через 9 часов после дневного закрытия.
+CARD_HOUR_START_LOCAL, CARD_HOUR_END_LOCAL = 11, 13
 TREND_DAYS = 5                 # порог затяжного движения по SMA20д
 TREND_SPEED_PCT_DAY = 1.53     # медианная скорость затяжного движения
 GRID_COVERAGE_PCT = 6.0        # 300 ордеров x 0.02%
@@ -223,9 +228,10 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
     if send_fn is not None and not _card_push_enabled():
         send_fn = None
     now = now or datetime.now(timezone.utc)
-    if not (CARD_HOUR_START_UTC <= now.hour < CARD_HOUR_END_UTC):
+    local = now.astimezone()          # мак стоит на Варшаве
+    if not (CARD_HOUR_START_LOCAL <= local.hour < CARD_HOUR_END_LOCAL):
         return False
-    day = now.strftime("%Y-%m-%d")
+    day = local.strftime("%Y-%m-%d")
     if _read_state(CARD_STATE).get("date") == day:
         return False
     card = build_card(now)
