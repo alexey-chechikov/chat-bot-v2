@@ -38,9 +38,21 @@ STATUS_ACTIVE = 2
 LAW_SLOPE, LAW_CONST = 0.4348, 0.0335              # INDICATOR GRID
 LAW_SLOPE_DYN, LAW_CONST_DYN = 0.5130, 0.0442      # DYNAMIC GRID
 
-JAM_FILL_PCT = 85.0     # книга считается упёртой при заполнении выше
-JAM_HOURS = 24.0        # ...и неподвижности дольше
+# Пороги заклинивания ИЗМЕРЕНЫ на 774 прогонах архива (2026-08-12):
+# мешок > 0.5% книги И оборот ниже пятой части нормы -> 81.4% прогонов
+# убыточны против 7.6%, когда нет ни того ни другого (лифт 10.7x).
+# Каждый признак по отдельности слабый: только мешок 42%, только оборот 14%.
+JAM_BAG_PCT = 0.5        # мешок к книге, %
+JAM_TURN_FRAC = 0.20     # оборот к своей же норме
+JAM_HOURS = 24.0         # оба условия держатся дольше
 MARGIN_TOLERANCE = 0.70  # маржа ниже 70% от закона = флаг
+
+# Затяжное движение: docs/RESEARCH/SUSTAINED_MOVES.md
+# «цена выше SMA20д N дней подряд» — 18/30 эпизодов BTC, остаток хода 6.89%,
+# ложных 0.3/мес. Зарождение эпизода НЕ предсказуемо (лучший лифт 1.47),
+# поэтому здесь только обнаружение уже идущего.
+TREND_DAYS = 5
+TREND_SPEED_PCT_DAY = 1.53   # медианная скорость затяжного движения
 
 
 def tail_csv(path: Path, mb: int = 120) -> pd.DataFrame:
@@ -90,6 +102,39 @@ def load_params() -> dict:
     return out
 
 
+def market_regime() -> dict:
+    """Затяжное движение по BTC: цена выше/ниже SMA20д N дней подряд."""
+    live = ROOT / "market_live" / "market_1m.csv"
+    if not live.exists():
+        return {}
+    px = tail_csv(live, mb=40)
+    px["ts"] = pd.to_datetime(px["ts_utc"], utc=True, errors="coerce")
+    px["close"] = pd.to_numeric(px["close"], errors="coerce")
+    px = px.dropna(subset=["ts", "close"]).set_index("ts").sort_index()
+    h = px["close"].resample("1h").last().ffill()
+    if len(h) < 480 + TREND_DAYS * 24:
+        return {"мало данных": len(h)}
+    sma = h.rolling(480).mean()
+    above = (h > sma).to_numpy()
+    below = (h < sma).to_numpy()
+
+    def streak(flags):
+        k = 0
+        for v in flags[::-1]:
+            if not v:
+                break
+            k += 1
+        return k
+
+    up_h, dn_h = streak(above), streak(below)
+    state = ("РОСТ" if up_h >= TREND_DAYS * 24
+             else "ПАДЕНИЕ" if dn_h >= TREND_DAYS * 24 else "нет")
+    return {"состояние": state, "часов выше SMA20д": up_h,
+            "часов ниже SMA20д": dn_h, "цена": float(h.iloc[-1]),
+            "SMA20д": float(sma.iloc[-1]),
+            "отклонение%": float(h.iloc[-1] / sma.iloc[-1] - 1) * 100}
+
+
 def law_margin(target: float, dynamic: bool) -> float:
     if target is None:
         return float("nan")
@@ -102,8 +147,10 @@ def analyse(days: int) -> list[dict]:
     meta = load_params()
     s = tail_csv(SNAP)
     s["ts"] = pd.to_datetime(s["ts_utc"], utc=True, errors="coerce")
-    for c in ("status", "position", "average_price", "profit", "trade_volume"):
-        s[c] = pd.to_numeric(s[c], errors="coerce")
+    for c in ("status", "position", "average_price", "profit",
+              "current_profit", "trade_volume"):
+        if c in s.columns:
+            s[c] = pd.to_numeric(s[c], errors="coerce")
     s = s.dropna(subset=["ts", "bot_id", "trade_volume", "profit"])
     cutoff = s["ts"].max() - pd.Timedelta(days=days)
     s = s[s["ts"] >= cutoff]
@@ -114,7 +161,16 @@ def analyse(days: int) -> list[dict]:
         g = g.sort_values("ts")
         last = g.iloc[-1]
         m = meta.get(bid, {})
-        notional = g["position"].abs() * g["average_price"].fillna(0)
+        # Единицы position зависят от типа контракта: у линейных USDT-ботов
+        # позиция в МОНЕТАХ, у инверсных COIN — уже в USD-контрактах.
+        # Схеме не доверяем (maxQ бывает и 0.025, и 300) — проверяем данными:
+        # позиция не может быть больше всего оборота бота за окно.
+        as_coin = g["position"].abs() * g["average_price"].fillna(0)
+        as_usd = g["position"].abs()
+        total_vol = float(g["trade_volume"].iloc[-1]
+                          - g["trade_volume"].iloc[0])
+        notional = (as_usd if (total_vol > 0
+                               and as_coin.max() > total_vol) else as_coin)
         cur = float(notional.iloc[-1])
         peak = float(notional.max())
 
@@ -123,14 +179,24 @@ def analyse(days: int) -> list[dict]:
         idle_h = ((now - grew.iloc[-1]).total_seconds() / 3600
                   if len(grew) else float("inf"))
 
-        # часы, в течение которых позиция стоит у потолка
-        fill = (notional / peak * 100) if peak > 0 else notional * 0
-        at_top = fill >= JAM_FILL_PCT
+        # МЕШОК = currentProfit - profit (нереализованное), в % от книги
+        bag_pct = float("nan")
+        if "current_profit" in g.columns and peak > 0:
+            bag = float(last["current_profit"] - last["profit"])
+            bag_pct = bag / peak * 100
+
+        # ОБОРОТ к собственной норме: последние сутки против медианы по суткам
+        turn_frac = float("nan")
+        vser = g.set_index("ts")["trade_volume"]
+        daily = vser.resample("1D").last().diff().dropna()
+        if len(daily) >= 3 and daily.median() > 0:
+            turn_frac = float(daily.iloc[-1] / daily.median())
+
+        # часы, в течение которых ОБА условия держатся
         stuck_h = 0.0
-        if bool(at_top.iloc[-1]):
-            block = (~at_top).iloc[::-1].idxmax() if (~at_top).any() else None
-            since = g.loc[block, "ts"] if block is not None else g["ts"].iloc[0]
-            stuck_h = (now - since).total_seconds() / 3600
+        if (bag_pct == bag_pct and bag_pct < -JAM_BAG_PCT
+                and turn_frac == turn_frac and turn_frac < JAM_TURN_FRAC):
+            stuck_h = idle_h if idle_h != float("inf") else JAM_HOURS
 
         dv = float(g["trade_volume"].iloc[-1] - g["trade_volume"].iloc[0])
         dp = float(g["profit"].iloc[-1] - g["profit"].iloc[0])
@@ -140,8 +206,9 @@ def analyse(days: int) -> list[dict]:
         ratio = marg / law if law and law == law and marg == marg else float("nan")
 
         flags = []
-        if stuck_h >= JAM_HOURS and idle_h >= JAM_HOURS:
-            flags.append(f"ЗАКЛИНИЛА {stuck_h:.0f}ч")
+        if stuck_h >= JAM_HOURS:
+            flags.append(f"ЗАКЛИНИЛА: мешок {bag_pct:.2f}% книги + оборот "
+                         f"{turn_frac*100:.0f}% нормы ({stuck_h:.0f}ч)")
         if ratio == ratio and ratio < MARGIN_TOLERANCE:
             flags.append(f"маржа {ratio*100:.0f}% от закона")
         # остановленный бот — новость только если он в этом окне ещё торговал;
@@ -164,6 +231,8 @@ def analyse(days: int) -> list[dict]:
             "fill_pct": (cur / peak * 100) if peak > 0 else 0.0,
             "stuck_hours": stuck_h,
             "idle_hours": idle_h,
+            "bag_pct_of_book": bag_pct,
+            "turnover_frac_of_norm": turn_frac,
             "volume": dv,
             "profit": dp,
             "margin_pct": marg,
@@ -186,6 +255,22 @@ def main() -> int:
         print(json.dumps(rows, ensure_ascii=False, indent=1, default=str))
         return 0
 
+    reg = market_regime()
+    if reg.get("состояние"):
+        st = reg["состояние"]
+        print(f"РЕЖИМ РЫНКА (BTC): {st}")
+        print(f"  цена {reg['цена']:,.0f}   SMA20д {reg['SMA20д']:,.0f}   "
+              f"отклонение {reg['отклонение%']:+.2f}%")
+        print(f"  выше SMA20д подряд: {reg['часов выше SMA20д']/24:.1f} дн   "
+              f"ниже: {reg['часов ниже SMA20д']/24:.1f} дн   "
+              f"(порог затяжного движения — {TREND_DAYS} дн)")
+        if st == "РОСТ":
+            cov = 6.0
+            print(f"  >>> НЕ ОТКРЫВАТЬ НОВЫЙ ШОРТ-ГРИД. Медианный остаток хода "
+                  f"вверх 6.89%, покрытие книги ~{cov:.0f}%.")
+            print(f"  >>> при скорости {TREND_SPEED_PCT_DAY}%/день книга "
+                  f"заполнится примерно за {cov/TREND_SPEED_PCT_DAY:.1f} дн.")
+        print()
     print(f"ЗДОРОВЬЕ ГРИД-БОТОВ — окно {a.days} дней\n")
     print(f"{'бот':24s} {'ст':>3s} {'тгт':>5s} {'позиция$':>10s} "
           f"{'книга$':>10s} {'запол':>6s} {'простой':>8s} {'оборот$':>11s} "
