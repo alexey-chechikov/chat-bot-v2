@@ -1,4 +1,6 @@
 {
   "_note": "Оператор 2026-07-18: регулярные отчёты в TG только по команде (/card, /report_today, /report_week...). scheduled_push=false глушит расписания: daily 21:00 UTC, weekly, digest 09:00 UTC, self-reports, paper-weekly, weekly-audit, morning-brief 4х/день. Событийные риск-пинги не гейтятся.",
-  "scheduled_push": false
+  "scheduled_push": false,
+  "_note_regime_card": "Оператор 2026-08-12 попросил утреннюю карточку режима рынка (07:00-09:00 мск, 4-6 строк): состояние затяжного движения по SMA20д + заклинившие гриды. Точечное исключение из scheduled_push, чтобы не воскрешать остальные расписания. Выключить: поставить false.",
+  "regime_card": true
 }

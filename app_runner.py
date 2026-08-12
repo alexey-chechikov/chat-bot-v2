@@ -852,6 +852,42 @@ async def _run_daily_digest(stop_event: asyncio.Event, *, telegram_app=None) -> 
             continue
 
 
+async def _run_regime_watch(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Утренняя карточка режима + событийный сигнал трендового входа.
+
+    Основание: docs/RESEARCH/SUSTAINED_MOVES.md. Карточка 1x/сутки утром,
+    трендовый вход ~2 раза в месяц на пару. Опрос каждые 15 минут.
+    """
+    from services.regime_watch import (maybe_send_regime_card,
+                                       maybe_send_trend_entry)
+    send_fn = None
+    if telegram_app is not None and getattr(telegram_app, "allowed_chat_ids", None):
+        chat_ids = list(telegram_app.allowed_chat_ids)
+        bot = telegram_app.bot
+
+        def _send(text: str) -> None:
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, text)
+                except Exception:
+                    logger.exception("regime_watch.send_failed cid=%s", cid)
+
+        send_fn = _send
+    while not stop_event.is_set():
+        try:
+            maybe_send_regime_card(send_fn=send_fn)
+        except Exception:
+            logger.exception("regime_watch.card_tick_failed")
+        try:
+            maybe_send_trend_entry(send_fn=send_fn)
+        except Exception:
+            logger.exception("regime_watch.trend_tick_failed")
+        try:
+            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=900)
+        except asyncio.TimeoutError:
+            continue
+
+
 async def _run_pump_freeze(stop_event: asyncio.Event, *, telegram_app=None) -> None:
     """Pump-freeze: при ≥1.5%/30мин one-way BTC pump → пауза TB бота через
     GinArea pause API. Resume на -1% retracement OR 2h timeout. Применяется
@@ -1417,6 +1453,7 @@ async def main(
     pump_freeze_task = asyncio.create_task(_run_pump_freeze(stop_event, telegram_app=app), name="pump_freeze")
     paper_signal_weekly_task = asyncio.create_task(_run_paper_signal_weekly_report(stop_event, telegram_app=app), name="paper_signal_weekly")
     daily_digest_task = asyncio.create_task(_run_daily_digest(stop_event, telegram_app=app), name="daily_digest")
+    regime_watch_task = asyncio.create_task(_run_regime_watch(stop_event, telegram_app=app), name="regime_watch")
     session_breakout_signal_task = asyncio.create_task(_run_session_breakout_signal(stop_event, telegram_app=app), name="session_breakout_signal")
     session_breakout_outcome_task = asyncio.create_task(_run_session_breakout_outcome(stop_event, telegram_app=app), name="session_breakout_outcome")
     range_hunter_signal_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_signal_btc")
@@ -1482,6 +1519,7 @@ async def main(
         pump_freeze_task,
         paper_signal_weekly_task,
         daily_digest_task,
+        regime_watch_task,
         session_breakout_signal_task, session_breakout_outcome_task,
         range_hunter_signal_task, range_hunter_outcome_task,
         range_hunter_signal_eth_task, range_hunter_outcome_eth_task,
