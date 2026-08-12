@@ -169,8 +169,8 @@ def analyse(days: int) -> list[dict]:
         as_usd = g["position"].abs()
         total_vol = float(g["trade_volume"].iloc[-1]
                           - g["trade_volume"].iloc[0])
-        notional = (as_usd if (total_vol > 0
-                               and as_coin.max() > total_vol) else as_coin)
+        inverse = bool(total_vol > 0 and as_coin.max() > total_vol)
+        notional = as_usd if inverse else as_coin
         cur = float(notional.iloc[-1])
         peak = float(notional.max())
 
@@ -200,6 +200,14 @@ def analyse(days: int) -> list[dict]:
 
         dv = float(g["trade_volume"].iloc[-1] - g["trade_volume"].iloc[0])
         dp = float(g["profit"].iloc[-1] - g["profit"].iloc[0])
+        # У ИНВЕРСНЫХ ботов profit в БАЗОВОЙ МОНЕТЕ, а оборот в USD.
+        # Делить одно на другое без перевода нельзя — маржа выходит нулём.
+        # Инверсный опознаётся тем же признаком, что и позиция выше.
+        if inverse:
+            px_last = float(last.get("average_price") or 0) or float(
+                g["average_price"].replace(0, pd.NA).dropna().iloc[-1]
+                if g["average_price"].replace(0, pd.NA).notna().any() else 0)
+            dp *= px_last
         marg = dp / dv * 100 if dv > 1000 else float("nan")
         is_dyn = str(m.get("strategy") or "").upper().startswith("DYN")
         law = law_margin(m.get("target"), is_dyn)
