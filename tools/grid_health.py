@@ -173,6 +173,14 @@ def analyse(days: int) -> list[dict]:
         notional = as_usd if inverse else as_coin
         cur = float(notional.iloc[-1])
         peak = float(notional.max())
+        # ЁМКОСТЬ книги = maxOp x maxQ из параметров бота. Не путать с пиком:
+        # раньше здесь считалось «позиция / пик за окно» и подписывалось
+        # «заполнение», из-за чего бот с позицией 10% ёмкости показывал 100%.
+        mo, mq = m.get("max_orders"), m.get("max_q")
+        cap = float(mo) * float(mq) if (mo and mq) else float("nan")
+        if cap == cap and not inverse:
+            cap *= float(last.get("average_price") or 0) or float("nan")
+        fill_cap = (cur / cap * 100) if cap == cap and cap > 0 else float("nan")
 
         # часы с последнего роста оборота
         grew = g.loc[g["trade_volume"].diff().fillna(0) > 0, "ts"]
@@ -236,7 +244,9 @@ def analyse(days: int) -> list[dict]:
             "otc": m.get("otc"),
             "position_usd": cur,
             "peak_usd": peak,
-            "fill_pct": (cur / peak * 100) if peak > 0 else 0.0,
+            "capacity_usd": cap,
+            "fill_of_capacity_pct": fill_cap,
+            "pct_of_window_peak": (cur / peak * 100) if peak > 0 else 0.0,
             "stuck_hours": stuck_h,
             "idle_hours": idle_h,
             "bag_pct_of_book": bag_pct,
@@ -281,7 +291,7 @@ def main() -> int:
         print()
     print(f"ЗДОРОВЬЕ ГРИД-БОТОВ — окно {a.days} дней\n")
     print(f"{'бот':24s} {'ст':>3s} {'тгт':>5s} {'позиция$':>10s} "
-          f"{'книга$':>10s} {'запол':>6s} {'простой':>8s} {'оборот$':>11s} "
+          f"{'ёмкость$':>10s} {'занято':>7s} {'простой':>8s} {'оборот$':>11s} "
           f"{'маржа':>8s} {'закон':>8s} {'откл':>6s}")
     print("-" * 118)
     for r in rows:
@@ -292,10 +302,14 @@ def main() -> int:
         lw = f"{r['law_pct']:.4f}%" if r["law_pct"] == r["law_pct"] else "—"
         rt = (f"{r['margin_ratio']*100:.0f}%"
               if r["margin_ratio"] == r["margin_ratio"] else "—")
+        cap = (f"{r['capacity_usd']:10,.0f}"
+               if r["capacity_usd"] == r["capacity_usd"] else f"{'—':>10s}")
+        occ = (f"{r['fill_of_capacity_pct']:6.1f}%"
+               if r["fill_of_capacity_pct"] == r["fill_of_capacity_pct"]
+               else f"{'—':>7s}")
         print(f"{r['name']:24s} {r['status']:3d} {tg:>5s} "
-              f"{r['position_usd']:10,.0f} {r['peak_usd']:10,.0f} "
-              f"{r['fill_pct']:5.0f}% {idle:>8s} {r['volume']:11,.0f} "
-              f"{mg:>8s} {lw:>8s} {rt:>6s}")
+              f"{r['position_usd']:10,.0f} {cap} {occ} {idle:>8s} "
+              f"{r['volume']:11,.0f} {mg:>8s} {lw:>8s} {rt:>6s}")
 
     bad = [r for r in rows if r["flags"]]
     print("\n" + ("ФЛАГИ" if bad else "флагов нет"))
