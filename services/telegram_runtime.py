@@ -360,8 +360,20 @@ def regulation_relevance_decision(row: dict) -> tuple[bool, str]:
     # Always-forward: risk events and admissibility changes.
     if sig in ("LIQ_CASCADE", "REGIME_CHANGE"):
         return True, f"always-forward: {sig} affects regulation/risk state"
-    # LEVEL_BREAK: forward only near operator-declared critical levels.
+    # LEVEL_BREAK: ОТКЛЮЧЁН в TG 2026-08-13 по решению оператора.
+    # Замер за 3 месяца: 15 103 сигнала = 84% всей выдачи, 148 шт/сутки,
+    # медианный интервал 183 сек, 61% — повтор того же направления за 10 минут.
+    # Эджа нет: после пробоя ВНИЗ цена падает в 48.5% против базы 46.1%;
+    # после пробоя ВВЕРХ растёт в 46.7% против базы 53.9% — хуже случайного.
+    # Причина в самих уровнях: соседние HVN на BTC стоят в 25 долларах =
+    # 0.041% цены, это ширина спреда, а не уровень.
+    # Код и логика НЕ удалены — оператор планирует отдельный канал под скальпинг,
+    # где сигнал такой частоты уместен. Сбор в market_live/signals.csv продолжается.
+    # Чтобы вернуть в основной канал — удалить эти три строки.
     if sig == "LEVEL_BREAK":
+        return False, "LEVEL_BREAK отключён 13.08: 84% выдачи, эджа нет"
+
+    if sig == "LEVEL_BREAK_DISABLED_KEEP_FOR_SCALP_CHANNEL":
         try:
             details = json.loads(row.get("details_json", "{}") or "{}")
         except Exception:
