@@ -524,11 +524,24 @@ class SignalAlertWorker(threading.Thread):
                     )
                 return False
 
-        # LEVEL_BREAK source filter (default ON 2026-05-19): suppress intraday
-        # swing-high/low breaks, forward только round numbers + bot borders
-        # (multi-day major levels). Operator feedback: 13-часовая swing low с
-        # дистанцией $30 = меньше fee, noise не actionable.
-        # Override: env LEVEL_BREAK_FORWARD_SWINGS=1 — старое поведение, всё.
+        # LEVEL_BREAK ПОЛНОСТЬЮ ОТКЛЮЧЁН в TG 2026-08-14 (оператор).
+        # Замер за 3 месяца: 15 103 сигнала = 84% всей выдачи, 148 шт/сутки,
+        # медианный интервал 183 сек, 61% — повтор направления за 10 минут.
+        # Эдж: после пробоя ВНИЗ падение в 48.5% против базы 46.1%; после
+        # пробоя ВВЕРХ рост в 46.7% против базы 53.9% — хуже случайного.
+        # Соседние HVN на BTC стоят в 25 долларах = 0.041% цены (ширина спреда).
+        #
+        # Отсечка стоит ЗДЕСЬ, а не в regulation_relevance_decision: тот блок
+        # выполняется только при TELEGRAM_REGULATION_FILTER_ENABLED=1, а флаг
+        # по умолчанию 0 и в живом .env не выставлен — фильтр там был мёртвым.
+        # Логика и сбор в signals.csv сохранены под будущий скальпинг-канал.
+        # Вернуть: LEVEL_BREAK_ENABLE_TG=1 в окружении.
+        if (row.get("signal_type") == "LEVEL_BREAK"
+                and os.environ.get("LEVEL_BREAK_ENABLE_TG", "0") != "1"):
+            if self._log_deduped:
+                logger.info("signal_alert.level_break_disabled_2026_08_14")
+            return False
+
         forward_swings = os.environ.get("LEVEL_BREAK_FORWARD_SWINGS", "0") == "1"
         if not forward_swings and row.get("signal_type") == "LEVEL_BREAK":
             try:
