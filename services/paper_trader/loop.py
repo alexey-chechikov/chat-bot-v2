@@ -222,6 +222,43 @@ def _get_prices_for_symbols(symbols: tuple[str, ...]) -> dict[str, float]:
     return out
 
 
+# Аудит форварда 16.08.2026 по state/setup_outcomes.jsonl (404 закрытых
+# сделки, 01.05–14.08). Девять типов из одиннадцати убыточны, суммарно
+# −$1 702 на 383 сделках. В TG идут только неотрицательные.
+#
+#   сетап                    сделок    сумма   винрейт    PF
+#   long_pdl_bounce             218  −488.54$      19%  0.49
+#   long_multi_divergence        35  −265.39$      26%  0.33
+#   short_pdh_rejection          35  −247.15$       9%  0.15
+#   long_div_bos_15m             20  −199.56$      10%  0.02
+#   short_rally_fade             23  −161.12$       9%  0.01
+#   long_mega_dump_bounce        14  −159.54$       0%  0.00
+#   long_dump_reversal           11   −81.86$       0%  0.00
+#   short_double_top             17   −71.51$      47%  0.09
+#   short_div_bos_15m            10   −27.29$      20%  0.10
+#   long_double_bottom           17  +116.76$      53% 38.54  ← оставлен
+#   long_div_bos_confirmed        4    +0.70$      25%  1.56  ← оставлен
+#
+# Ранжирование от 21.06 ПЕРЕВЕРНУЛОСЬ: rally_fade был PF 3.13 → стал 0.01,
+# dump_reversal 3.05 → 0.00. А double_bottom тогда был «опровергнут по
+# точности» и сейчас единственный неотрицательный. Двух месяцев данных
+# на ранжирование не хватает — это причина держать журнал и перепроверять.
+#
+# Журналирование НЕ трогаем: именно оно показало деградацию.
+# Вернуть тип в TG — добавить в TG_ALLOWED_SETUPS.
+TG_ALLOWED_SETUPS = frozenset({
+    "long_double_bottom",
+    "long_div_bos_confirmed",
+})
+
+
+def _tg_allowed(setup_type: str | None) -> bool:
+    import os
+    if os.environ.get("PAPER_TG_ALL_SETUPS", "0") == "1":
+        return True
+    return str(setup_type or "") in TG_ALLOWED_SETUPS
+
+
 def _format_open_alert(record: dict) -> str:
     from services.common.humanize import humanize_setup_type, fmt_price_compact
     side = "📈 PAPER LONG" if record["side"] == "long" else "📉 PAPER SHORT"
@@ -350,11 +387,15 @@ async def paper_trader_loop(
                     pending.pop(sid, None); continue
                 opened = trader.open_paper_trade(setup)
                 pending.pop(sid, None)
-                if opened and send_fn:
+                if opened and send_fn and _tg_allowed(opened.get("setup_type")):
                     try:
                         send_fn(f"⏱ confirmed ({reason})\n" + _format_open_alert(opened))
                     except Exception:
                         logger.exception("paper_trader.loop.send_open_failed")
+                elif opened:
+                    logger.info("paper_trader.loop.tg_suppressed setup=%s "
+                                "(отрицательный PF на форварде)",
+                                opened.get("setup_type"))
             for sid, entry, reason in cancel_ids:
                 pending.pop(sid, None)
                 logger.info("paper_trader.loop.confirmation_cancelled sid=%s reason=%s", sid, reason)
