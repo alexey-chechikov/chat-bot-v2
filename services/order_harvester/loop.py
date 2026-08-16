@@ -572,8 +572,20 @@ def tick(send_fn=None, api=None) -> int:
                                 inst_id=bcfg.get("inst_id", ""),
                                 hold_min=float(cfg.get("min_hold_minutes",
                                                        HOLD_MIN_DEFAULT)))
-        except Exception:
-            logger.exception("order_harvester.scan_failed bot=%s", bot_id)
+        except Exception as exc:
+            # GinArea регулярно отдаёт 502/503 — это их сервер, не наша ошибка.
+            # Раньше любой сбой писался как ERROR с полным трейсбеком: 15 штук
+            # в сутки, на этом фоне настоящую ошибку в логе не найти.
+            # Транзиентные серверные — одной строкой WARNING, остальное как было.
+            transient = ("502" in str(exc) or "503" in str(exc)
+                         or "504" in str(exc) or "Bad Gateway" in str(exc)
+                         or type(exc).__name__ == "GinAreaServerError")
+            if transient:
+                logger.warning("order_harvester.scan_skipped bot=%s "
+                               "(сервер GinArea недоступен: %s)",
+                               bot_id, type(exc).__name__)
+            else:
+                logger.exception("order_harvester.scan_failed bot=%s", bot_id)
             continue
         if not cands:
             continue

@@ -25,11 +25,20 @@ from .regime_classifier import RegimeClassifier
 
 
 def _ensure_engine_path() -> None:
-    candidate = Path(r"C:\Users\Kemper\Documents\Codex\2026-04-20-new-chat\src")
-    if candidate.exists():
-        candidate_str = str(candidate)
-        if candidate_str not in sys.path:
-            sys.path.insert(0, candidate_str)
+    # Prefer the repo-local copy of backtest_lab/engine_v2 (portable across
+    # machines — Win + Mac); fall back to the original Codex checkout on the
+    # Windows dev box. First candidate that actually contains the engine wins.
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root,
+        Path(r"C:\Users\Kemper\Documents\Codex\2026-04-20-new-chat\src"),
+    ]
+    for candidate in candidates:
+        if (candidate / "backtest_lab" / "engine_v2" / "bot.py").exists():
+            candidate_str = str(candidate)
+            if candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
+            return
 
 
 def load_engine_bindings() -> tuple[Any, Any, Any, Any, Any]:

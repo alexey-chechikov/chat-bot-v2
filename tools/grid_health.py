@@ -34,9 +34,17 @@ PAR = ROOT / "ginarea_live" / "params.csv"
 ALIASES = ROOT / "ginarea_tracker" / "bot_aliases.json"
 
 STATUS_ACTIVE = 2
-# закон маржи, замер 2026-08-10
-LAW_SLOPE, LAW_CONST = 0.4348, 0.0335              # INDICATOR GRID
-LAW_SLOPE_DYN, LAW_CONST_DYN = 0.5130, 0.0442      # DYNAMIC GRID
+# Закон маржи ВЫВЕДЕН из docs/GINAREA_MECHANICS.md, а не подогнан:
+#   §1 — прибыль одной грид-сделки = target − min_stop
+#   §3 — объём считает обе стороны цикла
+#   => маржа с оборота = (target − min_stop − комиссия за круг) / 2
+# Комиссия 0.070% за круг — замер по 846 ордерам (project_bitmex_fees).
+# Проверка на живых 16.08.2026: BTC-боты попадают в ±7%, альты дают
+# на 30-100% больше (трейлинг комбо-стопа из §3 закрывает группы выше
+# таргета). То есть формула — НИЖНЯЯ граница, а не точная оценка.
+# Прежние подогнанные коэффициенты (0.4348/0.0335) заменены: они не
+# содержали min_stop и потому не объясняли разницу между ботами.
+ROUND_TRIP_FEE_PCT = 0.070
 
 # Пороги заклинивания ИЗМЕРЕНЫ на 774 прогонах архива (2026-08-12):
 # мешок > 0.5% книги И оборот ниже пятой части нормы -> 81.4% прогонов
@@ -93,6 +101,9 @@ def load_params() -> dict:
                      if g["bot_name"].notna().any() else str(int(bid))),
             "strategy": strategy,
             "target": gap.get("tog"),
+            "min_stop": gap.get("minS"),
+            "max_stop": gap.get("maxS"),
+            "instop": gap.get("isg"),
             "gs": d.get("gs"),
             "max_orders": d.get("maxOp"),
             "max_q": q.get("maxQ"),
@@ -135,12 +146,11 @@ def market_regime() -> dict:
             "отклонение%": float(h.iloc[-1] / sma.iloc[-1] - 1) * 100}
 
 
-def law_margin(target: float, dynamic: bool) -> float:
+def law_margin(target: float, min_stop: float) -> float:
+    """Нижняя граница маржи с оборота по документации GinArea."""
     if target is None:
         return float("nan")
-    if dynamic:
-        return LAW_SLOPE_DYN * float(target) - LAW_CONST_DYN
-    return LAW_SLOPE * float(target) - LAW_CONST
+    return (float(target) - float(min_stop or 0.0) - ROUND_TRIP_FEE_PCT) / 2.0
 
 
 def analyse(days: int) -> list[dict]:
@@ -217,8 +227,7 @@ def analyse(days: int) -> list[dict]:
                 if g["average_price"].replace(0, pd.NA).notna().any() else 0)
             dp *= px_last
         marg = dp / dv * 100 if dv > 1000 else float("nan")
-        is_dyn = str(m.get("strategy") or "").upper().startswith("DYN")
-        law = law_margin(m.get("target"), is_dyn)
+        law = law_margin(m.get("target"), m.get("min_stop"))
         ratio = marg / law if law and law == law and marg == marg else float("nan")
 
         flags = []
