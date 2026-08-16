@@ -52,10 +52,33 @@ def _load_production_bot_ids() -> frozenset[int]:
     return PRODUCTION_BOT_IDS
 
 
+# Штатные службы, которым оператор разрешил менять параметры живых ботов.
+# grid_autotune — с 2026-07-20 («делай сам, я не у ПК»): расширяет gs и target
+# при drift Stage>=2. Гард против него не направлен: он против случайной
+# мутации боевого бота из разового скрипта или новой недоделанной логики.
+# Разрешение выдаётся по вызывающему модулю, а не по id бота, — иначе
+# приходится выбирать между «гард не защищает» и «штатная служба сломана».
+_ALLOWED_MUTATORS = (
+    "services.grid_autotune",
+    "services.short_bots_guard",
+)
+
+
+def _caller_is_allowed() -> bool:
+    import inspect
+
+    for frame in inspect.stack()[2:12]:
+        mod = frame.frame.f_globals.get("__name__", "")
+        if any(mod.startswith(p) for p in _ALLOWED_MUTATORS):
+            return True
+    return False
+
+
 def _assert_not_production(bot_id: int) -> None:
-    if bot_id in _load_production_bot_ids():
+    if bot_id in _load_production_bot_ids() and not _caller_is_allowed():
         raise GinAreaProductionBotGuardError(
-            f"Bot {bot_id} is in production set; mutation blocked."
+            f"Bot {bot_id} is in production set; mutation blocked. "
+            f"Разрешённые службы: {', '.join(_ALLOWED_MUTATORS)}"
         )
 
 

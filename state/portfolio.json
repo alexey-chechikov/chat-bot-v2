@@ -1,0 +1,15 @@
+{
+  "_note": "Боевые боты — мутации через ginarea_api заблокированы (_assert_not_production в services/ginarea_api/bots.py). До 16.08.2026 файла не было, и гард пропускал ВСЁ: set_params мог прилететь в любого живого бота. Список сверен с list_bots() 16.08.2026.",
+  "_warning": "При смене ботов ОБЯЗАТЕЛЬНО обновлять здесь. Урок переезда на OKX 23.07: автоматика смотрела на 8 мёртвых ID и не видела живых.",
+  "_updated": "2026-08-16",
+  "bots": [
+    {"id": 5189290547, "name": "BTC SHORT", "active": true, "note": "INDICATOR GRID, инверс BTC-USD-SWAP, шаг 0.02 таргет 0.29, 300 ордеров"},
+    {"id": 5236613378, "name": "BTC USDT DYNAMIC_c", "active": true, "note": "DYNAMIC, линейный, в харвестере и автотюне"},
+    {"id": 4812772488, "name": "ETH USDT DYNAMIC", "active": true, "note": "DYNAMIC, линейный, в харвестере и автотюне"},
+    {"id": 4711140331, "name": "XRP dynamic", "active": true, "note": "DYNAMIC, линейный, в харвестере и автотюне"},
+    {"id": 5253063096, "name": "SOL dynamic", "active": true, "note": "DYNAMIC, линейный, в харвестере и автотюне"},
+    {"id": 5900351455, "name": "AVAX usdt dynamic", "active": true, "note": "DYNAMIC, линейный, в харвестере и автотюне"},
+    {"id": 5276061629, "name": "BTC SHORT_c", "active": false, "note": "клон, статус 0, не запускался — используется для проверок API"},
+    {"id": 5330789037, "name": "BTC USDT DYNAMIC", "active": false, "note": "старый BTC-бот, остановлен 05.08, заменён на 5236613378"}
+  ]
+}
