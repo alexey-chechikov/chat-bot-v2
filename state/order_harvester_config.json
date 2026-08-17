@@ -12,8 +12,10 @@
     "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "inst_id": "ETH-USDT-SWAP", "min_order_profit_usd": 1.5},
     "4711140331": {"alias": "XRP-OKX", "symbol": "XRPUSDT", "inst_id": "XRP-USDT-SWAP", "min_order_profit_usd": 1.5},
     "5253063096": {"alias": "SOL-OKX", "symbol": "SOLUSDT", "inst_id": "SOL-USDT-SWAP", "min_order_profit_usd": 1.5},
-    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "inst_id": "AVAX-USDT-SWAP", "min_order_profit_usd": 1.5}
+    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "inst_id": "AVAX-USDT-SWAP", "min_order_profit_usd": 1.5},
+    "5189290547": {"alias": "BTC-SHORT-INV", "symbol": "BTCUSDT", "inst_id": "BTC-USD-SWAP", "min_order_profit_usd": 2.0}
   },
+  "_short_added_2026_08_17": "Оператор: «добавляй шорт в харвестр». Бот 5189290547 монетно-маржинальный (OKX, quantity в долларовых контрактах, комиссия в BTC) — до этого дня order_profit_usd считала только линейные и дала бы на его ордерах +$331056 вместо +$4.01; см. tests/services/order_harvester/test_inverse_profit.py. instId BTC-USD-SWAP (НЕ -USDT-), цена по нему на 0.15% ниже USDT-контракта — это нормальный базис монетной маржи, но он съедает половину порога расхождения PRICE_MAX_DIVERGENCE_PCT=0.3: если базис разойдётся, харвестер по этому боту молча встанет с warning price_divergence.",
   "_bitmex_archive": {
     "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",
     "4643987212": "XRP-DYN", "4922851123": "LTC-DYN", "5085651183": "BCH-DYN",

@@ -500,24 +500,63 @@ def _day_count(bot_id: str, today: str) -> int:
         return 0
 
 
+def _close_batch(api, bot_id: str, base: dict,
+                 cands: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Закрыть список ордеров, вернуть (закрытые, упавшие). Журналирует каждый."""
+    closed: list[dict] = []
+    failed: list[dict] = []
+    for cand in cands:
+        obase = {**base, "order_id": cand["order_id"],
+                 "profit_usd": cand["profit_usd"], "qty": cand["qty"],
+                 "price_in": cand["price_in"]}
+        try:
+            api.close_order(int(bot_id), cand["order_id"])
+            closed.append(cand)
+            _journal({"event": "ORDER_CLOSED", **obase})
+        except Exception as e:
+            failed.append(cand)
+            _journal({"event": "CLOSE_FAILED", **obase, "error": str(e)[:300]})
+            logger.exception("order_harvester.close_failed bot=%s order=%s",
+                             bot_id, cand["order_id"])
+    return closed, failed
+
+
 def harvest_orders(api, bot_id: str, alias: str, cands: list[dict],
                    send_fn=None) -> int:
     """Одна пауза → закрыть ВСЕ ордера-кандидаты → резюм.
-    Возвращает число реально закрытых ордеров."""
+    Возвращает число реально закрытых ордеров.
+
+    У ботов с in.otc паузы НЕ делаем — закрываем прямо на ходу, см. ниже.
+    """
     from services.short_bots_guard import control
 
     base = {"bot_id": bot_id, "alias": alias}
     total = sum(c["profit_usd"] or 0 for c in cands)
 
     if not _otc_guard(api, bot_id):
-        _journal({"event": "SKIP_OTC_GUARD", **base,
-                  "order_ids": [c["order_id"] for c in cands]})
-        freeze("otc_guard: у бота появился in.otc — пауза опасна", base)
-        if send_fn:
-            send_fn(f"🌾⛔️ Order Harvester ЗАМОРОЖЕН: у {alias} обнаружен in.otc — "
-                    "пауза сбросит otcPassed. Разберись и удали "
-                    "state/order_harvester_frozen.json")
-        return 0
+        # 2026-08-17, оператор: «добавляй шорт в харвестр». BTC SHORT
+        # 5189290547 — единственный бот с in.otc (разовая проверка пройдена).
+        # Пауза ему действительно опасна (урок 17.05: stop/start сбрасывает
+        # otcPassed → Failed), но она и не нужна: otcPassed сбрасывают
+        # ИМЕННО stop/start, а PUT /bots/{id}/close/{orderId} к нему не
+        # относится. Закрытие на ходу для такого бота строго безопаснее
+        # разрешённого пути, поэтому вместо заморозки всей службы работаем
+        # без паузы.
+        #
+        # Заодно снят конструктивный изъян: раньше один otc-бот замораживал
+        # сбор по ВСЕМ шести, хотя остальные пять к нему отношения не имеют.
+        _journal({"event": "HARVEST_START_NO_PAUSE", **base,
+                  "n_orders": len(cands), "profit_total_usd": round(total, 2),
+                  "reason": "in.otc — пауза сбросила бы otcPassed"})
+        closed, failed = _close_batch(api, bot_id, base, cands)
+        _journal({"event": "HARVESTED_NO_PAUSE", **base,
+                  "closed": len(closed), "failed": len(failed),
+                  "profit_usd": round(sum(c["profit_usd"] or 0 for c in closed), 2)})
+        if closed and send_fn:
+            got = sum(c["profit_usd"] for c in closed)
+            send_fn(f"🌾 {alias}: зафиксировано {len(closed)} ордер(ов) "
+                    f"на +${got:.2f} без паузы (бот с разовой проверкой)")
+        return len(closed)
 
     _journal({"event": "HARVEST_START", **base, "n_orders": len(cands),
               "profit_total_usd": round(total, 2)})
@@ -536,21 +575,7 @@ def harvest_orders(api, bot_id: str, alias: str, cands: list[dict],
                            trigger="order_harvester")
         return 0
 
-    closed: list[dict] = []
-    failed: list[dict] = []
-    for cand in cands:
-        obase = {**base, "order_id": cand["order_id"],
-                 "profit_usd": cand["profit_usd"], "qty": cand["qty"],
-                 "price_in": cand["price_in"]}
-        try:
-            api.close_order(int(bot_id), cand["order_id"])
-            closed.append(cand)
-            _journal({"event": "ORDER_CLOSED", **obase})
-        except Exception as e:
-            failed.append(cand)
-            _journal({"event": "CLOSE_FAILED", **obase, "error": str(e)[:300]})
-            logger.exception("order_harvester.close_failed bot=%s order=%s",
-                             bot_id, cand["order_id"])
+    closed, failed = _close_batch(api, bot_id, base, cands)
 
     # резюм ОБЯЗАТЕЛЕН независимо от исхода close — бот не должен стоять
     resumed = False

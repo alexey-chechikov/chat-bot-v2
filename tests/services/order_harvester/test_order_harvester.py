@@ -278,18 +278,30 @@ def test_harvest_batch_one_pause_many_closes(monkeypatch):
     assert len(harvested) == 3
 
 
-def test_otc_guard_freezes_and_never_pauses(monkeypatch):
+def test_otc_bot_harvested_without_pause(monkeypatch):
     """Урок 2026-05-17: stop/start otc-бота сбрасывает otcPassed → Failed.
-    Если у бота появился in.otc — не паузим, морозим сервис."""
+
+    2026-08-17 (оператор: «добавляй шорт в харвестр»): у BTC SHORT 5189290547
+    есть in.otc, и паузить его по-прежнему нельзя. Но otcPassed сбрасывают
+    именно stop/start, а закрытие отдельного ордера — нет, поэтому такие
+    боты обслуживаются БЕЗ паузы. Раньше здесь морозился весь сервис, то
+    есть один otc-бот останавливал сбор по всем остальным.
+    """
     control_calls = _patch_control(monkeypatch)
     api = FakeAPI([_order()], params_extra={"in": {"otc": True}})
     sent = []
     n = oh.harvest_orders(api, "1", "X", [oh.order_fields(_order())],
                           send_fn=sent.append)
-    assert n == 0
-    assert oh.is_frozen()
-    assert not control_calls                      # паузы НЕ было
-    assert sent and "ЗАМОРОЖЕН" in sent[0]
+    assert n == 1                                 # ордер закрыт
+    assert not control_calls                      # паузы НЕ было — главное
+    assert not oh.is_frozen()                     # служба продолжает работать
+    assert sent and "без паузы" in sent[0]
+
+    events = [json.loads(l)["event"]
+              for l in oh.JOURNAL_PATH.read_text().splitlines()]
+    assert "HARVEST_START_NO_PAUSE" in events
+    assert "HARVESTED_NO_PAUSE" in events
+    assert "HARVEST_START" not in events          # обычный путь не запускался
 
 
 def test_resume_failure_freezes_and_alerts(monkeypatch):
