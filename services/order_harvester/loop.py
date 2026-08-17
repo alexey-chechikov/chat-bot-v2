@@ -145,6 +145,7 @@ def order_fields(o: dict) -> dict:
         "fee": _f(o.get("fee")),
         "trigger_price": _f((o.get("trigger") or {}).get("price")),
         "side": o.get("side"),
+        "fee_ccy": o.get("feeExchangeCurrencyId"),
     }
 
 
@@ -280,14 +281,67 @@ def agreed_price(inst_id: str, symbol: str) -> float | None:
     return okx
 
 
+USDT_CURRENCY_ID = 11       # feeExchangeCurrencyId у линейных USDT-ботов
+FEE_RATE_MIN = 0.0001       # 0.01% — ниже этого ставка комиссии неправдоподобна
+FEE_RATE_MAX = 0.002        # 0.20% — выше тоже
+
+def _is_inverse(mark: float, f: dict) -> bool | None:
+    """Инверсный контракт (qty в долларовых контрактах, комиссия в монете)?
+
+    2026-08-17, оператор спросил, почему у BTC SHORT нет ордеров «эквивалентных
+    $2»: этот бот монетно-маржинальный (OKX exchangeId=3, баланс в BTC), а
+    формула прибыли была написана только под линейные USDT-боты.
+
+    Признак — валюта комиссии: 11=USDT → линейный, иное (4=BTC) → инверсный.
+    Отдельно перепроверяем ЦИФРОЙ: ставка комиссии обязана попасть в
+    правдоподобный диапазон при выбранной трактовке. У BTC SHORT она даёт
+    0.0500% только как инверсная, у BTC DYNAMIC_c — только как линейная.
+    Признак и проверка разошлись → возвращаем None, ордер пропускаем: гадать
+    здесь нельзя, ошибка в трактовке завышает прибыль в тысячи раз.
+    """
+    try:
+        qty = float(f["qty"])
+        price = float(f["price_in"])
+        fee = abs(float(f.get("fee") or 0.0))
+    except (TypeError, ValueError, KeyError):
+        return None
+    if qty <= 0 or price <= 0:
+        return None
+
+    ccy = f.get("fee_ccy")
+    by_ccy = None if ccy is None else (ccy != USDT_CURRENCY_ID)
+
+    if fee == 0.0:
+        # нулевая комиссия (мейкер-ребейт, синтетика в тестах): ставку не
+        # проверить, но и слагаемое комиссии обнуляется. Решаем по валюте,
+        # без валюты — линейный: так вело себя всё до 2026-08-17, и ни один
+        # реальный инверсный ордер без feeExchangeCurrencyId не встречался.
+        return bool(by_ccy)
+
+    linear_rate = fee / (qty * price)          # комиссия в USDT, qty в монете
+    inverse_rate = fee * price / qty           # комиссия в монете, qty в USD
+    linear_ok = FEE_RATE_MIN <= linear_rate <= FEE_RATE_MAX
+    inverse_ok = FEE_RATE_MIN <= inverse_rate <= FEE_RATE_MAX
+    if linear_ok == inverse_ok:                # обе или ни одной — неоднозначно
+        return None
+    if by_ccy is not None and by_ccy != inverse_ok:
+        return None                            # валюта и ставка спорят — не гадаем
+    return inverse_ok
+
+
 def order_profit_usd(mark: float, f: dict) -> float | None:
-    """ЧИСТАЯ прибыль ордера: (mark − цена исполнения) · qty · направление − комиссии.
+    """ЧИСТАЯ прибыль ордера в долларах, за вычетом комиссий.
 
     side 1=BUY → +1, 2=SELL → −1.
     Комиссия: `fee` — фактически списанная за вход; выход стоит примерно
     столько же, поэтому вычитаем удвоенную. Не знаем комиссию — не гадаем,
     ордер пропускаем (2026-08-02: без этого вычета половина закрытий уходила
     в минус на копеечном плюсе).
+
+    Линейный контракт: qty в монете, PnL = (mark − вход) · qty · направление.
+    Инверсный: qty в долларовых контрактах, PnL в монете =
+    qty · (1/вход − 1/mark) для LONG и qty · (1/mark − 1/вход) для SHORT,
+    затем переводим в доллары по mark.
     """
     if f["side"] == 1:
         direction = 1.0
@@ -301,10 +355,21 @@ def order_profit_usd(mark: float, f: dict) -> float | None:
     if fee is None:
         return None                     # нет комиссии — не гадаем
     try:
-        gross = (mark - float(f["price_in"])) * float(f["qty"]) * direction
-        return gross - 2.0 * abs(float(fee))
+        price_in = float(f["price_in"])
+        qty = float(f["qty"])
+        fee = abs(float(fee))
     except (TypeError, ValueError):
         return None
+    if mark <= 0 or price_in <= 0:
+        return None
+
+    inverse = _is_inverse(mark, f)
+    if inverse is None:
+        return None                     # тип контракта неясен — не гадаем
+    if inverse:
+        pnl_coin = qty * (1.0 / price_in - 1.0 / mark) * direction
+        return (pnl_coin - 2.0 * fee) * mark
+    return (mark - price_in) * qty * direction - 2.0 * fee
 
 
 WATCH_PATH = ROOT / "state" / "order_harvester_watch.json"
