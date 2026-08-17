@@ -209,13 +209,15 @@ def read_btc_move(path: Path = BTC_1M_CSV, *, calm_hours: float = 4.0,
     for m, px in closes:
         prev = by_min.get(m - 60)
         if prev:
-            moves.append((m, abs(px / prev - 1) * 100))
+            moves.append((m, (px / prev - 1) * 100))    # ЗНАКОВОЕ движение
     if not moves:
         return None
     calm_cut = last_min - int(calm_hours * 60)
-    window = [mv for m, mv in moves if m >= calm_cut]
-    return {"move_1h_pct": moves[-1][1],
-            "max_move_calm_pct": max(window) if window else moves[-1][1]}
+    window = [abs(mv) for m, mv in moves if m >= calm_cut]
+    last_signed = moves[-1][1]
+    return {"move_1h_pct": abs(last_signed),
+            "move_1h_signed": last_signed,
+            "max_move_calm_pct": max(window) if window else abs(last_signed)}
 
 
 def _episodes_today(bot_id: str, today: str) -> int:
@@ -286,9 +288,15 @@ def apply_widen(api, bot_id: str, alias: str, factor: float, stage,
 
     # DefaultGridParams — frozen dataclass: строим НОВЫЙ инстанс через replace,
     # присваивание полей падает FrozenInstanceError (баг 2026-07-21, fail-safe).
+    # 2026-08-17, оператор дословно: «таргет шорту не трогай только шаг сетки».
+    # У BTC SHORT таргет 0.29 — вплотную к обрыву, намеренному в августе
+    # (0.29 -> 0.34 давало просадку ×27, project_grid_config_validated).
+    # Фактор ×1.3 увёл бы его на 0.377, то есть прямо за край. Расширяем
+    # только шаг — это и есть то, что оператор делал руками.
+    widen_target = bool(bcfg.get("widen_target", True))
     orig = {"gs": params.gs, "tog": params.gap.tog}
     new_gs = round(params.gs * factor, 4)
-    new_tog = round(params.gap.tog * factor, 4)
+    new_tog = round(params.gap.tog * factor, 4) if widen_target else params.gap.tog
     otc_before = _otc_passed(params) if otc_expected else None
     new_maxq = None
     new_q = params.q
@@ -421,6 +429,18 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
         trig_kind = bcfg.get("trigger", "drift")
         restore_bag = float(bcfg.get("restore_bag", default_restore_bag))
 
+        # 2026-08-17: монетно-маржинальные боты (BTC SHORT 5189290547) считают
+        # и мешок, и позицию в других единицах, чем линейные DYN:
+        #  * мешок = current_profit − profit в МОНЕТЕ (масштаб 1e-4 BTC), а
+        #    пороги здесь долларовые (restore_bag_usd = −20) — без перевода
+        #    сравнение всегда даёт «успокоилось», эпизод не открылся бы никогда;
+        #  * position уже в долларовых контрактах, то есть САМ нотионал, а
+        #    read_bags множит его на цену — выходило $1.28 млрд вместо $20 200.
+        if bcfg.get("inverse") and snap.get("avg_price"):
+            snap = dict(snap)
+            snap["bag"] = snap["bag"] * snap["avg_price"]
+            snap["notional"] = abs(snap["position"])
+
         # оценка триггера/успокоения
         if trig_kind == "btc_move_1h":
             if not btc_move_read:
@@ -432,7 +452,17 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
             thr = float(bcfg.get("move_pct_1h", 0.8))
             fired = btc_move["move_1h_pct"] >= thr
             calmed = btc_move["max_move_calm_pct"] < thr
-            trig_label = (f"BTC {btc_move['move_1h_pct']:.2f}%/1ч ≥ {thr}%")
+            # Направление: шорту вредит только движение ВВЕРХ, лонгу — вниз.
+            # Без этого сторож расширял бы шаг и на движении В ПОЛЬЗУ бота,
+            # где сетка как раз зарабатывает и разрежать её незачем.
+            want_dir = bcfg.get("move_direction")
+            signed = btc_move.get("move_1h_signed", 0.0)
+            if fired and want_dir == "up":
+                fired = signed > 0
+            elif fired and want_dir == "down":
+                fired = signed < 0
+            arrow = "↑" if signed > 0 else "↓"
+            trig_label = (f"BTC {arrow}{btc_move['move_1h_pct']:.2f}%/1ч ≥ {thr}%")
         else:
             stage = drift.get(bot_id, 0)
             fired = stage >= trigger_stage
