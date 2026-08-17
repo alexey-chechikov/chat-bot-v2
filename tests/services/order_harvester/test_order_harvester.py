@@ -278,30 +278,43 @@ def test_harvest_batch_one_pause_many_closes(monkeypatch):
     assert len(harvested) == 3
 
 
-def test_otc_bot_harvested_without_pause(monkeypatch):
-    """Урок 2026-05-17: stop/start otc-бота сбрасывает otcPassed → Failed.
+def test_otc_bot_with_position_is_paused_normally(monkeypatch):
+    """otc-бот С позицией паузится как обычный — и это безопасно.
 
-    2026-08-17 (оператор: «добавляй шорт в харвестр»): у BTC SHORT 5189290547
-    есть in.otc, и паузить его по-прежнему нельзя. Но otcPassed сбрасывают
-    именно stop/start, а закрытие отдельного ордера — нет, поэтому такие
-    боты обслуживаются БЕЗ паузы. Раньше здесь морозился весь сервис, то
-    есть один otc-бот останавливал сбор по всем остальным.
+    2026-08-17, оператор: пауза «разовую проверку» не сбрасывает. Пока
+    позиция открыта, цикл не завершён — снятый с паузы бот работает обычным
+    гридом, пока не сбросит позицию целиком (docs/GINAREA_MECHANICS.md §1:
+    «Цикл начинается при старте бота или после full-close позиции»).
+    Инцидент 17.05 с Failed вызывал set_params(p=false), а не PUT /stop.
+
+    Раньше здесь морозилась ВСЯ служба: один otc-бот останавливал сбор по
+    остальным пяти, которые к нему отношения не имеют.
     """
     control_calls = _patch_control(monkeypatch)
-    api = FakeAPI([_order()], params_extra={"in": {"otc": True}})
+    api = FakeAPI([_order()], params_extra={"in": {"otc": True}},
+                  statuses=[oh.STATUS_ACTIVE, oh.STATUS_STOPPED,
+                            oh.STATUS_ACTIVE])
     sent = []
     n = oh.harvest_orders(api, "1", "X", [oh.order_fields(_order())],
                           send_fn=sent.append)
     assert n == 1                                 # ордер закрыт
-    assert not control_calls                      # паузы НЕ было — главное
-    assert not oh.is_frozen()                     # служба продолжает работать
-    assert sent and "без паузы" in sent[0]
+    assert not oh.is_frozen()                     # служба не заморожена
+    assert [c[0] for c in control_calls] == ["pause", "resume"]
 
+
+def test_otc_bot_without_position_skipped_not_frozen(monkeypatch):
+    """otc-бот БЕЗ позиции паузить не надо: резюм начнёт новый цикл и бот
+    будет ждать indicator-сигнал. Пропускаем, но службу не морозим."""
+    control_calls = _patch_control(monkeypatch)
+    api = FakeAPI([_order()], params_extra={"in": {"otc": True}},
+                  stat=dict(DEFAULT_STAT, position=0.0))
+    n = oh.harvest_orders(api, "1", "X", [oh.order_fields(_order())])
+    assert n == 0
+    assert not control_calls                      # паузы не было
+    assert not oh.is_frozen()                     # но и заморозки нет
     events = [json.loads(l)["event"]
               for l in oh.JOURNAL_PATH.read_text().splitlines()]
-    assert "HARVEST_START_NO_PAUSE" in events
-    assert "HARVESTED_NO_PAUSE" in events
-    assert "HARVEST_START" not in events          # обычный путь не запускался
+    assert "SKIP_OTC_NO_POSITION" in events
 
 
 def test_resume_failure_freezes_and_alerts(monkeypatch):

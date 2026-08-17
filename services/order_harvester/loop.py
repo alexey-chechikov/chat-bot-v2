@@ -17,8 +17,11 @@
 
 Безопасность:
 - работает ТОЛЬКО по ботам из state/order_harvester_config.json;
-- перед паузой проверяет, что у бота НЕТ in.otc (урок 2026-05-17: stop/start
-  otc-ботов сбрасывает otcPassed → Failed). Динамики без in-блока — безопасно;
+- перед паузой проверяет, что у otc-бота ЕСТЬ позиция: пока она открыта,
+  цикл не завершён и пауза «разовую проверку» не сбрасывает
+  (docs/GINAREA_MECHANICS.md §1). Инцидент 17.05 с Failed был от
+  set_params(p=false), а не от PUT /stop — раньше это было склеено, и гард
+  морозил всю службу при виде in.otc;
 - каждый шаг журналируется в state/order_harvester_journal.jsonl;
 - если resume не удался — ретраи, затем CRITICAL TG + freeze-файл: сервис
   замирает до ручного разбора (state/order_harvester_frozen.json);
@@ -471,14 +474,31 @@ def _wait_status(api, bot_id: str, want: set[int]) -> int | None:
 
 
 def _otc_guard(api, bot_id: str) -> bool:
-    """True = безопасно паузить. Урок 2026-05-17: stop/start бота с in.otc
-    сбрасывает otcPassed → Failed. У динамиков in-блока нет."""
+    """True = безопасно паузить.
+
+    2026-08-17, оператор поправил: пауза сама по себе «разовую проверку» НЕ
+    сбрасывает. docs/GINAREA_MECHANICS.md §1: «Цикл начинается при старте
+    бота или после full-close позиции», и отдельно — «сбрасывается только
+    при full-close, не при Out Stop». Пока позиция открыта, цикл не завершён:
+    снятый с паузы бот игнорирует in-условие и работает обычным гридом, пока
+    не сбросит позицию целиком, и только тогда снова ждёт точку входа.
+
+    Инцидент 17.05 с переходом в Failed был вызван set_params(p=false) —
+    правкой конфига, а не PUT /bots/{id}/stop. Здесь это было склеено в одно,
+    из-за чего гард морозил всю службу при виде in.otc.
+
+    Что осталось настоящим ограничением: паузить otc-бота БЕЗ позиции не
+    надо — резюм начнёт новый цикл и бот будет ждать indicator-сигнал.
+    На практике сюда не попадаем (нет позиции — нет и открытых ордеров),
+    но условие оставлено явным.
+    """
     try:
         params = api.get_params(int(bot_id))
         in_block = (params.extra_raw or {}).get("in") or {}
-        if in_block.get("otc"):
-            return False
-        return True
+        if not in_block.get("otc"):
+            return True
+        stat = api.get_stat(int(bot_id))
+        return bool(float(getattr(stat, "position", 0.0) or 0.0))
     except Exception:
         logger.exception("order_harvester.otc_guard_read_failed bot=%s", bot_id)
         return False  # не смогли проверить — не трогаем
@@ -534,29 +554,12 @@ def harvest_orders(api, bot_id: str, alias: str, cands: list[dict],
     total = sum(c["profit_usd"] or 0 for c in cands)
 
     if not _otc_guard(api, bot_id):
-        # 2026-08-17, оператор: «добавляй шорт в харвестр». BTC SHORT
-        # 5189290547 — единственный бот с in.otc (разовая проверка пройдена).
-        # Пауза ему действительно опасна (урок 17.05: stop/start сбрасывает
-        # otcPassed → Failed), но она и не нужна: otcPassed сбрасывают
-        # ИМЕННО stop/start, а PUT /bots/{id}/close/{orderId} к нему не
-        # относится. Закрытие на ходу для такого бота строго безопаснее
-        # разрешённого пути, поэтому вместо заморозки всей службы работаем
-        # без паузы.
-        #
-        # Заодно снят конструктивный изъян: раньше один otc-бот замораживал
-        # сбор по ВСЕМ шести, хотя остальные пять к нему отношения не имеют.
-        _journal({"event": "HARVEST_START_NO_PAUSE", **base,
-                  "n_orders": len(cands), "profit_total_usd": round(total, 2),
-                  "reason": "in.otc — пауза сбросила бы otcPassed"})
-        closed, failed = _close_batch(api, bot_id, base, cands)
-        _journal({"event": "HARVESTED_NO_PAUSE", **base,
-                  "closed": len(closed), "failed": len(failed),
-                  "profit_usd": round(sum(c["profit_usd"] or 0 for c in closed), 2)})
-        if closed and send_fn:
-            got = sum(c["profit_usd"] for c in closed)
-            send_fn(f"🌾 {alias}: зафиксировано {len(closed)} ордер(ов) "
-                    f"на +${got:.2f} без паузы (бот с разовой проверкой)")
-        return len(closed)
+        # otc-бот без позиции: пауза не нужна (и кандидатов там взяться
+        # неоткуда). Просто пропускаем — службу не морозим, остальные боты
+        # к этому отношения не имеют.
+        _journal({"event": "SKIP_OTC_NO_POSITION", **base,
+                  "order_ids": [c["order_id"] for c in cands]})
+        return 0
 
     _journal({"event": "HARVEST_START", **base, "n_orders": len(cands),
               "profit_total_usd": round(total, 2)})
