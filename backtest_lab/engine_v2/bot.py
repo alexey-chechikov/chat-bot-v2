@@ -41,6 +41,16 @@ class BotConfig:
     dsblin: bool = False
     leverage: int = 100
     cap_pos_btc: float | None = None  # max abs position in BTC; None = unlimited
+    # Мартингейл GinArea (q.minQ / q.qr / q.maxQ): каждый следующий ордер в
+    # наборе больше предыдущего в qty_ratio раз, но не больше max_order_size.
+    # order_size — это minQ, размер ПЕРВОГО ордера.
+    # 2026-08-17: без этого движок держал размер постоянным, позиция при
+    # затяжном движении росла линейно вместо сверхлинейной, и развёртка по
+    # таргету выходила плоской по обороту («поднимай таргет до бесконечности»).
+    # У живых ботов qr есть всегда: 1.1 у DYN, 1.04 у XRP, 1.4 у BTC SHORT.
+    # Дефолты qty_ratio=1.0 / max_order_size=None сохраняют прежнее поведение.
+    qty_ratio: float = 1.0
+    max_order_size: float | None = None
 
 
 class GinareaBot:
@@ -289,13 +299,29 @@ class GinareaBot:
                         self.last_in_price = price
                         self.instop.reset(price)
 
+    def next_order_size(self) -> float:
+        """Размер СЛЕДУЮЩЕГО IN-ордера с учётом мартингейла q.qr.
+
+        Глубина считается по уже открытым ордерам набора: первый — minQ,
+        каждый следующий ×qr, потолок maxQ.
+        """
+        if self.cfg.qty_ratio == 1.0:
+            return self.cfg.order_size
+        depth = len(self.active_orders)
+        if self.out_stop_group:
+            depth += len(self.out_stop_group.orders)
+        size = self.cfg.order_size * (self.cfg.qty_ratio ** depth)
+        if self.cfg.max_order_size is not None:
+            size = min(size, self.cfg.max_order_size)
+        return size
+
     def _apply_cap(self, n: int) -> int:
         """Cap planned combined_count by cap_pos_btc. Returns allowed n (0 = fully blocked)."""
         if self.cfg.cap_pos_btc is None:
             return n
         current = self.position_size()
         remaining = self.cfg.cap_pos_btc - current
-        n_allowed = int(remaining / self.cfg.order_size)
+        n_allowed = int(remaining / max(self.next_order_size(), 1e-12))
         if n_allowed <= 0:
             self.n_caps_blocked += 1
             return 0
@@ -331,7 +357,7 @@ class GinareaBot:
     def _open_in(self, price: float, bar_idx: int, combined_count: int) -> None:
         """Create and immediately activate one IN order."""
         self._order_counter += 1
-        qty = self.cfg.order_size * combined_count
+        qty = self.next_order_size() * combined_count
         order = InOrder(
             order_id=self._order_counter,
             side=self.cfg.side,
