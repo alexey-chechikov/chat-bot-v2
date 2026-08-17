@@ -58,9 +58,18 @@ def _load_production_bot_ids() -> frozenset[int]:
 # мутации боевого бота из разового скрипта или новой недоделанной логики.
 # Разрешение выдаётся по вызывающему модулю, а не по id бота, — иначе
 # приходится выбирать между «гард не защищает» и «штатная служба сломана».
+# Список собран по ВСЕМ вызывающим защищённые методы (set_params, close_order,
+# pause_bot, resume_bot), а не по одному. 17.08 я включил гард, перечислив
+# только два модуля, и за час положил харвестер: 117 ошибок close_failed,
+# ордера не закрывались. Правило: при добавлении нового вызывающего —
+# сначала сюда, иначе служба молча падает.
 _ALLOWED_MUTATORS = (
-    "services.grid_autotune",
-    "services.short_bots_guard",
+    "services.grid_autotune",      # шаг/таргет при drift (разрешено 20.07)
+    "services.short_bots_guard",   # пауза/резюм через /stop и /start
+    "services.order_harvester",    # фиксация плюсовых ордеров (close_order)
+    "services.pump_freeze",        # заморозка на пампе
+    "services.bot_brain",          # предложения движка
+    "services.telegram_runtime",   # ручные команды оператора из TG
 )
 
 
