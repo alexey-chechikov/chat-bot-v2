@@ -303,10 +303,15 @@ class BotStat:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> BotStat:
+        # 2026-08-17: у stat ВНУТРИ бэктеста (/bots/{id}/tests) нет ни botId,
+        # ни accountId, ни updatedAt — там только цифры прогона. Жёсткое
+        # d["botId"] роняло разбор всего списка тестов с KeyError, из-за чего
+        # результаты бэктестов GinArea были недоступны в принципе.
+        # Для живого /bots/{id}/stat поля на месте и поведение прежнее.
         return cls(
-            botId=int(d["botId"]),
-            accountId=int(d["accountId"]),
-            updatedAt=_parse_datetime(d["updatedAt"]) or datetime.min,
+            botId=int(d.get("botId") or 0),
+            accountId=int(d.get("accountId") or 0),
+            updatedAt=_parse_datetime(d.get("updatedAt")) or datetime.min,
             position=float(d.get("position", 0.0) or 0.0),
             profit=float(d.get("profit", 0.0) or 0.0),
             profitToTrailing=float(d.get("profitToTrailing", 0.0) or 0.0),
