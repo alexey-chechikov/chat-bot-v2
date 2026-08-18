@@ -8,11 +8,17 @@ from .client import GinAreaClient
 from .exceptions import GinAreaAPIError, GinAreaTestFailedError, GinAreaTestTimeoutError
 from .models import BotStatus, Test
 
+# 2026-08-19: досчитанный бэктест GinArea приходит со статусом STOPPED(12),
+# а не FINISHED(14) — так помечены и готовые тесты в UI («Stopped»), и
+# единственный тест на стенде 5276061629. Без STOPPED в списке
+# wait_for_finished крутил опрос до таймаута на УЖЕ ГОТОВОМ тесте: один
+# такой прогон впустую сжёг 25 минут.
 TERMINAL_STATUSES = {
     BotStatus.FINISHED,
     BotStatus.FAILED,
     BotStatus.TP_STOPPED,
     BotStatus.SL_STOPPED,
+    BotStatus.STOPPED,
 }
 
 
@@ -75,7 +81,8 @@ class BacktestAPI:
                     test.errorCode or -1,
                     f"Test {test_id} failed with errorCode={test.errorCode}",
                 )
-            if test.status in (BotStatus.TP_STOPPED, BotStatus.SL_STOPPED):
+            if test.status in (BotStatus.TP_STOPPED, BotStatus.SL_STOPPED,
+                               BotStatus.STOPPED):
                 return test
             if (time.monotonic() - started) > timeout:
                 raise GinAreaTestTimeoutError(
