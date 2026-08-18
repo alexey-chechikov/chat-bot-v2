@@ -601,6 +601,14 @@ async def _run_auto_executor(stop_event: asyncio.Event) -> None:
     Loop tolerant of missing env (BITMEX_AUTOTRADER_API_KEY) — returns
     silently so app_runner keeps booting if creds are pulled.
     """
+    # 2026-08-18, оператор: «битмекс выключай полностью».
+    # Боты переехали на OKX 23.07, BitMEX закрывается. auto_executor с 28 мая
+    # не совершил ни одной сделки, но каждый цикл опрашивал баланс BitMEX
+    # (остаток $18.02 на 18.08). Ключ в окружении не трогаем — выключатель
+    # явный и в git: чтобы вернуть, нужен BITMEX_ENABLED=1.
+    if os.environ.get("BITMEX_ENABLED", "0") != "1":
+        logger.info("auto_executor.disabled — BitMEX выключен (BITMEX_ENABLED!=1)")
+        return
     if not os.environ.get("BITMEX_AUTOTRADER_API_KEY"):
         logger.info("auto_executor.disabled — BITMEX_AUTOTRADER_API_KEY not set")
         return

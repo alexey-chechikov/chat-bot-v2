@@ -37,8 +37,27 @@ def _bybit_4h() -> tuple[list[float], list[float], list[float]]:
     return h, lo, c
 
 
-def _bitmex_4h(n4h: int = 250) -> tuple[list[float], list[float], list[float]]:
-    """Фоллбэк: BitMEX 1h → ресемпл в 4h (binSize=4h BitMEX не поддерживает)."""
+def _binance_4h(n4h: int = 250) -> tuple[list[float], list[float], list[float]]:
+    """Фоллбэк после Bybit.
+
+    2026-08-18, оператор: «битмекс выключай полностью». Раньше здесь был
+    BitMEX 1h с ресемплом в 4h; биржа закрывается, и держать её последним
+    рубежом брифа нельзя. Binance — тот же источник, что у остального
+    рантайма, и 4h он отдаёт напрямую, без ресемпла.
+    """
+    from core.data_loader import load_klines
+
+    df = load_klines("BTCUSDT", "4h", limit=n4h)
+    if df is None or len(df) < 10:
+        raise RuntimeError("binance 4h: пусто")
+    return ([float(x) for x in df["high"].tolist()],
+            [float(x) for x in df["low"].tolist()],
+            [float(x) for x in df["close"].tolist()])
+
+
+def _bitmex_4h_retired(n4h: int = 250) -> tuple[list[float], list[float], list[float]]:
+    """СНЯТ С ИСПОЛЬЗОВАНИЯ 2026-08-18 (BitMEX закрывается). Оставлен как
+    справка по ресемплу 1h→4h, если понадобится для другой биржи."""
     n1h = n4h * 4 + 8
     url = ("https://www.bitmex.com/api/v1/trade/bucketed?binSize=1h&partial=false"
            f"&symbol=XBTUSDT&count={n1h}&reverse=true")
@@ -78,9 +97,9 @@ def _fetch_4h() -> tuple[list[float], list[float], list[float]]:
             if attempt < 2:
                 time.sleep(3)
     try:
-        return _bitmex_4h()
+        return _binance_4h()
     except Exception as e:
-        raise RuntimeError(f"bybit: {last_err}; bitmex fallback: {e}") from e
+        raise RuntimeError(f"bybit: {last_err}; binance fallback: {e}") from e
 
 
 def regime() -> dict:

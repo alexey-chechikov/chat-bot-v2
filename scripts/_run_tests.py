@@ -28,6 +28,7 @@ TEST_DIRS = [
     "tests/services/alt_guard/",
     "tests/tools/test_market_card.py",
     "tests/tools/test_config_coverage.py",
+    "tests/services/morning_brief/test_regime_fallback.py",
     "tests/services/trend_signals/",
 ]
 

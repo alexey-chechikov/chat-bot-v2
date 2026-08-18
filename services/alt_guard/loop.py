@@ -606,19 +606,32 @@ def _btc_1m_series(count: int = 45):
 
 
 def _alt_1m_series(sym: str, count: int = 45):
-    """Альт 1m closes с BitMEX (public, лёгкий запрос)."""
-    import json as _json
-    import urllib.request
+    """Альт 1m closes.
+
+    2026-08-18, оператор: «битмекс выключай полностью». Раньше здесь был
+    публичный запрос на www.bitmex.com/api/v1/trade/bucketed — биржа
+    закрывается, боты давно на OKX, и запрос уже отваливался
+    (alt_guard.idio_failed в логе 17.08): символы у нас теперь окэшные
+    (SOLUSDT, AVAXUSDT), а на BitMEX таких инструментов нет.
+
+    Берём тот же источник, которым пользуется вся остальная система.
+    """
     import pandas as pd
-    url = ("https://www.bitmex.com/api/v1/trade/bucketed?binSize=1m&partial=false"
-           f"&symbol={sym}&count={count}&reverse=true")
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    rows = _json.load(urllib.request.urlopen(req, timeout=15))[::-1]
-    ts = [pd.Timestamp(r["timestamp"]) for r in rows]
-    px = [float(r["close"]) for r in rows]
-    if len(px) < 35:
+    from core.data_loader import load_klines
+
+    try:
+        df = load_klines(sym, "1m", limit=count)
+    except Exception:
+        logger.exception("alt_guard.alt_series_failed sym=%s", sym)
         return None
-    return pd.Series(px, index=pd.DatetimeIndex(ts))
+    if df is None or len(df) < 35:
+        return None
+    # Время берём из колонки open_time: у load_klines индекс ПОЗИЦИОННЫЙ
+    # (RangeIndex 0..N). pd.to_datetime от него даёт 1970 год, и DECORR
+    # сравнивал бы альт с BTC по несуществующим меткам времени.
+    closes = [float(x) for x in df["close"].tolist()]
+    idx = pd.DatetimeIndex(pd.to_datetime(df["open_time"]))
+    return pd.Series(closes, index=idx)
 
 
 def _assess_idio(snap: dict, params: dict, managed_ids: set[str]) -> dict[str, float]:
