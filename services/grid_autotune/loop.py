@@ -269,6 +269,28 @@ def _set_and_verify(api, bot_id: str, params, want_gs: float, want_tog: float,
     return ok
 
 
+LADDER_MEMORY = ROOT / "state" / "grid_autotune_ladder.json"
+
+
+def _ladder_memory() -> dict:
+    """Какой шаг лестница выставила сама. Нужно, чтобы отличать её
+    собственные значения от того, что оператор поднял руками."""
+    try:
+        return json.loads(LADDER_MEMORY.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _remember_ladder(bot_id: str, gs: float) -> None:
+    mem = _ladder_memory()
+    mem[str(bot_id)] = gs
+    try:
+        LADDER_MEMORY.write_text(json.dumps(mem, ensure_ascii=False, indent=1),
+                                 encoding="utf-8")
+    except OSError:
+        logger.exception("grid_autotune.ladder_memory_write_failed")
+
+
 def ladder_step(ladder: list, occupancy_pct: float, base_gs: float) -> float:
     """Какой шаг положен при такой занятой ёмкости.
 
@@ -317,6 +339,20 @@ def _apply_step_ladder(api, bot_id: str, alias: str, bcfg: dict, snap: dict,
     if abs(want - cur) < 1e-9:
         return False
 
+    # 2026-08-19, оператор: «я хочу чтобы он не уменьшал если я увеличил
+    # не дождавшись». Лестница вправе снижать ТОЛЬКО то, что подняла сама.
+    # Если оператор поставил шаг руками выше ступени — не трогаем: он
+    # опережает лестницу осознанно, и стягивать его вниз нельзя.
+    # Что именно поставила лестница, помним в state/grid_autotune_ladder.json.
+    if want < cur:
+        mine = _ladder_memory().get(str(bot_id))
+        if mine is None or abs(float(mine) - cur) > 1e-9:
+            _journal({"event": "LADDER_MANUAL_HELD", "bot_id": bot_id,
+                      "alias": alias, "gs_now": cur, "ladder_wants": want,
+                      "ladder_last_set": mine,
+                      "occupancy_pct": round(occ, 1)})
+            return False
+
     otc_expected = bool(bcfg.get("otc_expected"))
     if not otc_expected and not _otc_safe(params):
         freeze("otc_guard: in.otc у бота — set_params опасен",
@@ -338,6 +374,7 @@ def _apply_step_ladder(api, bot_id: str, alias: str, bcfg: dict, snap: dict,
         logger.exception("grid_autotune.ladder_failed bot=%s", bot_id)
         return False
 
+    _remember_ladder(str(bot_id), round(want, 4))
     _journal({"event": "LADDER_APPLIED", **base})
     direction = "расширил" if want > cur else "вернул"
     logger.info("grid_autotune.ladder bot=%s занято=%.1f%% шаг %s -> %s",

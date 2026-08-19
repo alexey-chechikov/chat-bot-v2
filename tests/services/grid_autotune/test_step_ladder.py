@@ -24,6 +24,12 @@ SHORT = "5189290547"
 LADDER = [[30, 0.80], [20, 0.40], [12, 0.20], [6, 0.12]]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_ladder_memory(monkeypatch, tmp_path):
+    """Память лестницы — тоже в tmp: тесты не должны писать в боевой файл."""
+    monkeypatch.setattr(gat, "LADDER_MEMORY", tmp_path / "ladder_mem.json")
+
+
 def _params(gs=0.06, tog=0.29, maxOp=300, maxQ=300, extra=None):
     d = {"gs": gs, "side": 2, "p": True, "obap": True, "maxOp": maxOp,
          "gap": {"tog": tog, "minS": 0.012, "maxS": 0.015, "isg": 0.018},
@@ -105,11 +111,56 @@ def test_widens_at_operator_anchor():
 
 
 def test_returns_step_when_position_shrinks():
-    """Ходит в обе стороны — отдельного отката не нужно."""
+    """Ходит в обе стороны — отдельного отката не нужно.
+
+    Снижает только СВОЁ значение, поэтому память заполнена.
+    """
+    gat.LADDER_MEMORY.write_text(json.dumps({SHORT: 0.8}), encoding="utf-8")
     _cfg(bots={SHORT: _bcfg()})
     api = FakeAPI(_params(gs=0.8, maxOp=300, maxQ=300))
     n = gat.tick(send_fn=[].append, api=api, drift={},
                  bags={SHORT: _snap(4_500)})    # 5% -> база
+    assert n == 1
+    assert api.set_calls == [(0.06, 0.29)]
+
+
+def test_manual_raise_is_not_pulled_back_down(tmp_path, monkeypatch):
+    """Оператор 19.08: «не уменьшал если я увеличил не дождавшись».
+
+    Он поставил 1.5 руками при занятости 5% (ступень = база 0.06).
+    Лестница обязана оставить его в покое.
+    """
+    monkeypatch.setattr(gat, "LADDER_MEMORY", tmp_path / "ladder.json")
+    _cfg(bots={SHORT: _bcfg()})
+    api = FakeAPI(_params(gs=1.5, maxOp=300, maxQ=300))
+    n = gat.tick(send_fn=[].append, api=api, drift={},
+                 bags={SHORT: _snap(4_500)})
+    assert n == 0
+    assert not api.set_calls
+    ev = [e for e in _events() if e["event"] == "LADDER_MANUAL_HELD"][0]
+    assert ev["gs_now"] == 1.5 and ev["ladder_wants"] == 0.06
+
+
+def test_manual_raise_still_gets_raised_further(tmp_path, monkeypatch):
+    """Ручное значение не блокирует РОСТ: ступень выше — расширяем."""
+    monkeypatch.setattr(gat, "LADDER_MEMORY", tmp_path / "ladder.json")
+    _cfg(bots={SHORT: _bcfg(step_ladder=[[30, 2.0]] + LADDER[1:])})
+    api = FakeAPI(_params(gs=1.5, maxOp=300, maxQ=300))
+    n = gat.tick(send_fn=[].append, api=api, drift={},
+                 bags={SHORT: _snap(28_600)})
+    assert n == 1
+    assert api.set_calls == [(2.0, 0.29)]
+
+
+def test_ladder_lowers_only_its_own_value(tmp_path, monkeypatch):
+    """Своё значение лестница снижать вправе — иначе шаг залипнет наверху."""
+    mem = tmp_path / "ladder.json"
+    monkeypatch.setattr(gat, "LADDER_MEMORY", mem)
+    mem.write_text(json.dumps({SHORT: 0.8}), encoding="utf-8")
+    _cfg(bots={SHORT: _bcfg()})
+    api = FakeAPI(_params(gs=0.8, maxOp=300, maxQ=300))
+    n = gat.tick(send_fn=[].append, api=api, drift={},
+                 bags={SHORT: _snap(4_500)})
     assert n == 1
     assert api.set_calls == [(0.06, 0.29)]
 
