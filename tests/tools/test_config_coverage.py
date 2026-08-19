@@ -18,15 +18,22 @@ LIVE = {
 }
 
 
-def _write(tmp_path, monkeypatch, portfolio, harvester, autotune):
+def _write(tmp_path, monkeypatch, portfolio, harvester, autotune,
+           grid_portfolio=None):
     p = tmp_path / "portfolio.json"
     h = tmp_path / "harvester.json"
     a = tmp_path / "autotune.json"
+    g = tmp_path / "grid_portfolio.json"
     p.write_text(json.dumps(portfolio), encoding="utf-8")
     h.write_text(json.dumps(harvester), encoding="utf-8")
     a.write_text(json.dumps(autotune), encoding="utf-8")
+    if grid_portfolio is not None:
+        g.write_text(json.dumps(grid_portfolio), encoding="utf-8")
     monkeypatch.setattr(cc, "PORTFOLIO", p)
     monkeypatch.setattr(cc, "SERVICES", {"харвестер": h, "автотюнер": a})
+    # без изоляции проверка читала БОЕВОЙ grid_portfolio и добавляла
+    # расхождение в каждый тест
+    monkeypatch.setattr(cc, "GRID_PORTFOLIO", g)
 
 
 def test_full_coverage_is_zero(tmp_path, monkeypatch):
@@ -61,6 +68,30 @@ def test_inactive_bots_are_not_required(tmp_path, monkeypatch):
     """Клон с active:false в служебных конфигах быть не обязан."""
     both = {"bots": {"111": {}, "222": {}}}
     _write(tmp_path, monkeypatch, LIVE, both, both)
+    assert cc.check() == 0
+
+
+def test_orchestrator_alias_without_id_is_caught(tmp_path, monkeypatch):
+    """Случай 19.08: карточка велела «возобновить btc_short_l1», а у записи
+    нет id GinArea вовсе — команда уходит в никуда."""
+    both = {"bots": {"111": {}, "222": {}}}
+    _write(tmp_path, monkeypatch, LIVE, both, both,
+           grid_portfolio={"bots": {"btc_short_l1": {"label": "BTC SHORT L1",
+                                                     "state": "ACTIVE"}}})
+    assert cc.check() == 1
+
+
+def test_orchestrator_pointing_at_dead_id_is_caught(tmp_path, monkeypatch):
+    both = {"bots": {"111": {}, "222": {}}}
+    _write(tmp_path, monkeypatch, LIVE, both, both,
+           grid_portfolio={"bots": {"old": {"ginarea_bot_id": 5330789037}}})
+    assert cc.check() == 1
+
+
+def test_orchestrator_correct_mapping_is_clean(tmp_path, monkeypatch):
+    both = {"bots": {"111": {}, "222": {}}}
+    _write(tmp_path, monkeypatch, LIVE, both, both,
+           grid_portfolio={"bots": {"btc_short": {"ginarea_bot_id": 111}}})
     assert cc.check() == 0
 
 

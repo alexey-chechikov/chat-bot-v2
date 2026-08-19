@@ -30,6 +30,14 @@ SERVICES = {
     "харвестер": ROOT / "state" / "order_harvester_config.json",
     "автотюнер": ROOT / "state" / "grid_autotune_config.json",
 }
+# Оркестратор держит свой реестр с ЧЕЛОВЕЧЕСКИМИ алиасами, а не с id
+# GinArea, поэтому в общую сверку по id он не попадает. Проверяется
+# отдельно: 2026-08-19 оператор прислал его карточку с указанием
+# «возобновить работу ботов: btc_short_l1» — бота с таким алиасом в
+# GinArea нет, id у записи отсутствует вовсе, параметры не совпадают с
+# живым BTC SHORT ни в одном поле, а last_command_at там от 2 мая.
+GRID_PORTFOLIO = ROOT / "state" / "grid_portfolio.json"
+_ID_KEYS = ("ginarea_bot_id", "bot_id", "id", "ginarea_id")
 
 
 def _load(path: Path) -> dict:
@@ -117,8 +125,43 @@ def check(use_api: bool = False) -> int:
         if not missing and not dead:
             print("   покрытие полное")
 
+    problems += _check_grid_portfolio(live)
+
     print(f"\nрасхождений: {problems}")
     return problems
+
+
+def _check_grid_portfolio(live: dict[int, str]) -> int:
+    """Реестр оркестратора: у каждой записи должен быть id живого бота."""
+    if not GRID_PORTFOLIO.exists():
+        return 0
+    gp = _load(GRID_PORTFOLIO)
+    bots = gp.get("bots")
+    if not isinstance(bots, dict) or not bots:
+        return 0
+
+    bad = []
+    for alias, rec in bots.items():
+        if not isinstance(rec, dict):
+            continue
+        bid = next((rec[k] for k in _ID_KEYS if rec.get(k) is not None), None)
+        try:
+            bid = int(bid) if bid is not None else None
+        except (TypeError, ValueError):
+            bid = None
+        if bid is None:
+            bad.append((alias, "нет id GinArea"))
+        elif bid not in live:
+            bad.append((alias, f"id {bid} не боевой"))
+
+    print(f"\nоркестратор (grid_portfolio): записей {len(bots)}")
+    if not bad:
+        print("   все записи ведут на боевых ботов")
+        return 0
+    print(f"   КОМАНДЫ УЙДУТ В НИКУДА ({len(bad)}):")
+    for alias, why in bad:
+        print(f"      {alias}: {why}")
+    return len(bad)
 
 
 def _inactive_ids() -> set[int]:
