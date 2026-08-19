@@ -269,6 +269,86 @@ def _set_and_verify(api, bot_id: str, params, want_gs: float, want_tog: float,
     return ok
 
 
+def ladder_step(ladder: list, occupancy_pct: float, base_gs: float) -> float:
+    """Какой шаг положен при такой занятой ёмкости.
+
+    ladder — [[занято%, шаг], ...]. Берём первую ступень, чей порог пройден
+    (сортируем по убыванию сами, чтобы порядок в конфиге не имел значения).
+    Ниже базового шага не опускаемся никогда.
+    """
+    best = base_gs
+    for item in sorted(ladder, key=lambda x: -float(x[0])):
+        try:
+            thr, step = float(item[0]), float(item[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if occupancy_pct >= thr:
+            best = max(step, base_gs)
+            break
+    return best
+
+
+def _apply_step_ladder(api, bot_id: str, alias: str, bcfg: dict, snap: dict,
+                       send_fn=None) -> bool:
+    """Выставить шаг по ступени занятой ёмкости. True = меняли."""
+    try:
+        params = api.get_params(int(bot_id))
+    except Exception:
+        logger.exception("grid_autotune.ladder_params_failed bot=%s", bot_id)
+        return False
+    if params.gs is None or not params.maxOp or params.q.maxQ is None:
+        _journal({"event": "LADDER_SKIP_NO_PARAMS", "bot_id": bot_id})
+        return False
+
+    inverse = bool(bcfg.get("inverse"))
+    price = float(snap.get("avg_price") or 0.0)
+    pos = abs(float(snap.get("position") or 0.0))
+    pos_usd = pos if inverse else pos * price
+    cap = float(params.maxOp) * float(params.q.maxQ)
+    cap_usd = cap if inverse else cap * price
+    if cap_usd <= 0 or price <= 0:
+        _journal({"event": "LADDER_SKIP_NO_CAPACITY", "bot_id": bot_id})
+        return False
+    occ = pos_usd / cap_usd * 100.0
+
+    base_gs = float(bcfg.get("base_gs") or params.gs)
+    want = ladder_step(bcfg["step_ladder"], occ, base_gs)
+    cur = float(params.gs)
+    if abs(want - cur) < 1e-9:
+        return False
+
+    otc_expected = bool(bcfg.get("otc_expected"))
+    if not otc_expected and not _otc_safe(params):
+        freeze("otc_guard: in.otc у бота — set_params опасен",
+               {"bot_id": bot_id})
+        return False
+    otc_before = _otc_passed(params) if otc_expected else None
+
+    new_params = dataclasses.replace(params, gs=round(want, 4))
+    base = {"bot_id": bot_id, "alias": alias, "occupancy_pct": round(occ, 1),
+            "position_usd": round(pos_usd), "capacity_usd": round(cap_usd),
+            "gs_from": cur, "gs_to": round(want, 4),
+            "tog": params.gap.tog, "trigger": "position_ladder"}
+    try:
+        if not _set_and_verify(api, bot_id, new_params, round(want, 4),
+                               params.gap.tog, want_otc_passed=otc_before):
+            raise RuntimeError("verify failed")
+    except Exception as e:
+        _journal({"event": "LADDER_FAILED", **base, "error": str(e)[:200]})
+        logger.exception("grid_autotune.ladder_failed bot=%s", bot_id)
+        return False
+
+    _journal({"event": "LADDER_APPLIED", **base})
+    direction = "расширил" if want > cur else "вернул"
+    logger.info("grid_autotune.ladder bot=%s занято=%.1f%% шаг %s -> %s",
+                bot_id, occ, cur, want)
+    if send_fn:
+        send_fn(f"⚙️ {alias}: занято {occ:.1f}% ёмкости (${pos_usd:,.0f}) — "
+                f"{direction} шаг {cur} → {want}. "
+                f"Таргет {params.gap.tog} не тронут.")
+    return True
+
+
 def apply_widen(api, bot_id: str, alias: str, factor: float, stage,
                 bag: float, send_fn=None, bcfg: dict | None = None) -> bool:
     bcfg = bcfg or {}
@@ -440,6 +520,28 @@ def tick(send_fn=None, api=None, *, drift: dict | None = None,
             snap = dict(snap)
             snap["bag"] = snap["bag"] * snap["avg_price"]
             snap["notional"] = abs(snap["position"])
+
+        # Лестница шага от НАБРАННОЙ ПОЗИЦИИ — отдельный контур.
+        # Оператор 2026-08-19: «я бы в таком режиме и с таким общим ордером
+        # уже почти 30к делал бы грид степ минимум 0.8» (BTC SHORT при
+        # 31.8% ёмкости) и «почему ты игнорируешь солану и её позицию в 5к,
+        # грид степ у неё 0.2».
+        # Смысл: чем больше набрано, тем реже надо добирать. Триггер не от
+        # движения рынка — оператор отдельно сказал, что ровный монотонный
+        # рост без откатов он хочет ПРОПУСКАТЬ, — а от занятой ёмкости.
+        # Ступени заданы АБСОЛЮТНЫМ шагом, а не множителем: так они читаются
+        # ровно как оператор их называет («минимум 0.8»).
+        # Ходит в обе стороны: позиция уменьшилась — шаг вернулся, поэтому
+        # машинерия эпизодов и отката здесь не нужна.
+        if bcfg.get("step_ladder"):
+            if api is None:
+                api = _cached_api()
+                if api is None:
+                    return actions
+            if _apply_step_ladder(api, bot_id, alias, bcfg, snap,
+                                  send_fn=send_fn):
+                actions += 1
+            continue
 
         # оценка триггера/успокоения
         if trig_kind == "btc_move_1h":
