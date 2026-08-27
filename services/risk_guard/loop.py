@@ -154,6 +154,38 @@ def snapshot(api, cfg: dict) -> dict:
     }
 
 
+def close_fraction_for(pct_of_deposit: float, cfg: dict) -> float:
+    """Какую долю позиции закрыть при такой глубине убытка по боту.
+
+    Оператор 2026-08-27: «после 10 мы закрываем только частично до 20
+    процентов». То есть на пороге режем часть, на верхней границе — всё,
+    между ними пропорционально. Ниже порога не режем вовсе.
+    """
+    start = float(cfg.get("kill_pct", 10))
+    full = float(cfg.get("full_close_pct", 20))
+    depth = abs(pct_of_deposit)
+    if depth < start:
+        return 0.0
+    if depth >= full or full <= start:
+        return 1.0
+    base = float(cfg.get("first_close_fraction", 0.25))
+    span = (depth - start) / (full - start)
+    return min(1.0, base + (1.0 - base) * span)
+
+
+def _per_bot_breaches(snap: dict, cfg: dict, deposit: float) -> list[dict]:
+    """Боты, каждый из которых САМ прошёл порог. Пустой список = никто."""
+    if deposit <= 0:
+        return []
+    out = []
+    for r in snap.get("rows", []):
+        pct = float(r.get("unrealized_usd") or 0.0) / deposit * 100.0
+        frac = close_fraction_for(pct, cfg)
+        if frac > 0:
+            out.append({**r, "pct": pct, "close_fraction": frac})
+    return out
+
+
 def evaluate(snap: dict, cfg: dict) -> dict:
     """Что делать. Порядок проверок — от самого опасного к мягкому."""
     if snap.get("error"):
@@ -183,10 +215,30 @@ def evaluate(snap: dict, cfg: dict) -> dict:
     # (протухшие данные, нет цены, API молчит). Это не риск-порог, это
     # слепота, и работать вслепую нельзя — 22.08 я именно так принял
     # 22-часовой кэш за живое состояние.
-    if unreal <= kill_at:
-        return {"action": "KILL",
-                "reason": f"убыток ${unreal:,.0f} достиг предела "
-                          f"${kill_at:,.0f} ({cfg.get('kill_pct')}% депозита)"}
+    # Оператор 2026-08-27: «это 10 процентов должно быть на каждом боте, а
+    # не суммарно — если на одном 6, а на другом 4/5, ничего не должно
+    # закрываться». Подтверждено августом: суммарный лимит сработал бы в
+    # 14:00, по-ботовый в 15:00 — разница час, но в 14:00 отдельные боты
+    # были здоровы (SHORT −3.8%, остальные около нуля), и суммарное
+    # правило закрыло бы пятерых нормальных из-за одного больного.
+    #
+    # Портфельный потолок оставлен ЗНАЧИТЕЛЬНО выше как страховка: к концу
+    # эпизода XRP замер на −9.1% и по-ботовое правило не тронуло бы его
+    # никогда. Шесть ботов по 9% — это 54% депозита без единого
+    # срабатывания, а именно так счёт и умер.
+    per_bot = _per_bot_breaches(snap, cfg, deposit)
+    if per_bot:
+        return {"action": "KILL", "bots": per_bot,
+                "reason": "по боту: " + "; ".join(
+                    f"{b['alias']} ${b['unrealized_usd']:,.0f} "
+                    f"({b['pct']:.1f}% депозита) → закрыть "
+                    f"{b['close_fraction']*100:.0f}%" for b in per_bot)}
+
+    portfolio_cap = float(cfg.get("portfolio_kill_pct", 0) or 0)
+    if portfolio_cap and unreal <= -deposit * portfolio_cap / 100.0:
+        return {"action": "KILL", "bots": None,
+                "reason": f"страховка портфеля: сумма ${unreal:,.0f} прошла "
+                          f"{portfolio_cap}% депозита"}
 
     if snap.get("stale"):
         return {"action": "HALT",
@@ -531,16 +583,36 @@ def tick(api=None, send_fn=None) -> str:
                     f"Боты остановлены, позиции пока не тронуты.")
         return "limit_waiting"
 
-    closed, failed = _close_all(api, snap)
+    targets = decision.get("bots")
+    if targets is None:                      # страховка портфеля — все
+        targets = [{**r, "close_fraction": 1.0} for r in snap.get("rows", [])]
+
+    full = [t for t in targets if t["close_fraction"] >= 0.999]
+    part = [t for t in targets if t["close_fraction"] < 0.999]
+
+    closed, failed = [], []
+    if full:
+        c, f = _close_all(api, {"rows": full})
+        closed += c
+        failed += f
+    for t in part:
+        done, fl = _reduce_positions(api, {"rows": [t]},
+                                     t["close_fraction"], cfg)
+        closed += [f"{d} ({t['close_fraction']*100:.0f}%)" for d in done]
+        failed += fl
+
     _journal({"event": "KILL", **base, "paused": paused,
-              "closed": closed, "failed": failed})
-    freeze("KILL сработал — разбор вручную", base)
+              "closed": closed, "failed": failed,
+              "targets": [{"alias": t["alias"],
+                           "fraction": t["close_fraction"]} for t in targets]})
+    # Замораживаем только при ПОЛНОМ закрытии всего: частичное сокращение —
+    # штатная работа, служба должна следить дальше.
+    if full and not part:
+        freeze("полное закрытие — разбор вручную", base)
     if send_fn:
-        send_fn(f"🚨 RISK GUARD — ЗАКРЫТИЕ ВСЕГО\n{decision['reason']}\n"
-                f"Закрыты: {', '.join(closed) or '—'}\n"
-                + (f"НЕ УДАЛОСЬ: {', '.join(failed)}\n" if failed else "")
-                + "Служба заморожена, снимай state/risk_guard_frozen.json "
-                  "после разбора.")
+        send_fn(f"🚨 RISK GUARD\n{decision['reason']}\n"
+                f"Закрыто: {', '.join(closed) or '—'}\n"
+                + (f"НЕ УДАЛОСЬ: {', '.join(failed)}\n" if failed else ""))
     return "kill"
 
 

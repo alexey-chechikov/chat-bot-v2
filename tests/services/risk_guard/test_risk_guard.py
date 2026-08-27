@@ -155,8 +155,9 @@ def test_limit_without_allow_close_only_pauses():
     позиции остаются, приходит тревога.
     """
     _cfg(max_leverage=99)          # allow_close отсутствует = выключено
-    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -300.0),
-                   _bot(ETH, -0.502, 0.0, -200.0)])
+    # порог теперь ПО КАЖДОМУ боту: −600 это −27.8% от 2160
+    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0),
+                   _bot(ETH, -0.502, 0.0, -600.0)])
     sent = []
     assert rg.tick(api=api, send_fn=sent.append) == "limit_no_close"
     assert api.closed == [], "позиции трогать нельзя"
@@ -180,8 +181,9 @@ def test_alert_is_not_spammed_every_tick():
 def test_kill_closes_everything():
     """−20% с ЯВНО включённым закрытием."""
     cfg = _cfg(max_leverage=99, allow_close=True, persistence={"min_hold_minutes": 0})
-    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -300.0),
-                   _bot(ETH, -0.502, 0.0, -200.0)])   # −23% от 2160
+    # каждый бот сам за порогом: −600 это −27.8% от 2160
+    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0),
+                   _bot(ETH, -0.502, 0.0, -600.0)])
     assert rg.tick(api=api) == "kill"
     assert sorted(api.closed) == sorted([int(BTC), int(ETH)])
     ev = _events()[-1]
