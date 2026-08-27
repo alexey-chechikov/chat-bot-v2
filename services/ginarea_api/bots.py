@@ -73,12 +73,17 @@ _ALLOWED_MUTATORS = (
 )
 
 
-def _caller_is_allowed() -> bool:
+# Закрытие ВСЕЙ позиции — отдельный, более узкий список: это аварийный
+# тормоз риск-контура, а не инструмент управления сеткой.
+_CLOSE_ALLOWED = ("services.risk_guard",)
+
+
+def _caller_is_allowed(allowed: tuple[str, ...] = _ALLOWED_MUTATORS) -> bool:
     import inspect
 
     for frame in inspect.stack()[2:12]:
         mod = frame.frame.f_globals.get("__name__", "")
-        if any(mod.startswith(p) for p in _ALLOWED_MUTATORS):
+        if any(mod.startswith(p) for p in allowed):
             return True
     return False
 
@@ -184,8 +189,18 @@ class BotsAPI:
     # ─── Orders (RE 2026-07-08 from ginarea.org JS bundle chunk-NVN532GA.js) ──
     # getOrders(e,i,n,a) → GET /bots/{id}/orders?pageSize=&pageNumber=&onlyOpened=
     # closeOrder(e,i)    → PUT /bots/{id}/close/{orderId}, body {}
-    # close(e)           → PUT /bots/{id}/close, body {}  (весь мешок — НЕ оборачиваем,
-    #                      чтобы никто случайно не закрыл позицию целиком)
+    # close(e)           → PUT /bots/{id}/close, body {}  — ВСЯ позиция.
+    #
+    # 2026-08-27: обёрнут как close_position(). До этого дня метод намеренно
+    # не оборачивали, «чтобы никто случайно не закрыл позицию целиком».
+    # Именно этого и не хватило: 19-22.08 шесть шортовых сеток встретили рост
+    # BTC +19.2% при плече 8.8x, автоматика умела только ОСТАНАВЛИВАТЬ ботов,
+    # а остановленный бот держит позицию дальше — минус вырос с −$1 121 до
+    # −$16 032, счёт ликвидирован. Замер по 4 независимым эпизодам за 4
+    # месяца: после порога −20% депозита мешок НИ РАЗУ не восстановился за
+    # 48ч (4 из 4 углубились). Значит закрывать нужно, и нужен метод.
+    #
+    # Вызывать вправе ТОЛЬКО services.risk_guard — см. _CLOSE_ALLOWED.
 
     def get_orders(self, bot_id: int, *, page_size: int = 100,
                    page_number: int = 0, only_opened: bool = True) -> dict:
@@ -204,6 +219,22 @@ class BotsAPI:
             params={"pageSize": str(page_size), "pageNumber": str(page_number),
                     "onlyOpened": "true" if only_opened else "false"},
         )
+
+    def close_position(self, bot_id: int) -> dict:
+        """Закрыть ВСЮ позицию бота по рынку (кнопка «Закрыть» в UI).
+
+        Необратимо. Фиксирует убыток или прибыль целиком.
+        Разрешено только services.risk_guard: это аварийный тормоз, а не
+        инструмент управления. Любой другой вызывающий получает отказ.
+        """
+        if not _caller_is_allowed(_CLOSE_ALLOWED):
+            raise GinAreaProductionBotGuardError(
+                f"close_position({bot_id}) запрещён: закрывать позицию вправе "
+                f"только {', '.join(_CLOSE_ALLOWED)}"
+            )
+        logger.warning("ginarea.close_position bot=%s — ЗАКРЫТИЕ ПОЗИЦИИ",
+                       bot_id)
+        return self.client.request("PUT", f"/bots/{bot_id}/close", json={})
 
     def close_order(self, bot_id: int, order_id: str) -> dict:
         """Закрыть ОДИН ордер бота (кнопка ✕ в UI-таблице ордеров).
