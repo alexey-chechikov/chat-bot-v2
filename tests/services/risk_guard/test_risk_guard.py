@@ -25,6 +25,9 @@ def _isolate(monkeypatch, tmp_path):
     # без изоляции состояние антиспама переживало между тестами и глушило
     # тревогу в соседнем
     monkeypatch.setattr(rg, "ALERT_STATE", tmp_path / "alert.json")
+    monkeypatch.setattr(rg, "BREACH_STATE", tmp_path / "breach.json")
+    # по умолчанию выдержки нет — старые тесты проверяют реакцию как таковую
+    monkeypatch.setattr(rg, "move_character", lambda *a, **k: None)
     monkeypatch.setattr(rg, "_price_of", lambda api, inst: PRICES.get(inst))
     monkeypatch.setattr("services.short_bots_guard.control.pause_bot",
                         lambda bot_id, **kw: {"action": "paused"})
@@ -144,8 +147,8 @@ def test_alert_is_not_spammed_every_tick():
 
 
 def test_kill_closes_everything():
-    """−20% с ЯВНО включённым закрытием. 4 из 4 эпизодов углублялись."""
-    cfg = _cfg(max_leverage=99, allow_close=True)
+    """−20% с ЯВНО включённым закрытием."""
+    cfg = _cfg(max_leverage=99, allow_close=True, persistence={"min_hold_minutes": 0})
     api = FakeAPI([_bot(BTC, -0.0384, 0.0, -300.0),
                    _bot(ETH, -0.502, 0.0, -200.0)])   # −23% от 2160
     assert rg.tick(api=api) == "kill"
@@ -157,10 +160,68 @@ def test_kill_closes_everything():
 
 def test_kill_wins_over_stale():
     """Убыток за пределом важнее любых оговорок про данные."""
-    cfg = _cfg(max_leverage=99, allow_close=True)
+    cfg = _cfg(max_leverage=99, allow_close=True, persistence={"min_hold_minutes": 0})
     api = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0, age_min=999)])
     assert rg.tick(api=api) == "kill"
     assert api.closed == [int(BTC)]
+
+
+def test_breach_must_persist_before_acting():
+    """Оператор 27.08: закрывать не по касанию, а если минус ДЕРЖИТСЯ.
+
+    Первый тик после пробоя — только пауза и ожидание.
+    """
+    _cfg(max_leverage=99, allow_close=True,
+         persistence={"min_hold_minutes": 60})
+    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0)])
+    assert rg.tick(api=api) == "limit_waiting"
+    assert api.closed == [], "по касанию закрывать нельзя"
+    assert _events()[-1]["event"] == "LIMIT_WAITING"
+
+
+def test_acts_after_hold_elapsed(monkeypatch):
+    """Пробой продержался дольше выдержки — действуем."""
+    _cfg(max_leverage=99, allow_close=True,
+         persistence={"min_hold_minutes": 60})
+    api = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0)])
+    rg.tick(api=api)                                  # завёл таймер
+    monkeypatch.setattr(rg, "_breach_age_minutes",
+                        lambda active, level: 999.0)
+    assert rg.tick(api=api) == "kill"
+    assert api.closed == [int(BTC)]
+
+
+def test_recovery_resets_the_timer():
+    """Мешок вернулся в норму — отсчёт начинается заново."""
+    _cfg(max_leverage=99, allow_close=True,
+         persistence={"min_hold_minutes": 60})
+    deep = FakeAPI([_bot(BTC, -0.0384, 0.0, -600.0)])
+    rg.tick(api=deep)
+    assert rg.BREACH_STATE.exists()
+    calm = FakeAPI([_bot(BTC, -0.0384, 0.0, -5.0)])
+    assert rg.tick(api=calm) == "ok"
+    assert not rg.BREACH_STATE.exists(), "таймер обязан сброситься"
+
+
+def test_fast_move_shortens_the_wait(monkeypatch):
+    """Ровное однонаправленное движение — ждать нечего, откатов нет."""
+    cfg = _cfg(persistence={"min_hold_minutes": 120,
+                            "fast_move_min_hold_minutes": 20,
+                            "fast_move_efficiency": 0.5})
+    need, why = rg.required_hold_minutes(
+        cfg, {"efficiency": 0.8, "move_pct": 9.0})
+    assert need == 20 and "ровное" in why
+    need2, why2 = rg.required_hold_minutes(
+        cfg, {"efficiency": 0.2, "move_pct": 1.0})
+    assert need2 == 120 and "откатами" in why2
+
+
+def test_unknown_character_uses_base_hold():
+    """Нет данных о движении — ведём себя как при простой выдержке."""
+    cfg = _cfg(persistence={"min_hold_minutes": 90,
+                            "fast_move_min_hold_minutes": 10})
+    need, why = rg.required_hold_minutes(cfg, None)
+    assert need == 90 and "неизвестен" in why
 
 
 def test_close_is_off_by_default_in_shipped_config():

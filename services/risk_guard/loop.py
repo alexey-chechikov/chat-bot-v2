@@ -8,9 +8,11 @@
   * Пять ботов в одну сторону — это ОДНА ставка, а не пять независимых.
     Поэтому экспозиция складывается по модулю, без взаимозачёта.
   * Остановка бота НЕ закрывает позицию. 21.08 боты стояли, а минус рос.
-    Замер по 4 независимым эпизодам за 4 месяца: после −20% депозита мешок
-    ни разу не восстановился за 48ч (4 из 4 углубились). Поэтому на верхнем
-    пороге позиция ЗАКРЫВАЕТСЯ.
+    Единственный ЧИСТЫЙ эпизод (19.08, только боты OKX): мешок держался
+    ниже порога 140 часов и за 48ч ушёл с −$1 121 до −$13 842. Прежняя
+    оценка «4 из 4 эпизодов» была НЕВЕРНА — в неё попали старые
+    битмексовые боты, у которых мешок в BTC, а считался долларами.
+    Выборка из одного эпизода, и это надо помнить.
   * 22.08 я принял 22-часовой кэш за текущее состояние и сказал оператору,
     что позиции живы, когда их уже ликвидировали. Поэтому устаревшие данные
     здесь — АВАРИЯ, а не тишина: старше max_stale_minutes → тормозим.
@@ -192,6 +194,101 @@ def evaluate(snap: dict, cfg: dict) -> dict:
     return {"action": "NONE", "reason": "в пределах"}
 
 
+BREACH_STATE = ROOT / "state" / "risk_guard_breach.json"
+
+
+def move_character(lookback_h: int = 24) -> dict | None:
+    """Каким СЕЙЧАС идёт движение BTC — ровным или с откатами.
+
+    Это НЕ прогноз. 19.08 замерено, что классификаторы режима не
+    предсказывают характер следующих суток (разделяющая способность
+    отрицательная). Здесь описывается уже идущее движение, а это другое.
+
+    Эффективность = |итоговый ход| / сумма |почасовых ходов|.
+    Близко к 1 — цена идёт ровно в одну сторону, откатов нет, сетке нечего
+    отрабатывать. Близко к 0 — ходит туда-сюда, сетка зарабатывает.
+    """
+    path = ROOT / "market_live" / "market_1m.csv"
+    try:
+        closes: dict[str, float] = {}
+        with path.open(encoding="utf-8") as f:
+            next(f)
+            for ln in f:
+                p = ln.split(",")
+                if len(p) >= 5:
+                    try:
+                        closes[p[0][:13]] = float(p[4])
+                    except ValueError:
+                        continue
+    except OSError:
+        return None
+    hrs = sorted(closes)[-(lookback_h + 1):]
+    if len(hrs) < lookback_h:
+        return None
+    seg = [closes[h] for h in hrs]
+    walk = sum(abs(seg[j + 1] - seg[j]) for j in range(len(seg) - 1))
+    if walk <= 0 or seg[0] <= 0:
+        return None
+    return {"efficiency": round(abs(seg[-1] - seg[0]) / walk, 3),
+            "move_pct": round((seg[-1] / seg[0] - 1) * 100, 2)}
+
+
+def _breach_age_minutes(active: bool, level: str) -> float:
+    """Сколько минут подряд держится пробой. 0 = только начался.
+
+    Оператор 2026-08-27: «принудительное закрытие не только при наступлении
+    минус 400, а если этот минус держится какой-то промежуток времени».
+    В единственном чистом эпизоде (19.08) минус держался 140 часов, так что
+    выдержка в пару часов там ничего бы не задержала.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        st = json.loads(BREACH_STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = {}
+    if not active:
+        if st:
+            try:
+                BREACH_STATE.unlink()
+            except OSError:
+                pass
+        return 0.0
+    started = st.get(level)
+    if not started:
+        st[level] = now.isoformat()
+        try:
+            BREACH_STATE.write_text(json.dumps(st, ensure_ascii=False),
+                                    encoding="utf-8")
+        except OSError:
+            logger.exception("risk_guard.breach_state_write_failed")
+        return 0.0
+    try:
+        return (now - datetime.fromisoformat(started)).total_seconds() / 60
+    except ValueError:
+        return 0.0
+
+
+def required_hold_minutes(cfg: dict, character: dict | None) -> tuple[float, str]:
+    """Сколько минут пробой должен держаться, прежде чем действовать.
+
+    Быстрое однонаправленное движение — ждать нечего, откатов нет.
+    Рваное с откатами — сетке дают время отработать.
+    ВНИМАНИЕ: модуляция по характеру НЕ ПРОВЕРЕНА на истории — чистый
+    эпизод был всего один. Дефолты подобраны так, чтобы в худшем случае
+    вести себя как простая выдержка без модуляции.
+    """
+    p = cfg.get("persistence") or {}
+    base = float(p.get("min_hold_minutes", 60))
+    fast = float(p.get("fast_move_min_hold_minutes", base))
+    thr = float(p.get("fast_move_efficiency", 0.5))
+    if character and character.get("efficiency", 0) >= thr:
+        return fast, (f"движение ровное (эфф {character['efficiency']}, "
+                      f"ход {character['move_pct']:+.1f}%)")
+    if character:
+        return base, (f"движение с откатами (эфф {character['efficiency']})")
+    return base, "характер движения неизвестен"
+
+
 ALERT_STATE = ROOT / "state" / "risk_guard_alert.json"
 
 
@@ -265,6 +362,7 @@ def tick(api=None, send_fn=None) -> str:
     action = decision["action"]
 
     if action == "NONE":
+        _breach_age_minutes(False, "kill")     # пробой снят — таймер сбросить
         return "ok"
 
     base = {"action": action, "reason": decision["reason"],
@@ -289,8 +387,8 @@ def tick(api=None, send_fn=None) -> str:
     # предупреждение». Флаг выключен по умолчанию: закрытие позиции
     # необратимо и фиксирует убыток, поэтому включать его вправе только
     # оператор явной единицей в конфиге.
-    # На истории ожидание обходится дороже (4 из 4 эпизодов после −20%
-    # углубились за 48ч), и это сказано в алерте — но решение его.
+    # Выдержка по времени проверяется ТОЛЬКО перед закрытием: если
+    # закрывать нельзя, ждать нечего — пауза уже сделана выше.
     if not cfg.get("allow_close"):
         _journal({"event": "LIMIT_NO_CLOSE", **base, "paused": paused})
         if send_fn and _alert_due(cfg):
@@ -300,8 +398,25 @@ def tick(api=None, send_fn=None) -> str:
                     f"Номинал ${snap['total_notional_usd']:,.0f}, "
                     f"плечо {snap['leverage']}x.\n"
                     f"Справка: на истории после этого порога мешок за 48ч "
-                    f"углублялся 4 раза из 4.")
+                    f"единственный чистый эпизод 19.08 углубился с −$1 121 "
+                    f"до −$13 842 за 48ч.")
         return "limit_no_close"
+
+    # Закрытие разрешено — но пробой должен ДЕРЖАТЬСЯ, а не мелькнуть на
+    # фитиле. Оператор 27.08: «не только при наступлении минус 400, а если
+    # этот минус держится какой-то промежуток времени».
+    char = move_character(int((cfg.get("persistence") or {})
+                              .get("efficiency_lookback_hours", 24)))
+    need, why = required_hold_minutes(cfg, char)
+    age = _breach_age_minutes(True, "kill")
+    if age < need:
+        _journal({"event": "LIMIT_WAITING", **base, "held_minutes": round(age),
+                  "need_minutes": need, "character": char, "why": why})
+        if send_fn and _alert_due(cfg):
+            send_fn(f"⚠️ Предел убытка задет: {decision['reason']}\n"
+                    f"Держится {age:.0f} из {need:.0f} мин — {why}.\n"
+                    f"Боты остановлены, позиции пока не тронуты.")
+        return "limit_waiting"
 
     closed, failed = _close_all(api, snap)
     _journal({"event": "KILL", **base, "paused": paused,
