@@ -169,6 +169,20 @@ def evaluate(snap: dict, cfg: dict) -> dict:
     warn_at = -deposit * float(cfg.get("warn_pct", 10)) / 100.0
     max_lev = float(cfg.get("max_leverage", 1.0))
 
+    # Оператор 2026-08-27: «делаем такие закрытия от 10 процентов — до
+    # мы только увеличиваем шаг сетки, до 10 боты должны работать на
+    # максимум и закрывать только прибыльные ордера».
+    #
+    # Отсюда устройство: НИЖЕ предела риск-контур ботов НЕ ОСТАНАВЛИВАЕТ.
+    # Сетке нужно набирать, чтобы работать, — пауза её обесценивает.
+    # Растущая экспозиция лечится расширением шага (лестница в
+    # grid_autotune по занятой ёмкости), а плюсовые ордера снимает
+    # харвестер. Риск-контур до предела только предупреждает.
+    #
+    # Пауза остаётся ровно для одного случая: когда мы НЕ ВИДИМ состояние
+    # (протухшие данные, нет цены, API молчит). Это не риск-порог, это
+    # слепота, и работать вслепую нельзя — 22.08 я именно так принял
+    # 22-часовой кэш за живое состояние.
     if unreal <= kill_at:
         return {"action": "KILL",
                 "reason": f"убыток ${unreal:,.0f} достиг предела "
@@ -182,13 +196,14 @@ def evaluate(snap: dict, cfg: dict) -> dict:
                 "reason": "нет цены: " + ", ".join(snap["unpriced"])}
 
     if deposit and notional > max_lev * deposit:
-        return {"action": "HALT",
+        return {"action": "NOTIFY",
                 "reason": f"экспозиция ${notional:,.0f} = "
-                          f"{notional/deposit:.2f}x выше предела {max_lev}x"}
+                          f"{notional/deposit:.2f}x выше ориентира {max_lev}x "
+                          f"— шаг сетки должен расширяться"}
 
     if unreal <= warn_at:
-        return {"action": "HALT",
-                "reason": f"убыток ${unreal:,.0f} достиг предупреждения "
+        return {"action": "NOTIFY",
+                "reason": f"убыток ${unreal:,.0f} прошёл отметку "
                           f"${warn_at:,.0f} ({cfg.get('warn_pct')}% депозита)"}
 
     return {"action": "NONE", "reason": "в пределах"}
@@ -330,6 +345,93 @@ def _pause_all(api, snap: dict) -> list[str]:
     return done
 
 
+REDUCE_STATE = ROOT / "state" / "risk_guard_reduce.json"
+
+
+def _last_reduce_age_minutes() -> float | None:
+    """Сколько минут назад сокращали. None = не сокращали.
+
+    Нужен, чтобы сокращение не каскадило: после первого раза позиция
+    меньше, но мешок в долларах может остаться за ступенью, и без паузы
+    служба резала бы книгу каждую минуту.
+    """
+    try:
+        st = json.loads(REDUCE_STATE.read_text(encoding="utf-8"))
+        return (datetime.now(timezone.utc)
+                - datetime.fromisoformat(st["ts"])).total_seconds() / 60
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def _mark_reduced() -> None:
+    try:
+        REDUCE_STATE.write_text(
+            json.dumps({"ts": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8")
+    except OSError:
+        logger.exception("risk_guard.reduce_state_write_failed")
+
+
+def _reduce_positions(api, snap: dict, fraction: float,
+                      cfg: dict) -> tuple[list[str], list[str]]:
+    """Сократить позицию на долю fraction, закрывая ОТДЕЛЬНЫЕ ордера.
+
+    Закрываем самые глубокие — те, что ушли дальше всего от цены и сами
+    уже не закроются. Именно они образуют заклинившую часть книги, из-за
+    которой 19-22.08 позиция росла, а оборота не было.
+
+    Полное закрытие позиции здесь не используется: сокращение должно
+    оставлять сетке возможность работать дальше.
+    """
+    from services.order_harvester.loop import order_fields, order_profit_usd
+
+    done, failed = [], []
+    for r in snap.get("rows", []):
+        bid = r["bot_id"]
+        bcfg = (cfg.get("bots") or {}).get(bid) or {}
+        price = _price_of(api, bcfg.get("inst_id", ""))
+        if not price:
+            failed.append(f"{r['alias']}: нет цены")
+            continue
+        try:
+            orders = (api.get_orders(int(bid), page_size=100, page_number=0,
+                                     only_opened=True).get("orders")) or []
+        except Exception as e:
+            failed.append(f"{r['alias']}: {type(e).__name__}")
+            continue
+        if not orders:
+            continue
+
+        scored = []
+        for o in orders:
+            f = order_fields(o)
+            p = order_profit_usd(price, f)
+            if p is None or not f.get("order_id"):
+                continue
+            qty = abs(float(f.get("qty") or 0))
+            scored.append((p, qty, f["order_id"]))
+        if not scored:
+            continue
+        scored.sort(key=lambda t: t[0])          # худшие первыми
+
+        target_qty = sum(q for _, q, _ in scored) * fraction
+        closed_qty = 0.0
+        n = 0
+        for _, qty, oid in scored:
+            if closed_qty >= target_qty:
+                break
+            try:
+                api.close_order(int(bid), oid)
+                closed_qty += qty
+                n += 1
+            except Exception:
+                logger.exception("risk_guard.reduce_close_failed bot=%s "
+                                 "order=%s", bid, oid)
+        if n:
+            done.append(f"{r['alias']}: {n} орд.")
+    return done, failed
+
+
 def _close_all(api, snap: dict) -> tuple[list[str], list[str]]:
     ok, failed = [], []
     for r in snap.get("rows", []):
@@ -370,6 +472,17 @@ def tick(api=None, send_fn=None) -> str:
             "notional_usd": snap.get("total_notional_usd"),
             "leverage": snap.get("leverage"),
             "rows": snap.get("rows")}
+
+    if action == "NOTIFY":
+        # Ботов НЕ трогаем: до предела они работают на максимум.
+        _journal({"event": "NOTIFY", **base})
+        if send_fn and _alert_due(cfg):
+            send_fn(f"⚠️ {decision['reason']}\n"
+                    f"Боты работают, ничего не остановлено. "
+                    f"Мешок ${snap['total_unrealized_usd']:,.0f}, "
+                    f"номинал ${snap['total_notional_usd']:,.0f}, "
+                    f"плечо {snap['leverage']}x.")
+        return "notify"
 
     if action == "HALT":
         paused = _pause_all(api, snap)

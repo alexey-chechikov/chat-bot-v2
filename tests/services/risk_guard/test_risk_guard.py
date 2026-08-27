@@ -26,6 +26,7 @@ def _isolate(monkeypatch, tmp_path):
     # тревогу в соседнем
     monkeypatch.setattr(rg, "ALERT_STATE", tmp_path / "alert.json")
     monkeypatch.setattr(rg, "BREACH_STATE", tmp_path / "breach.json")
+    monkeypatch.setattr(rg, "REDUCE_STATE", tmp_path / "reduce.json")
     # по умолчанию выдержки нет — старые тесты проверяют реакцию как таковую
     monkeypatch.setattr(rg, "move_character", lambda *a, **k: None)
     monkeypatch.setattr(rg, "_price_of", lambda api, inst: PRICES.get(inst))
@@ -107,14 +108,44 @@ def test_within_limits_does_nothing():
     assert rg.evaluate(rg.snapshot(api, cfg), cfg)["action"] == "NONE"
 
 
-def test_warn_halts_but_does_not_close():
-    """−10%: тормозим набор, позицию НЕ трогаем — на истории оттуда
-    мешок дважды из шести возвращался сам."""
-    cfg = _cfg(max_leverage=99)
+def test_below_limit_bots_keep_working():
+    """Оператор 27.08: «до 10 боты должны работать на максимум».
+
+    Отметка предупреждения пройдена — приходит уведомление, но ни пауз,
+    ни закрытий. Экспозицию лечит расширение шага, плюсовые ордера —
+    харвестер.
+    """
+    _cfg(max_leverage=99, kill_pct=99, warn_pct=5)
     api = FakeAPI([_bot(BTC, -0.001, 0.0, -250.0)])   # −11.6% от 2160
-    assert rg.tick(api=api) == "halt"
+    calls = []
+    import services.short_bots_guard.control as ctl
+    orig = ctl.pause_bot
+    ctl.pause_bot = lambda bot_id, **kw: calls.append(bot_id) or {"action": "p"}
+    try:
+        sent = []
+        assert rg.tick(api=api, send_fn=sent.append) == "notify"
+    finally:
+        ctl.pause_bot = orig
+    assert calls == [], "ботов останавливать нельзя"
     assert api.closed == []
-    assert _events()[-1]["event"] == "HALT"
+    assert _events()[-1]["event"] == "NOTIFY"
+    assert sent and "Боты работают" in sent[0]
+
+
+def test_over_leverage_only_notifies():
+    """Превышение ориентира по плечу — не пауза, а сигнал расширять шаг."""
+    _cfg(max_leverage=1.0, kill_pct=99, warn_pct=99)
+    api = FakeAPI([_bot(BTC, -0.05, 0.0, -5.0)])      # номинал ~$3 842
+    calls = []
+    import services.short_bots_guard.control as ctl
+    orig = ctl.pause_bot
+    ctl.pause_bot = lambda bot_id, **kw: calls.append(bot_id) or {"action": "p"}
+    try:
+        assert rg.tick(api=api) == "notify"
+    finally:
+        ctl.pause_bot = orig
+    assert calls == []
+    assert "шаг сетки" in _events()[-1]["reason"]
 
 
 def test_limit_without_allow_close_only_pauses():
@@ -224,15 +255,18 @@ def test_unknown_character_uses_base_hold():
     assert need == 90 and "неизвестен" in why
 
 
-def test_close_is_off_by_default_in_shipped_config():
-    """Боевой конфиг не должен уметь закрывать без явного разрешения."""
+def test_shipped_config_matches_operator_choice():
+    """Оператор 27.08 согласовал 1.0x и лестницу 5/7/10%."""
     import json as _json
     from pathlib import Path as _P
 
     live = _json.loads((_P(rg.ROOT) / "state" / "risk_guard_config.json")
                        .read_text(encoding="utf-8"))
-    assert live.get("allow_close") is not True, \
-        "закрытие в боевом конфиге включено — оператор этого не разрешал"
+    assert live["max_leverage"] == 1.0
+    assert live["warn_pct"] == 5
+    assert live["kill_pct"] == 10
+    # «до 10 боты должны работать на максимум» — ступени сокращения нет
+    assert "reduce_pct" not in live
 
 
 # ─── уроки 22.08 ─────────────────────────────────────────────────────────
@@ -253,12 +287,16 @@ def test_missing_price_halts_not_guesses():
     assert "нет цены" in _events()[-1]["reason"]
 
 
-def test_leverage_cap_halts_before_loss_appears():
-    """Экспозиция ловится ДО убытка: 19.08 плечо было 8.8x при мешке −$46."""
+def test_leverage_cap_notifies_before_loss_appears():
+    """Экспозиция ловится ДО убытка: 19.08 плечо было 8.8x при мешке −$46.
+
+    Но с 27.08 это НЕ пауза: оператор велел лечить экспозицию расширением
+    шага, а ботов до предела не трогать.
+    """
     cfg = _cfg()
     api = FakeAPI([_bot(BTC, -0.0384, 0.0, -5.0),
                    _bot(ETH, -0.502, 0.0, -5.0)])     # 1.93x при пределе 1.0
-    assert rg.tick(api=api) == "halt"
+    assert rg.tick(api=api) == "notify"
     assert "экспозиция" in _events()[-1]["reason"]
     assert api.closed == []
 
