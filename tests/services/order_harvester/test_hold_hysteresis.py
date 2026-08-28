@@ -92,6 +92,39 @@ def test_does_not_close_while_below_threshold_now():
         "наблюдение должно сохраниться"
 
 
+def test_big_order_closes_on_short_hold():
+    """Оператор 28.08: «если за 5-8 минут ордер можно продать больше
+    10 долларов — зачем ждать».
+
+    При пороге $2 быстрый путь включается от $10 (×5) и требует 5 минут
+    вместо 15.
+    """
+    api = API([_order("big", _entry_for(12.0))])
+    _run(api, NOW)
+    assert _run(api, NOW + timedelta(minutes=3)) == [], "3 мин ещё мало"
+    got = _run(api, NOW + timedelta(minutes=6))
+    assert [f["order_id"] for f in got] == ["big"]
+
+
+def test_small_order_still_waits_full_hold():
+    """Обычный ордер быстрый путь не получает: замер показал, что 90%
+    ордеров за время ожидания ПОДРАСТАЮТ, спешить незачем."""
+    api = API([_order("small", _entry_for(2.5))])
+    _run(api, NOW)
+    assert _run(api, NOW + timedelta(minutes=6)) == [], \
+        "мелкому ордеру полагается полная выдержка"
+    got = _run(api, NOW + timedelta(minutes=20))
+    assert [f["order_id"] for f in got] == ["small"]
+
+
+def test_fast_track_still_requires_profit_now():
+    """Был крупным, просел ниже порога — не закрываем даже по быстрому пути."""
+    api = API([_order("big", _entry_for(12.0))])
+    _run(api, NOW)
+    api.orders = [_order("big", _entry_for(1.5))]
+    assert _run(api, NOW + timedelta(minutes=6)) == []
+
+
 def test_oscillation_around_threshold_still_closes():
     """Ровно случай из лога: колебание $2.03-2.35 больше не мешает."""
     api = API([_order("a", _entry_for(2.33))])
