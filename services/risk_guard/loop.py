@@ -356,6 +356,40 @@ def required_hold_minutes(cfg: dict, character: dict | None) -> tuple[float, str
     return base, "характер движения неизвестен"
 
 
+NOTIFY_STATE = ROOT / "state" / "risk_guard_notify.json"
+
+
+def _notify_changed(reason: str) -> bool:
+    """Изменилось ли состояние уведомления с прошлого тика.
+
+    Причина сравнивается без чисел: «экспозиция $3 169 = 1.47x» и
+    «экспозиция $3 205 = 1.48x» — одно и то же состояние, писать дважды
+    незачем. Сброс до NONE чистит память, чтобы возврат в условие
+    записался заново.
+    """
+    key = "".join(c for c in str(reason) if not c.isdigit())
+    try:
+        prev = json.loads(NOTIFY_STATE.read_text(encoding="utf-8")).get("key")
+    except (OSError, ValueError):
+        prev = None
+    if prev == key:
+        return False
+    try:
+        NOTIFY_STATE.write_text(json.dumps({"key": key, "ts": _now()},
+                                           ensure_ascii=False),
+                                encoding="utf-8")
+    except OSError:
+        logger.exception("risk_guard.notify_state_write_failed")
+    return True
+
+
+def _notify_clear() -> None:
+    try:
+        NOTIFY_STATE.unlink()
+    except OSError:
+        pass
+
+
 ALERT_STATE = ROOT / "state" / "risk_guard_alert.json"
 
 
@@ -517,6 +551,7 @@ def tick(api=None, send_fn=None) -> str:
 
     if action == "NONE":
         _breach_age_minutes(False, "kill")     # пробой снят — таймер сбросить
+        _notify_clear()                        # вернулись в норму
         return "ok"
 
     base = {"action": action, "reason": decision["reason"],
@@ -527,7 +562,13 @@ def tick(api=None, send_fn=None) -> str:
 
     if action == "NOTIFY":
         # Ботов НЕ трогаем: до предела они работают на максимум.
-        _journal({"event": "NOTIFY", **base})
+        #
+        # 2026-08-28: за двое суток журнал набрал 1088 записей NOTIFY —
+        # плечо держалось на 1.16x, условие ПОСТОЯННОЕ, а писалось каждый
+        # тик. Это состояние, а не событие. Пишем только смену: вход в
+        # условие и смену причины.
+        if _notify_changed(decision["reason"]):
+            _journal({"event": "NOTIFY", **base})
         if send_fn and _alert_due(cfg):
             send_fn(f"⚠️ {decision['reason']}\n"
                     f"Боты работают, ничего не остановлено. "

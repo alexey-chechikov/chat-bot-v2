@@ -27,6 +27,7 @@ def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(rg, "ALERT_STATE", tmp_path / "alert.json")
     monkeypatch.setattr(rg, "BREACH_STATE", tmp_path / "breach.json")
     monkeypatch.setattr(rg, "REDUCE_STATE", tmp_path / "reduce.json")
+    monkeypatch.setattr(rg, "NOTIFY_STATE", tmp_path / "notify.json")
     # по умолчанию выдержки нет — старые тесты проверяют реакцию как таковую
     monkeypatch.setattr(rg, "move_character", lambda *a, **k: None)
     monkeypatch.setattr(rg, "_price_of", lambda api, inst: PRICES.get(inst))
@@ -130,6 +131,30 @@ def test_below_limit_bots_keep_working():
     assert api.closed == []
     assert _events()[-1]["event"] == "NOTIFY"
     assert sent and "Боты работают" in sent[0]
+
+
+def test_notify_is_journaled_once_not_every_tick():
+    """2026-08-28: за двое суток набралось 1088 записей NOTIFY — плечо
+    держалось на 1.16x, условие постоянное, а писалось каждый тик.
+    Это состояние, а не событие."""
+    _cfg(max_leverage=1.0, kill_pct=99, warn_pct=99)
+    api = FakeAPI([_bot(BTC, -0.05, 0.0, -5.0)])
+    for _ in range(6):
+        assert rg.tick(api=api) == "notify"
+    n = sum(1 for e in _events() if e["event"] == "NOTIFY")
+    assert n == 1, f"ожидали одну запись, получили {n}"
+
+
+def test_notify_writes_again_after_returning_to_normal():
+    """Ушли в норму и вернулись — это новое событие, пишем."""
+    _cfg(max_leverage=1.0, kill_pct=99, warn_pct=99)
+    over = FakeAPI([_bot(BTC, -0.05, 0.0, -5.0)])
+    rg.tick(api=over)
+    calm = FakeAPI([_bot(BTC, -0.001, 0.0, -1.0)])
+    assert rg.tick(api=calm) == "ok"
+    rg.tick(api=over)
+    n = sum(1 for e in _events() if e["event"] == "NOTIFY")
+    assert n == 2
 
 
 def test_over_leverage_only_notifies():
