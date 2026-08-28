@@ -377,6 +377,10 @@ def order_profit_usd(mark: float, f: dict) -> float | None:
 
 WATCH_PATH = ROOT / "state" / "order_harvester_watch.json"
 HOLD_MIN_DEFAULT = 15.0   # минут подряд в плюсе, прежде чем закрывать
+# Насколько глубоко профит должен провалиться, чтобы отсчёт начался заново.
+# 0.7 = держим наблюдение, пока профит выше 70% порога; при пороге $2 это
+# $1.40. Ордер, колеблющийся на $2.05-2.15, больше не теряет выдержку.
+HOLD_RELEASE_RATIO = 0.7
 
 
 def _read_watch() -> dict:
@@ -425,8 +429,19 @@ def _candidates(api, bot_id: str, min_profit: float, symbol: str,
         if profit is None:
             continue
         oid = f["order_id"]
-        if profit < min_profit:
-            watch.pop(oid, None)       # упал ниже порога — отсчёт заново
+        # Гистерезис. 2026-08-28: замер по логу — 40% ордеров (12 из 30)
+        # теряли отсчёт хотя бы раз, худший перезапускался ТРИНАДЦАТЬ раз
+        # и закрылся через три часа вместо пятнадцати минут. Медианный
+        # профит в момент сброса $2.13 при пороге $2: ордер колебался
+        # вокруг порога, и просадка в копейку обнуляла выдержку.
+        #
+        # Выдержка задумывалась как защита от кривой цены («столько она не
+        # живёт»), а не как требование идеального постоянства. Поэтому
+        # наблюдение живёт, пока профит выше порога с запасом вниз, а
+        # закрываем только когда он СЕЙЧАС выше самого порога.
+        keep_above = min_profit * HOLD_RELEASE_RATIO
+        if profit < keep_above:
+            watch.pop(oid, None)       # реально ушёл вниз — отсчёт заново
             continue
         seen.add(oid)
         rec = watch.get(oid)
@@ -445,6 +460,8 @@ def _candidates(api, bot_id: str, min_profit: float, symbol: str,
         rec["profit"] = round(profit, 2)
         if held < hold_min:
             continue                   # ещё не выдержан кулдаун
+        if profit < min_profit:
+            continue                   # выдержка есть, но сейчас ниже порога
         f["profit_usd"] = round(profit, 2)
         f["held_min"] = round(held)
         f["past_trigger"] = past_own_trigger(mark, f)

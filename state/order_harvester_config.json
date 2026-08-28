@@ -8,22 +8,42 @@
   "enabled": true,
   "min_hold_minutes": 15,
   "bots": {
-    "5236613378": {"alias": "BTC-OKX", "symbol": "BTCUSDT", "inst_id": "BTC-USDT-SWAP", "min_order_profit_usd": 2.0},
-    "4812772488": {"alias": "ETH-OKX", "symbol": "ETHUSDT", "inst_id": "ETH-USDT-SWAP", "min_order_profit_usd": 1.5},
-    "4711140331": {"alias": "XRP-OKX", "symbol": "XRPUSDT", "inst_id": "XRP-USDT-SWAP", "min_order_profit_usd": 1.5},
-    "5253063096": {"alias": "SOL-OKX", "symbol": "SOLUSDT", "inst_id": "SOL-USDT-SWAP", "min_order_profit_usd": 1.5},
-    "5900351455": {"alias": "AVAX-OKX", "symbol": "AVAXUSDT", "inst_id": "AVAX-USDT-SWAP", "min_order_profit_usd": 1.5},
-    "5189290547": {"alias": "BTC-SHORT-INV", "symbol": "BTCUSDT", "inst_id": "BTC-USD-SWAP", "min_order_profit_usd": 2.0}
+    "4696727145": {
+      "alias": "BTC-c-c",
+      "symbol": "BTCUSDT",
+      "inst_id": "BTC-USDT-SWAP",
+      "min_order_profit_usd": 2.0
+    },
+    "4470088018": {
+      "alias": "ETH-c",
+      "symbol": "ETHUSDT",
+      "inst_id": "ETH-USDT-SWAP",
+      "min_order_profit_usd": 1.5
+    }
   },
   "_short_added_2026_08_17": "Оператор: «добавляй шорт в харвестр». Бот 5189290547 монетно-маржинальный (OKX, quantity в долларовых контрактах, комиссия в BTC) — до этого дня order_profit_usd считала только линейные и дала бы на его ордерах +$331056 вместо +$4.01; см. tests/services/order_harvester/test_inverse_profit.py. instId BTC-USD-SWAP (НЕ -USDT-), цена по нему на 0.15% ниже USDT-контракта — это нормальный базис монетной маржи, но он съедает половину порога расхождения PRICE_MAX_DIVERGENCE_PCT=0.3: если базис разойдётся, харвестер по этому боту молча встанет с warning price_divergence.",
   "_bitmex_archive": {
-    "4499423673": "BTC-DYN", "6233908669": "ETH-DYN", "6116013349": "SOL-DYN",
-    "4643987212": "XRP-DYN", "4922851123": "LTC-DYN", "5085651183": "BCH-DYN",
-    "5288594904": "LINK-DYN", "5330789037": "BTC-OKX (старый, остановлен 05.08, заменён на 5236613378)"
+    "4499423673": "BTC-DYN",
+    "6233908669": "ETH-DYN",
+    "6116013349": "SOL-DYN",
+    "4643987212": "XRP-DYN",
+    "4922851123": "LTC-DYN",
+    "5085651183": "BCH-DYN",
+    "5288594904": "LINK-DYN",
+    "5330789037": "BTC-OKX (старый, остановлен 05.08, заменён на 5236613378)"
   },
   "max_orders_per_cycle": 10,
   "max_orders_per_day_per_bot": 0,
   "_max_orders_per_day_note": "0 = без суточного лимита (2026-07-27). Плюсовой ордер выгодно закрывать всегда; API бережёт gap между циклами и батч max_orders_per_cycle, суточный потолок не нужен.",
   "min_gap_between_harvests_sec": 60,
-  "fail_backoff_sec": 600
+  "fail_backoff_sec": 600,
+  "_liquidated_2026_08_22": {
+    "5236613378": "BTC-OKX",
+    "4812772488": "ETH-OKX",
+    "4711140331": "XRP-OKX",
+    "5253063096": "SOL-OKX",
+    "5900351455": "AVAX-OKX",
+    "5189290547": "BTC-SHORT-INV"
+  },
+  "_restored_2026_08_27": "Оператор увидел незакрытый плюсовой ордер +$4.84 у BTC_c_c и спросил, почему не закрываем. Три причины, все мои: харвестер был выключен мной 22.08 после ликвидации и не возвращён; freeze-файл остался; новые боты не были заведены в конфиг — пятый раз та же дыра. Старая шестёрка перенесена в _liquidated_2026_08_22."
 }
