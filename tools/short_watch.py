@@ -34,7 +34,10 @@ AUTOTUNE = ROOT / "state" / "grid_autotune_journal.jsonl"
 HARVEST = ROOT / "state" / "order_harvester_journal.jsonl"
 BTC_1M = ROOT / "market_live" / "market_1m.csv"
 
-ROUND_TRIP_FEE_PCT = 0.070      # замер по 846 ордерам
+# 0.100% за круг — замер 2026-08-30 по 90 закрытым ордерам живых ботов
+# OKX: 0.0500% за сторону у всех без исключения. Прежние 0.070 — ставка
+# эпохи BitMEX, на OKX она другая.
+ROUND_TRIP_FEE_PCT = 0.100
 SMA_DAYS = 20
 TREND_DAYS = 5                  # порог затяжного движения
 
