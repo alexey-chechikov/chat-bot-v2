@@ -26,6 +26,7 @@ TEST_DIRS = [
     "tests/services/grid_coordinator/",
     "tests/services/grid_autotune/",
     "tests/services/risk_guard/",
+    "tests/services/hedge_shadow/",
     "tests/services/alt_guard/",
     "tests/tools/test_market_card.py",
     "tests/tools/test_config_coverage.py",

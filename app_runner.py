@@ -708,6 +708,18 @@ async def _run_risk_guard(stop_event: asyncio.Event, *, telegram_app=None) -> No
     await risk_guard_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_hedge_shadow(stop_event: asyncio.Event) -> None:
+    """Теневой хедж инвентаря (2026-08-30). НЕ ТОРГУЕТ.
+
+    Считает, каким должен быть встречный хедж под чистую позицию сеток, и
+    пишет в журнал, что бы сделал. Первая фаза перед боевым хеджем: даёт
+    живые числа по частоте перебалансировок и стоимости без ключей и без
+    единого ордера. Основание и цифры — docs/RESEARCH/HEDGE_STRATEGY_2026-08-30.md
+    """
+    from services.hedge_shadow.loop import hedge_shadow_loop
+    await hedge_shadow_loop(stop_event=stop_event)
+
+
 async def _run_alt_momentum_shadow(stop_event: asyncio.Event) -> None:
     """Alt-momentum форвард-сбор (Win 2026-06-17): 4ч кросс-секц. моментум, холд 24ч,
     long топ-4/short низ-4 по excess vs BTC, market-neutral. БЕЗ денег, тег режима
@@ -1503,6 +1515,7 @@ async def main(
     order_harvester_task = asyncio.create_task(_run_order_harvester(stop_event, telegram_app=app), name="order_harvester")
     grid_autotune_task = asyncio.create_task(_run_grid_autotune(stop_event, telegram_app=app), name="grid_autotune")
     risk_guard_task = asyncio.create_task(_run_risk_guard(stop_event, telegram_app=app), name="risk_guard")
+    hedge_shadow_task = asyncio.create_task(_run_hedge_shadow(stop_event), name="hedge_shadow")
     trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
@@ -1552,7 +1565,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
