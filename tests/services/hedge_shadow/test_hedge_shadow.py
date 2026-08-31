@@ -28,6 +28,7 @@ def _iso(monkeypatch, tmp_path):
 
 def _cfg(**over):
     cfg = {"enabled": True, "rebalance_band": 0.05, "min_trade_usd": 50.0,
+           "lot_usd": 0.0, "hedge_floor_usd": 0.0,
            "fee_side_pct": 0.05,
            "bots": {"1": {"alias": "BTC", "inst_id": "BTC-USDT-SWAP",
                           "hedge_inst_id": "BTC-USD-SWAP",
@@ -78,12 +79,49 @@ def test_small_drift_inside_band_is_ignored():
     assert d["should_rebalance"] is False
 
 
-def test_tiny_trade_below_minimum_is_ignored():
-    """Сделка на $40 при минимуме $50 — комиссия съест перебалансировку."""
-    cfg = _cfg(rebalance_band=0.0001)
+def test_size_is_quantised_to_lot():
+    """Минимальный контракт BTC-USD-SWAP $100 — дробить нельзя.
+
+    Оператор 31.08: «минимальный ордер там 100 долларов, что нужно
+    учитывать при настройках».
+    """
+    cfg = _cfg(hedge_floor_usd=0.0, lot_usd=100.0)
+    # −0.0505 BTC при 80 000 = $4 040 -> округляется до $4 000
+    d = hs.compute_hedge(-0.0505, 80_000.0, 0.0, cfg)
+    assert d["want_hedge"] * 80_000.0 == pytest.approx(4000.0, abs=1.0)
+
+
+def test_tiny_drift_disappears_after_quantisation():
+    """Дельта в $40 меньше лота и обязана исчезнуть, а не породить сделку."""
+    cfg = _cfg(rebalance_band=0.0001, hedge_floor_usd=0.0, lot_usd=100.0)
     d = hs.compute_hedge(-0.0505, 80_000.0, 0.05, cfg)
-    assert d["delta_usd"] == pytest.approx(40.0, abs=0.5)
     assert d["should_rebalance"] is False
+
+
+def test_small_position_is_not_hedged_at_all():
+    """Порог $5 000: мелкую позицию не хеджируем — перебалансировка стоит
+    два плеча, а направленный риск в ней ничтожен. Замер: выгода та же,
+    что при нулевом пороге, но смен 26 вместо 79."""
+    cfg = _cfg(hedge_floor_usd=5000.0)
+    d = hs.compute_hedge(-0.01, 80_000.0, 0.0, cfg)   # позиция $800
+    assert d["want_hedge"] == 0.0
+    assert d["should_rebalance"] is False
+
+
+def test_large_position_crosses_the_floor():
+    cfg = _cfg(hedge_floor_usd=5000.0)
+    d = hs.compute_hedge(-0.1, 80_000.0, 0.0, cfg)    # позиция $8 000
+    assert d["want_hedge"] * 80_000.0 == pytest.approx(8000.0, abs=1.0)
+    assert d["should_rebalance"] is True
+
+
+def test_hedge_removed_when_position_drops_below_floor():
+    """Позиция ушла под порог — хедж снимаем, иначе он голая ставка."""
+    cfg = _cfg(hedge_floor_usd=5000.0)
+    d = hs.compute_hedge(-0.01, 80_000.0, 0.1, cfg)
+    assert d["want_hedge"] == 0.0
+    assert d["should_rebalance"] is True
+    assert d["side"] == "sell"
 
 
 def test_big_drift_triggers():

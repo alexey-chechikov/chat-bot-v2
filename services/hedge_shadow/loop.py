@@ -93,13 +93,28 @@ def compute_hedge(position_coin: float, price: float, current_hedge: float,
     Полоса 5% и минимум $50 взяты из замера: шире 10% начинает течь
     остаток, на 50% слежение разваливается (−$2 658 за 16 суток).
     """
-    band = float(cfg.get("rebalance_band", 0.05))
-    min_usd = float(cfg.get("min_trade_usd", 50.0))
-    want = -float(position_coin)
+    band = float(cfg.get("rebalance_band", 0.20))
+    min_usd = float(cfg.get("min_trade_usd", 100.0))
+    lot = float(cfg.get("lot_usd", 100.0))
+    floor = float(cfg.get("hedge_floor_usd", 0.0))
+
+    pos_usd = abs(float(position_coin)) * price
+    if pos_usd < floor:
+        # Мелкую позицию не хеджируем: направленный риск в ней ничтожен,
+        # а перебалансировка стоит два плеча комиссии. Порог $5 000 из
+        # замера: выгода та же, что при нулевом, а смен 26 вместо 79.
+        want = 0.0
+    else:
+        want = -float(position_coin)
+    # Квантуем по минимальному контракту: у BTC-USD-SWAP это $100,
+    # дробить нельзя (оператор 31.08).
+    if lot > 0 and price > 0:
+        want = round(want * price / lot) * lot / price
+
     delta = want - float(current_hedge)
     delta_usd = abs(delta) * price
     need = (delta_usd >= min_usd
-            and abs(delta) > max(abs(want), 1e-12) * band)
+            and abs(delta) > max(abs(want), lot / price) * band)
     return {"want_hedge": want, "current_hedge": float(current_hedge),
             "delta": delta, "delta_usd": round(delta_usd, 2),
             "should_rebalance": bool(need),
