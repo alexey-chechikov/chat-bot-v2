@@ -75,7 +75,13 @@ _ALLOWED_MUTATORS = (
 
 # Закрытие ВСЕЙ позиции — отдельный, более узкий список: это аварийный
 # тормоз риск-контура, а не инструмент управления сеткой.
-_CLOSE_ALLOWED = ("services.risk_guard",)
+_CLOSE_ALLOWED = (
+    "services.risk_guard",
+    # 2026-08-31: хедж меняет размер только закрытием и переоткрытием —
+    # set_params правит лишь СЛЕДУЮЩИЙ ордер, проверено на боте 5848117800.
+    # Значит закрытие ему нужно штатно, а не как аварийный тормоз.
+    "services.hedge_shadow",
+)
 
 
 def _caller_is_allowed(allowed: tuple[str, ...] = _ALLOWED_MUTATORS) -> bool:
