@@ -33,6 +33,7 @@ TEST_DIRS = [
     "tests/services/morning_brief/test_regime_fallback.py",
     "tests/services/trend_signals/",
     "tests/services/short_gate/",
+    "tests/services/grid_model/",
 ]
 
 def main():

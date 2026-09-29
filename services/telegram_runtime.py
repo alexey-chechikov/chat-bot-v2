@@ -2567,6 +2567,44 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text, parse_mode='Markdown')
 
+        # ── /grid — калькулятор конфигурации на замеренных коэффициентах.
+        # итог = оборот × маржа(цель) × выживание; модель воспроизводит все
+        # 12 бэктестов оператора с ошибкой ≤5% (tests/services/grid_model/).
+        @self.bot.message_handler(commands=['grid'])
+        def handle_grid(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            arg = (message.text or '').partition(' ')[2].strip()
+            try:
+                from services.grid_model.command import build
+                text = build(arg)
+            except Exception as exc:
+                logger.exception('handle_grid.failed')
+                self.bot.send_message(chat_id, f'❌ /grid failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text)
+
+        # ── /odds — шансы по текущему режиму, уровни бота и точка отмены
+        # сценария. Условные вероятности по зоне отклонения от SMA100;
+        # карточка обязана показывать слабость выборки числом эпизодов.
+        @self.bot.message_handler(commands=['odds', 'shansy'])
+        def handle_odds(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            arg = (message.text or '').partition(' ')[2].strip()
+            try:
+                from services.grid_model.command import build_odds
+                text = build_odds(arg)
+            except Exception as exc:
+                logger.exception('handle_odds.failed')
+                self.bot.send_message(chat_id, f'❌ /odds failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text)
+
         @self.bot.message_handler(commands=['report_week', 'weekly_summary'])
         def handle_report_week(message) -> None:
             chat_id = int(message.chat.id)
