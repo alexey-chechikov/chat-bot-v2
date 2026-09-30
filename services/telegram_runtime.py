@@ -2586,9 +2586,9 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
-        # ── /odds — шансы по текущему режиму, уровни бота и точка отмены
-        # сценария. Условные вероятности по зоне отклонения от SMA100;
-        # карточка обязана показывать слабость выборки числом эпизодов.
+        # ── /odds — шансы касания на 1ч/4ч/12ч/сутки по часовой z-модели,
+        # уровни ботов рядом с ценой, неделя/месяц фоном. /odds дни — полная
+        # дневная карточка. Замеры — services/grid_model/odds_intraday.py.
         @self.bot.message_handler(commands=['odds', 'shansy'])
         def handle_odds(message) -> None:
             chat_id = int(message.chat.id)
@@ -2597,13 +2597,14 @@ class TelegramBotApp:
                 return
             arg = (message.text or '').partition(' ')[2].strip()
             try:
-                from services.grid_model.command import build_odds
-                text = build_odds(arg)
+                from services.grid_model.command import build_odds_parts
+                parts = build_odds_parts(arg)
             except Exception as exc:
                 logger.exception('handle_odds.failed')
                 self.bot.send_message(chat_id, f'❌ /odds failed: {exc}')
                 return
-            self.bot.send_message(chat_id, text)
+            for text in parts:
+                self.bot.send_message(chat_id, text[:4096])
 
         @self.bot.message_handler(commands=['report_week', 'weekly_summary'])
         def handle_report_week(message) -> None:

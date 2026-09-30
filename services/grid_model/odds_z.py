@@ -255,7 +255,11 @@ def option_levels(coin: str = "BTC", band: float = 0.30) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         data = json.load(r)["result"]
-    spot = next((x["underlying_price"] for x in data if x.get("underlying_price")), None)
+    # Спот — индекс (estimated_delivery_price). underlying_price у опциона — цена
+    # фьючерса ЕГО экспирации: у ETH первым шёл июнь 2027 с контанго +3.3%
+    # (2 771 против индекса 2 682), и все проценты карточки ехали на 3.3%.
+    spot = next((x["estimated_delivery_price"] for x in data
+                 if x.get("estimated_delivery_price")), None)
     if not spot:
         return {}
     now = datetime.now(timezone.utc)
@@ -267,10 +271,11 @@ def option_levels(coin: str = "BTC", band: float = 0.30) -> dict:
         t = ((datetime.strptime(exp, "%d%b%y").replace(hour=8, tzinfo=timezone.utc)
               - now).total_seconds() / (365 * 86400))
         g = 0.0
+        fwd = float(x.get("underlying_price") or spot)     # форвард своей экспирации
         if t > 0 and iv > 0:
-            d1 = (math.log(spot / k) + 0.5 * iv * iv * t) / (iv * math.sqrt(t))
+            d1 = (math.log(fwd / k) + 0.5 * iv * iv * t) / (iv * math.sqrt(t))
             g = (math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi)
-                 / (spot * iv * math.sqrt(t))) * oi * spot * spot * 0.01
+                 / (fwd * iv * math.sqrt(t))) * oi * spot * spot * 0.01
         if cp == "C":
             oi_c[k] += oi
             gex[k] += g
@@ -304,6 +309,25 @@ def after_rally_context(d: pd.DataFrame, h: int = 90, thr: float = 0.20) -> tupl
     base = float(np.mean(mx[ok] >= thr))
     cond = float(np.mean(mx[ok & hot] >= thr)) if (ok & hot).any() else float("nan")
     return base, cond, int((ok & hot).sum())
+
+
+def background(symbol: str = "BTCUSDT", levels: list[tuple[str, float]] | None = None,
+               price: float | None = None, near: float = 0.06) -> str:
+    """Дневной фон к внутридневной карточке: неделя/месяц процентами и дальние
+    уровни (дальше ±near), которые внутри суток недостижимы."""
+    m, d = get_model(symbol)
+    sigma = float(d["sigma"].iloc[-1])
+    px = float(price or d["close"].iloc[-1])
+    out = ["ФОН (дни): " + " · ".join(
+        f"±{p:.0%} за {h}д: ↑{m.touch(p, h, sigma):.0%} ↓{m.touch(-p, h, sigma):.0%}"
+        for p, h in ((0.05, 7), (0.10, 30)))]
+    for name, lvl in sorted(levels or [], key=lambda x: -x[1]):
+        pct = lvl / px - 1
+        if abs(pct) <= near:
+            continue
+        out.append(f"  {name} {lvl:,.0f} ({pct:+.1%}): "
+                   + " · ".join(f"{h}д {m.touch(pct, h, sigma):.0%}" for h in (7, 30)))
+    return "\n".join(out)
 
 
 def card(symbol: str = "BTCUSDT", levels: list[tuple[str, float]] | None = None,

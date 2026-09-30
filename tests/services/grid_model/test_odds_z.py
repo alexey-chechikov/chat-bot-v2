@@ -82,6 +82,29 @@ def test_after_rally_continuation_on_nine_years(sym):
     assert cond > base
 
 
+def test_option_spot_is_index_not_expiry_future(monkeypatch):
+    """29.09.2026: спот брался из underlying_price первого опциона — это цена
+    фьючерса его экспирации. ETH июнь-2027 давал 2 771 при индексе 2 682."""
+    import io
+    import json
+    import urllib.request
+
+    rows = [
+        {"instrument_name": "ETH-25JUN27-2200-P", "underlying_price": 2770.89,
+         "estimated_delivery_price": 2682.09, "open_interest": 10, "mark_iv": 60},
+        {"instrument_name": "ETH-2OCT26-2700-C", "underlying_price": 2683.5,
+         "estimated_delivery_price": 2682.09, "open_interest": 500, "mark_iv": 45},
+        {"instrument_name": "ETH-2OCT26-2600-P", "underlying_price": 2683.5,
+         "estimated_delivery_price": 2682.09, "open_interest": 400, "mark_iv": 45},
+    ]
+    body = json.dumps({"result": rows}).encode()
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=15: io.BytesIO(body))
+    out = oz.option_levels("ETH")
+    assert out["spot"] == pytest.approx(2682.09)
+    assert out["call_wall"] == 2700 and out["put_wall"] == 2600
+
+
 def test_card_renders(btc):
     t = oz.card("BTCUSDT", levels=[("граница", 86_500.0)], price=83_828.0)
     for part in ("ШАНСЫ", "ВЕРОЯТНОСТЬ КОСНУТЬСЯ", "КТО ПЕРВЫЙ", "КОРИДОРЕ",

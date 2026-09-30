@@ -214,6 +214,11 @@ state/ga_*.jsonl
 # Binance derivative history (re-fetchable via tools/_download_binance_history.py)
 data/historical/binance_*.csv
 data/historical/binance_*.parquet
+# часовые свечи для odds_intraday: 7 МБ на монету, дописываются каждый час
+data/historical/1h_*.csv
+state/odds_intraday_*.json
+state/odds_z_*.json
+state/odds_journal.jsonl
 
 # Local Claude Code settings (operator-specific permissions)
 .claude/settings.json

@@ -235,24 +235,101 @@ def build_alloc(budget: float) -> str:
     return "\n".join(out)
 
 
-def build_odds(which: str = "") -> str:
-    """Карточка шансов по BTC и ETH: z-модель на 9 годах + уровни ботов и опционов.
+def _live_books() -> tuple[float, dict[str, list]]:
+    """Книги живых ботов по монетам: реальные открытые ордера + stat.extension.
 
-    Прежняя версия считала шансы по зоне SMA100 — вне выборки это самый слабый
-    признак (+0.9% к базе), z-модель по волатильности даёт +10.4% и
-    откалибрована. Подробности в services/grid_model/odds_z.py.
+    Средняя из stat.averagePrice НЕ годится (30.09.2026: BTC-шорт 84 357 при
+    средней открытых ордеров 82 470) — всё считаем по ордерам.
     """
-    from services.grid_model import odds as od
-    from services.grid_model import odds_z
+    from services.grid_model import bot_money as bm
+    from services.order_harvester.loop import _cached_api
 
+    api = _cached_api()
+    deposit, books = 0.0, {}
+    if api is None:
+        return deposit, books
+    for b in api.list_bots():
+        if int(b.status) != 2 or b.stat is None:
+            continue
+        deposit = max(deposit, float(b.stat.balance or 0))
+        coin = _coin_of(b.name)
+        params = _params_for(str(b.id))
+        if coin is None or not params:
+            continue
+        try:
+            raw = bm.fetch_orders(api, int(b.id))
+            books.setdefault(coin, []).append(bm.book_from_live(b, params, raw, coin))
+        except Exception:                                # noqa: BLE001
+            logger.exception("grid_model.book_failed bot=%s", b.id)
+    return deposit, books
+
+
+def _book_levels(book, spot: float, deposit: float) -> list[tuple[str, float]]:
+    """Уровни бота для строк «рядом» и фона: граница и обнуление залога."""
+    from services.grid_model import odds as od
+
+    short_name = " ".join(book.name.split()[:2]) if book.inverse else book.name.split()[0]
+    net = book.net_qty()
+    out = []
+    border = book.border_top if net < 0 else book.border_bottom
+    if border:
+        out.append((f"граница {short_name}", float(border)))
+    if book.inverse or not net:
+        return out                        # залог в монете — обнуление считается иначе
+    eff_avg = (sum(o.qty * o.entry * (1 if o.side == 1 else -1) for o in book.orders)
+               / net)
+    lv = od.bot_levels(price=spot, avg=eff_avg, position=net,
+                       step_pct=book.step * 100, order_size=book.order_qty,
+                       deposit=deposit or 2530.0, border=border, short=net < 0,
+                       max_orders=book.max_orders,
+                       adverse_pct=40.0 if book.grid_side == 3 else 64.0)
+    out.append((f"обнуление залога ({short_name})", lv.zero_equity))
+    return out
+
+
+def _touch_fn(sym: str):
+    """touch(pct, '4ч'|'сутки'|'7д') по внутридневной и дневной моделям."""
+    from services.grid_model import odds_intraday, odds_z
+
+    mi, dh = odds_intraday.get_model(sym)
+    now = odds_intraday.now_state(mi, dh)
+    md, dd = odds_z.get_model(sym)
+    sd = float(dd["sigma"].iloc[-1])
+
+    def touch(pct: float, horizon: str) -> float:
+        if horizon == "4ч":
+            return mi.touch(pct, 4, now.paths[4])
+        if horizon == "сутки":
+            return mi.touch(pct, 24, now.paths[24])
+        return md.touch(pct, 7, sd)
+    return touch
+
+
+def build_odds_parts(which: str = "") -> list[str]:
+    """Карточка шансов по BTC и ETH: главное — ближайшие 1ч/4ч/12ч/сутки, под
+    ней деньги каждого бота на его уровнях. Одна монета — одно сообщение.
+
+    Оператору важны час, 4 часа и день; неделя и месяц — фоном. Внутридневная
+    модель (odds_intraday) на часовых свечах даёт +17%/+15% к базе вне выборки,
+    дневная (odds_z) — +10%/+9%. `/odds дни` — полная дневная карточка.
+    """
+    from services.grid_model import bot_money as bm
+    from services.grid_model import odds_intraday, odds_z
+
+    args = (which or "").lower().split()
+    if any(a in ("сверка", "check") for a in args):
+        from services.grid_model.odds_journal import verify_text
+        return [verify_text()]
+    daily = any(a in ("дни", "days", "d") for a in args)
+    coins = [a.upper() for a in args if a.upper() in ("BTC", "ETH", "BTCUSDT", "ETHUSDT")]
     try:
-        deposit, bots = _live_deposit_and_bots()
+        deposit, books = _live_books()
     except Exception:                                    # noqa: BLE001
         logger.exception("grid_model.odds_bots_failed")
-        deposit, bots = 0.0, []
+        deposit, books = 0.0, {}
     cards = []
     for sym, coin in (("BTCUSDT", "BTC"), ("ETHUSDT", "ETH")):
-        if which and which.upper() not in (coin, sym):
+        if coins and coin not in coins and sym not in coins:
             continue
         levels: list[tuple[str, float]] = []
         try:
@@ -261,43 +338,38 @@ def build_odds(which: str = "") -> str:
             logger.exception("grid_model.option_levels_failed coin=%s", coin)
             opt = {}
         spot = opt.get("spot")
-        for b in bots:
-            if _coin_of(b["name"]) != coin or not spot:
-                continue
-            d = _params_for(b["id"])
-            if not d:
-                continue
-            q = d.get("q") or {}
-            side = int(d.get("side") or 0)
-            bd = d.get("border") or {}
-            border = bd.get("top") if b["signed_pos"] < 0 else bd.get("bottom")
-            short_name = b["name"].split()[0] + (" шорт" if b["signed_pos"] < 0
-                                                 else " лонг" if side == 1 else "")
-            if border:
-                levels.append((f"граница {short_name}", float(border)))
-            if b["inverse"]:
-                continue                  # залог в монете — обнуление считается иначе
-            lv = od.bot_levels(price=spot, avg=b["price"], position=b["signed_pos"],
-                               step_pct=float(d.get("gs") or 0),
-                               order_size=float(q.get("minQ") or 0),
-                               deposit=deposit or 2530.0,
-                               border=float(border) if border else None,
-                               short=b["signed_pos"] < 0,
-                               max_orders=int(d.get("maxOp") or 400),
-                               adverse_pct=40.0 if side == 3 else 64.0)
-            levels.append((f"обнуление залога ({short_name})", lv.zero_equity))
+        if not spot:
+            try:
+                spot = float(odds_intraday.load_hourly(sym)["close"].iloc[-1])
+            except Exception:                            # noqa: BLE001
+                logger.exception("grid_model.odds_spot_failed sym=%s", sym)
+        coin_books = books.get(coin, []) if spot else []
+        for book in coin_books:
+            levels.extend(_book_levels(book, spot, deposit))
         for key, nm in (("call_wall", "стена коллов"), ("put_wall", "стена путов"),
                         ("gamma_flip", "смена знака гаммы")):
             if opt.get(key):
                 levels.append((nm, float(opt[key])))
         try:
-            cards.append(odds_z.card(sym, levels=levels, price=spot))
+            if daily:
+                cards.append(odds_z.card(sym, levels=levels, price=spot))
+                continue
+            text = (odds_intraday.card(sym, levels=levels, price=spot) + "\n"
+                    + odds_z.background(sym, levels=levels, price=spot))
+            if coin_books:
+                touch = _touch_fn(sym)
+                text += "\n\nДЕНЬГИ БОТОВ (прямой ход до уровня, по реальным ордерам):"
+                for book in coin_books:
+                    text += "\n" + bm.block(book, spot, touch)
+            cards.append(text)
         except Exception as exc:                         # noqa: BLE001
             logger.exception("grid_model.odds_card_failed sym=%s", sym)
             cards.append(f"❌ {coin}: {exc}")
-    if not cards:
-        return "укажи BTC или ETH"
-    return "\n\n".join(cards)
+    return cards or ["укажи BTC или ETH"]
+
+
+def build_odds(which: str = "") -> str:
+    return "\n\n".join(build_odds_parts(which))
 
 
 def build(arg: str = "") -> str:
@@ -305,7 +377,7 @@ def build(arg: str = "") -> str:
     if not parts:
         return build_live()
     if parts[0].lower() in ("odds", "шансы"):
-        return build_odds(parts[1] if len(parts) > 1 else "")
+        return build_odds(" ".join(parts[1:]))
     if parts[0].lower() in ("help", "?"):
         return HELP
     if parts[0].lower() == "alloc":
