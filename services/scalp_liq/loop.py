@@ -99,6 +99,12 @@ def _live_stats(side: str) -> dict | None:
     Исход в журнале записан со знаком «в пользу отбоя», поэтому continuation = v < 0.
     2026-07-07, 222 свипа: отбой после long-liq всего 37% @30м, после short-liq 42% —
     классическое чтение «свип → разворот» живыми данными опровергнуто, свип = continuation.
+
+    2026-09-24, ВАЖНО: до этой даты исход считался от ЦЕНЫ ЛИКВИДАЦИИ, то есть от
+    острия фитиля, куда войти невозможно. На 806 свипах это давало «отбой» +0.240%
+    @30м; пересчёт от рыночной цены в момент сигнала даёт +0.003% при контроле
+    случайного входа +0.001% (после комиссии 0.10% обе −0.10%). Эджа в свипах нет
+    ни в одну сторону — карточка остаётся как наблюдение, а не как сигнал входа.
     """
     try:
         lines = JOURNAL.read_text(encoding="utf-8").splitlines()
@@ -186,6 +192,65 @@ def _btc_price_now() -> float | None:
     return None
 
 
+def _price_at(ts: datetime, tol_sec: int = 600) -> float | None:
+    """Close BTC на минуте ts из локальной истории (±tol_sec).
+
+    2026-09-24: исход свипа считался как px_now / цена_ликвидации. Оба конца
+    неверны. Цена ликвидации — это остриё фитиля, по ней войти нельзя: на 806
+    свипах отбой «от фитиля» +0.240%, а от рыночной цены в момент сигнала
+    +0.003% при контроле случайного входа +0.001%. И px_now — это цена на
+    момент дозаполнения, а не через 15/30/60 минут. Теперь оба конца берутся
+    из истории: вход по рынку на сигнале, выход на горизонте.
+    """
+    idx = _price_index()
+    if not idx:
+        return None
+    key = int(ts.timestamp()) // 60 * 60
+    for k in range(key, key + tol_sec + 1, 60):
+        if k in idx:
+            return idx[k]
+    for k in range(key - 60, key - tol_sec - 1, -60):
+        if k in idx:
+            return idx[k]
+    return None
+
+
+_PX_INDEX: dict[int, float] = {}
+_PX_MTIME = 0.0
+
+
+def _price_index() -> dict[int, float]:
+    """{минута → close}. Перечитываем файл только когда он изменился."""
+    global _PX_MTIME
+    if not MARKET_1M.exists():
+        return _PX_INDEX
+    try:
+        mtime = MARKET_1M.stat().st_mtime
+    except OSError:
+        return _PX_INDEX
+    if mtime == _PX_MTIME and _PX_INDEX:
+        return _PX_INDEX
+    out: dict[int, float] = {}
+    try:
+        with MARKET_1M.open(encoding="utf-8", errors="replace") as fh:
+            next(fh, None)
+            for line in fh:
+                p = line.split(",")
+                if len(p) < 5 or not p[0].startswith("20"):
+                    continue
+                try:
+                    t = datetime.fromisoformat(p[0].replace("Z", "+00:00"))
+                    out[int(t.timestamp()) // 60 * 60] = float(p[4])
+                except ValueError:
+                    continue
+    except OSError:
+        return _PX_INDEX
+    _PX_INDEX.clear()
+    _PX_INDEX.update(out)
+    _PX_MTIME = mtime
+    return _PX_INDEX
+
+
 def _journal_append(rec: dict) -> None:
     try:
         with JOURNAL.open("a", encoding="utf-8") as f:
@@ -206,9 +271,6 @@ def fill_outcomes(now: datetime | None = None) -> int:
             recs.append(json.loads(ln))
         except json.JSONDecodeError:
             pass
-    px_now = _btc_price_now()
-    if px_now is None:
-        return 0
     updated = 0
     for r in recs:
         need = [h for h in HORIZONS_MIN if h not in (r.get("outcomes") or {})]
@@ -218,15 +280,25 @@ def fill_outcomes(now: datetime | None = None) -> int:
             ts = datetime.fromisoformat(r["ts"])
         except (ValueError, KeyError):
             continue
+        entry = r.get("entry_px")
+        if not entry:
+            entry = _price_at(ts)          # цена входа = рынок на сигнале
+            if entry:
+                r["entry_px"] = round(entry, 1)
+        if not entry:
+            continue
         age = (now - ts).total_seconds() / 60.0
         d = 1 if r["side"] == "long" else -1   # ожидаемое направление отбоя
         for h, hm in HORIZONS_MIN.items():
             if h in (r.get("outcomes") or {}):
                 continue
-            if age >= hm:
-                ret = d * (px_now / r["price"] - 1) * 100
-                r.setdefault("outcomes", {})[h] = round(ret, 3)
-                updated += 1
+            if age < hm:
+                continue
+            px_h = _price_at(ts + timedelta(minutes=hm))
+            if px_h is None:
+                continue
+            r.setdefault("outcomes", {})[h] = round(d * (px_h / entry - 1) * 100, 3)
+            updated += 1
     if updated:
         with JOURNAL.open("w", encoding="utf-8") as f:
             for r in recs:
@@ -257,9 +329,11 @@ def detect(send_fn, now: datetime | None = None) -> list[str]:
             ctx = _deriv_ctx()
         logger.warning("scalp_liq.sweep %s %.2fBTC @%.0f", side, qsum, vwap)
         state[f"last_{side}"] = now.isoformat(timespec="seconds")
+        entry_px = _btc_price_now()      # цена, по которой реально можно войти
         _journal_append({"id": f"sl_{int(now.timestamp())}_{side}",
                          "ts": now.isoformat(timespec="seconds"), "side": side,
                          "qty": round(qsum, 3), "price": round(vwap, 1),
+                         "entry_px": round(entry_px, 1) if entry_px else None,
                          "ctx": ctx, "outcomes": {}})
 
         # TG-гейт: только крупняк, не чаще SEND_COOLDOWN_SEC на сторону;

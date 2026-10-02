@@ -41,6 +41,30 @@ def _patch_analyze(monkeypatch, result, hits=0):
                         lambda s, prof: (hits, ["✔ тест"] * hits, 70.0))
 
 
+def test_forming_4h_bar_is_dropped():
+    """17.09: стоп по недозакрытому бару давал фантомные ВЫХОД+ВХОД."""
+    import pandas as pd
+    from tools.trend_state import drop_forming_bar
+    idx = pd.date_range("2026-09-17 00:00", periods=3, freq="4h", tz="UTC")
+    d = pd.DataFrame({"close": [1.0, 2.0, 3.0]}, index=idx)
+    at_0930 = pd.Timestamp("2026-09-17 09:30", tz="UTC")     # бар 08:00 идёт
+    assert list(drop_forming_bar(d, at_0930)["close"]) == [1.0, 2.0]
+    at_1200 = pd.Timestamp("2026-09-17 12:00", tz="UTC")     # бар 08:00 закрыт
+    assert list(drop_forming_bar(d, at_1200)["close"]) == [1.0, 2.0, 3.0]
+
+
+def test_tg_symbols_journal_all_send_only_allowed(monkeypatch):
+    """Актив вне tg_symbols пишется в журнал, но в TG не уходит."""
+    ts.CONFIG.write_text(json.dumps({"enabled": True, "tg_symbols": ["XRPUSDT"]}),
+                         encoding="utf-8")
+    _patch_analyze(monkeypatch, {"pos": "LONG", "px": 1900.0, "stop": 1820.0,
+                                 "adx": 25.0})
+    sent = []
+    assert ts.tick(send_fn=sent.append) == 0
+    assert sent == []
+    assert "ENTRY" in _events()
+
+
 def test_only_validated_assets_are_watched():
     """BTC (trend_bot_ok=false) не отслеживается — у него эджа нет."""
     a = ts.active_assets()

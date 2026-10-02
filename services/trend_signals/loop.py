@@ -41,7 +41,14 @@ DEFAULT_CONFIG = {
     "notify_entry": True,
     "notify_exit": True,
     "notify_exhaustion": True,
+    "tg_symbols": None,          # None — все активы с trend_bot_ok
 }
+
+
+def tg_symbol_allowed(sym: str, cfg: dict) -> bool:
+    """Журнал ведётся по всем активам, в TG — только из tg_symbols."""
+    allowed = cfg.get("tg_symbols")
+    return not allowed or sym in allowed
 
 
 def _now() -> str:
@@ -158,6 +165,7 @@ def tick(send_fn=None) -> int:
         prev = st.get(sym) or {}
         prev_pos = prev.get("side")
         hit, checks, p = exhaustion(s, prof)
+        tg = send_fn if tg_symbol_allowed(sym, cfg) else None
 
         # ── ВХОД: тренда не было → появился
         if s["pos"] and not prev_pos:
@@ -166,9 +174,9 @@ def tick(send_fn=None) -> int:
             st[sym] = rec
             _journal({"event": "ENTRY", "symbol": sym, "side": s["pos"],
                       "px": s["px"], "stop": s["stop"], "adx": s["adx"]})
-            if send_fn and cfg.get("notify_entry"):
+            if tg and cfg.get("notify_entry"):
                 try:
-                    send_fn(format_entry(sym, s, prof, pos_usd))
+                    tg(format_entry(sym, s, prof, pos_usd))
                     sent += 1
                 except Exception:
                     logger.exception("trend_signals.send_failed %s", sym)
@@ -182,9 +190,9 @@ def tick(send_fn=None) -> int:
                       "entry_px": entry, "exit_px": s["px"],
                       "pnl_pct": round(pnl, 2) if pnl is not None else None,
                       "entry_ts": prev.get("entry_ts")})
-            if send_fn and cfg.get("notify_exit"):
+            if tg and cfg.get("notify_exit"):
                 try:
-                    send_fn(format_exit(sym, s, prev))
+                    tg(format_exit(sym, s, prev))
                     sent += 1
                 except Exception:
                     logger.exception("trend_signals.send_failed %s", sym)
@@ -196,9 +204,9 @@ def tick(send_fn=None) -> int:
             st[sym] = prev
             _journal({"event": "EXHAUSTION", "symbol": sym, "side": s["pos"],
                       "px": s["px"], "hits": hit, "p_pct": p})
-            if send_fn and cfg.get("notify_exhaustion"):
+            if tg and cfg.get("notify_exhaustion"):
                 try:
-                    send_fn(format_exhaustion(sym, s, hit, checks, p, prof))
+                    tg(format_exhaustion(sym, s, hit, checks, p, prof))
                     sent += 1
                 except Exception:
                     logger.exception("trend_signals.send_failed %s", sym)

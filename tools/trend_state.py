@@ -83,7 +83,25 @@ def load_4h(symbol: str, bars: int = 700) -> pd.DataFrame | None:
         raw = load_klines(symbol, "4h", 1000)
         d = raw.rename(columns={"open_time": "dt"}).set_index("dt")
         d = d[["open", "high", "low", "close", "volume"]]
-    return d.tail(bars)
+    return drop_forming_bar(d).tail(bars)
+
+
+def drop_forming_bar(d: pd.DataFrame, now: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Убрать последний 4h бар, если он ещё не закрылся.
+
+    17.09.2026: по формирующемуся бару цена внутри часа протыкала стоп →
+    уходил «🛑 ВЫХОД», через тик бар отыгрывал, и та же позиция
+    «воскресала» новым «🟢 ТРЕНД» со стопом в 0.03-0.3% от цены (ADX 14.7
+    при пороге 20 — не новый пробой, а старая позиция). 9 из 20 живых
+    входов с 07.08 были такими. Система валидировалась на закрытых барах.
+    """
+    if d is None or d.empty:
+        return d
+    now = now if now is not None else pd.Timestamp.now(tz="UTC")
+    last = d.index[-1]
+    if last.tzinfo is None:
+        last = last.tz_localize("UTC")
+    return d.iloc[:-1] if last + pd.Timedelta("4h") > now else d
 
 
 def analyze(symbol: str, prof: dict) -> dict | None:

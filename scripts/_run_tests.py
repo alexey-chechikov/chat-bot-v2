@@ -27,12 +27,15 @@ TEST_DIRS = [
     "tests/services/grid_autotune/",
     "tests/services/risk_guard/",
     "tests/services/hedge_shadow/",
+    "tests/services/grid_border/",
+    "tests/services/setup_detector/test_push_gate.py",
+    "tests/services/bot_watch/",
+    "tests/services/short_gate/",
     "tests/services/alt_guard/",
     "tests/tools/test_market_card.py",
     "tests/tools/test_config_coverage.py",
     "tests/services/morning_brief/test_regime_fallback.py",
     "tests/services/trend_signals/",
-    "tests/services/short_gate/",
     "tests/services/grid_model/",
 ]
 

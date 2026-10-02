@@ -80,6 +80,16 @@ def test_tg_filter_keeps_london_only(monkeypatch, tmp_path):
         assert not sb_stats.tg_allowed(t)
 
 
+def test_tg_enabled_false_mutes_every_transition(monkeypatch, tmp_path):
+    """17.09: london_to_ny_am живьём PF 0.87 — звук выключен, журнал идёт."""
+    cfg = tmp_path / "sb.json"
+    cfg.write_text(json.dumps({"tg_transitions": ["london_to_ny_am"],
+                               "tg_enabled": False}), encoding="utf-8")
+    monkeypatch.setattr(sb_stats, "CONFIG_PATH", cfg)
+    assert not sb_stats.tg_allowed("london_to_ny_am")
+    assert not sb_stats.tg_allowed("ny_pm_to_asia")
+
+
 def test_tg_filter_all_disables_gate(monkeypatch, tmp_path):
     cfg = tmp_path / "sb.json"
     cfg.write_text(json.dumps({"tg_transitions": "all"}), encoding="utf-8")

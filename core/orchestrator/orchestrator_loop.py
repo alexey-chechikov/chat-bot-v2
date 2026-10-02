@@ -106,8 +106,20 @@ class OrchestratorLoop:
                     getattr(change, "from_action", ""),
                     getattr(change, "to_action", ""),
                 )
-            for alert in list(result.alerts or []):
-                await send_telegram_alert(str(alert.text))
+            # 2026-09-17: «СМЕНА РЕЖИМА» мигала СЖАТИЕ↔БОКОВИК до 6 раз в
+            # сутки при ATR 0.12-0.78% с пометкой «без авто-действий», а
+            # карточка категории писала «возобновить: (уже работают)» для
+            # btc_long без id GinArea. Оркестратор с 2 мая не выдал ни одной
+            # команды. Смены пишутся в историю выше; звук — ключ
+            # orchestrator_alerts в state/report_delivery.json.
+            from services.reports.push_policy import feed_enabled
+            alerts = list(result.alerts or [])
+            if feed_enabled("orchestrator_alerts"):
+                for alert in alerts:
+                    await send_telegram_alert(str(alert.text))
+            elif alerts:
+                logger.info("[ORCHESTRATOR] %d alert(s) muted "
+                            "(report_delivery.orchestrator_alerts=false)", len(alerts))
 
         await self._maybe_send_daily_report()
 
@@ -132,6 +144,11 @@ class OrchestratorLoop:
         return "\n".join(lines)
 
     async def _maybe_send_daily_report(self) -> None:
+        # «📘 СЧЁТ ЗА» по расписанию — это суточный отчёт; оператор: отчёты
+        # только по команде (report_delivery.scheduled_push=false).
+        from services.reports.push_policy import scheduled_push_enabled
+        if not scheduled_push_enabled():
+            return
         now = datetime.now(timezone.utc)
         try:
             target_time = time.fromisoformat(self.daily_report_time)

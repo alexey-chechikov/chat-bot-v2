@@ -1,0 +1,5 @@
+# 31.08: pre-commit hook пришёл с CRLF и не парсился bash'ем
+# (syntax error near unexpected token 'do'). Shell-скрипты обязаны
+# быть с LF на любой ОС, иначе хук молча мёртв.
+.githooks/** text eol=lf
+*.sh text eol=lf

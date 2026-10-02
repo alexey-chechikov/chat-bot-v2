@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "state" / "risk_guard_config.json"
 JOURNAL_PATH = ROOT / "state" / "risk_guard_journal.jsonl"
+HEARTBEAT_PATH = ROOT / "state" / "risk_guard_heartbeat.json"
+API_FAIL_PATH = ROOT / "state" / "risk_guard_api_fails.json"
 FROZEN_PATH = ROOT / "state" / "risk_guard_frozen.json"
 
 POLL_INTERVAL_SEC = 60
@@ -186,10 +188,26 @@ def _per_bot_breaches(snap: dict, cfg: dict, deposit: float) -> list[dict]:
     return out
 
 
-def evaluate(snap: dict, cfg: dict) -> dict:
-    """Что делать. Порядок проверок — от самого опасного к мягкому."""
+def evaluate(snap: dict, cfg: dict, api_fails: int = 0) -> dict:
+    """Что делать. Порядок проверок — от самого опасного к мягкому.
+
+    api_fails — сколько чтений подряд уже не удалось. Одна неудача не
+    повод объявлять тревогу: GinArea отдаёт 5xx пачками по несколько
+    минут, и за неделю такой одиночный отказ дал 197 записей HALT со
+    списком остановленных `[]` — то есть тревога, на которую сама служба
+    ничего не сделала, потому что API был недоступен и для остановки
+    тоже. Ждём подтверждения подряд, иначе это шум, маскирующий реальный
+    отказ.
+    """
     if snap.get("error"):
-        return {"action": "HALT", "reason": f"API недоступен: {snap['error']}"}
+        need = int(cfg.get("api_fail_streak", 3))
+        if api_fails < need:
+            return {"action": "NONE",
+                    "reason": f"чтение не удалось {api_fails}/{need}: "
+                              f"{snap['error']}"}
+        return {"action": "HALT",
+                "reason": f"API недоступен {api_fails} раз подряд: "
+                          f"{snap['error']}"}
 
     deposit = float(cfg.get("deposit_usd", 0) or 0)
     if deposit <= 0:
@@ -533,6 +551,29 @@ def _close_all(api, snap: dict) -> tuple[list[str], list[str]]:
 
 
 def tick(api=None, send_fn=None) -> str:
+    """Обёртка: что бы ни случилось внутри, оставить отметку живости.
+
+    02.09: у риск-контура НЕ БЫЛО файла, обновляемого каждым тиком, —
+    только журнал, а он пишется по событию. Значит убедиться, что самая
+    ответственная служба вообще крутится, было нечем: молчащий журнал и
+    остановленный цикл выглядели одинаково. Пишем отметку на КАЖДОМ пути
+    выхода, включая no_api и frozen: именно в этих состояниях служба не
+    защищает, и знать об этом важнее всего.
+    """
+    status = "error"
+    try:
+        status = _tick_inner(api=api, send_fn=send_fn)
+        return status
+    finally:
+        try:
+            HEARTBEAT_PATH.write_text(
+                json.dumps({"ts": _now(), "status": status},
+                           ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            logger.exception("risk_guard.heartbeat_write_failed")
+
+
+def _tick_inner(api=None, send_fn=None) -> str:
     cfg = load_config()
     if not cfg.get("enabled"):
         return "disabled"
@@ -546,7 +587,23 @@ def tick(api=None, send_fn=None) -> str:
             return "no_api"
 
     snap = snapshot(api, cfg)
-    decision = evaluate(snap, cfg)
+    # Счётчик подряд идущих неудачных чтений живёт в файле: тик может
+    # смениться процессом, а серия отказов длится минутами.
+    fails = 0
+    if snap.get("error"):
+        try:
+            fails = int(json.loads(API_FAIL_PATH.read_text(
+                encoding="utf-8")).get("streak", 0))
+        except (OSError, ValueError):
+            fails = 0
+        fails += 1
+    try:
+        API_FAIL_PATH.write_text(json.dumps({"streak": fails, "ts": _now()}),
+                                 encoding="utf-8")
+    except OSError:
+        logger.exception("risk_guard.api_fail_write_failed")
+
+    decision = evaluate(snap, cfg, api_fails=fails)
     action = decision["action"]
 
     if action == "NONE":

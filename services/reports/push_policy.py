@@ -35,3 +35,12 @@ def scheduled_push_enabled() -> bool:
         logger.exception("push_policy.config_read_failed — считаю push включённым")
         return True
     return bool(cfg.get("scheduled_push", True))
+
+
+def feed_enabled(key: str, default: bool = False) -> bool:
+    """Отдельный выключатель ленты в report_delivery.json (нет ключа → default)."""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+    return bool(cfg.get(key, default))

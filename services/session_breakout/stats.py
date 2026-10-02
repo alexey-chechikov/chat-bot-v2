@@ -42,6 +42,12 @@ def tg_transitions() -> list[str]:
 
 
 def tg_allowed(transition: str) -> bool:
+    import json
+    try:
+        if json.loads(CONFIG_PATH.read_text(encoding="utf-8")).get("tg_enabled") is False:
+            return False
+    except (OSError, ValueError):
+        pass
     allowed = tg_transitions()
     return not allowed or transition in allowed
 

@@ -115,17 +115,62 @@ def test_detect_big_sweep_sends_and_escalates(monkeypatch, tmp_path):
     assert len(fired) == 1 and f"{q3:.2f} BTC" in fired[0]
 
 
+def _fake_prices(monkeypatch, series):
+    """series: {минут от старта: цена}. Возвращает подмену _price_at."""
+    base = datetime(2026, 6, 19, 14, 50, tzinfo=timezone.utc)
+
+    def fake(ts, tol_sec=600):
+        k = round((ts - base).total_seconds() / 60)
+        return series.get(k)
+
+    monkeypatch.setattr(sl, "_price_at", fake)
+    return base
+
+
 def test_fill_outcomes_sign_favors_bounce(monkeypatch, tmp_path):
     """Знак исхода в журнале — в пользу ОТБОЯ (не continuation): long-liq + рост = плюс.
     На этом знаке стоит _live_stats (continuation = v < 0) — не менять молча."""
     jp = tmp_path / "j.jsonl"
-    now = datetime(2026, 6, 19, 16, 0, tzinfo=timezone.utc)
-    rec = {"id": "x", "ts": (now - timedelta(minutes=70)).isoformat(), "side": "long",
-           "qty": 2.0, "price": 63000.0, "ctx": {}, "outcomes": {}}
+    base = _fake_prices(monkeypatch, {0: 63000.0, 15: 63315.0, 30: 63315.0,
+                                      60: 63630.0})
+    now = base + timedelta(minutes=70)
+    rec = {"id": "x", "ts": base.isoformat(), "side": "long",
+           "qty": 2.0, "price": 62000.0, "ctx": {}, "outcomes": {}}
     jp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
     monkeypatch.setattr(sl, "JOURNAL", jp)
-    monkeypatch.setattr(sl, "_btc_price_now", lambda: 63630.0)  # +1.0% вверх
     n = sl.fill_outcomes(now)
     assert n == 3  # 15/30/60м заполнены
     out = json.loads(jp.read_text().splitlines()[0])["outcomes"]
     assert out["60м"] > 0.9
+
+
+def test_outcome_counts_from_market_price_not_liquidation_price(monkeypatch, tmp_path):
+    """2026-09-24: исход считался от цены ликвидации — от острия фитиля, куда
+    войти нельзя. На 806 свипах это давало +0.240% @30м вместо +0.003%."""
+    jp = tmp_path / "j.jsonl"
+    base = _fake_prices(monkeypatch, {0: 63000.0, 15: 63000.0, 30: 63000.0,
+                                      60: 63000.0})
+    now = base + timedelta(minutes=70)
+    # ликвидация напечаталась на 1% ниже рынка; цена после сигнала не двигалась
+    rec = {"id": "x", "ts": base.isoformat(), "side": "long",
+           "qty": 5.0, "price": 62370.0, "ctx": {}, "outcomes": {}}
+    jp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sl, "JOURNAL", jp)
+    sl.fill_outcomes(now)
+    saved = json.loads(jp.read_text().splitlines()[0])
+    assert saved["entry_px"] == 63000.0          # вход по рынку, не по фитилю
+    assert saved["outcomes"]["30м"] == 0.0       # движения не было — исход ноль
+
+
+def test_outcome_uses_price_at_horizon_not_now(monkeypatch, tmp_path):
+    """Второй конец той же ошибки: брали цену на момент дозаполнения."""
+    jp = tmp_path / "j.jsonl"
+    base = _fake_prices(monkeypatch, {0: 63000.0, 15: 63630.0, 30: 63630.0,
+                                      60: 63630.0, 600: 99000.0})
+    rec = {"id": "x", "ts": base.isoformat(), "side": "long",
+           "qty": 2.0, "price": 63000.0, "ctx": {}, "outcomes": {}}
+    jp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sl, "JOURNAL", jp)
+    sl.fill_outcomes(base + timedelta(minutes=600))   # дозаполняем сильно позже
+    out = json.loads(jp.read_text().splitlines()[0])["outcomes"]
+    assert out["30м"] == 1.0    # +1% на горизонте, а не +57% по цене «сейчас»

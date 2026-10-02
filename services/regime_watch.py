@@ -191,6 +191,22 @@ def build_card(now: Optional[datetime] = None) -> str:
                          f"от закона")
     except Exception:
         logger.exception("regime_watch.grid_health_failed")
+    # гейт шорта: замер 17.09 — без него ралли стоило −$3 180 при худшей
+    # точке −$3 806, с ним −$143 и −$231 (контроль с тем же временем в
+    # рынке: −$791…−$2 121). Ботов не трогает, это строка для решения.
+    try:
+        from services.short_gate.loop import current_gate, load_config
+        cfg = load_config()
+        g = current_gate(cfg)
+        if g:
+            icon = "🟢" if g["on"] else "🔴"
+            word = "разрешён" if g["on"] else "запрещён"
+            lines.append(f"{icon} шорт {word}: цена "
+                         f"{'ниже' if g['on'] else 'выше'} SMA"
+                         f"{int(cfg.get('sma_days', 100))}д на "
+                         f"{abs(g['dist_pct']):.1f}%")
+    except Exception:
+        logger.exception("regime_watch.short_gate_failed")
     return "\n".join(lines)
 
 

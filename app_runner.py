@@ -268,11 +268,24 @@ async def _run_setup_detector(stop_event: asyncio.Event, *, telegram_app=None) -
                     except Exception:
                         logger.exception("setup_push.actionable_card_failed type=%s", stype)
                         actionable = card_text
-                    for cid in primary_chat_ids:
-                        try:
-                            bot.send_message(cid, actionable)
-                        except Exception:
-                            logger.exception("setup_detector.telegram_send_failed cid=%s", cid)
+                    # 2026-09-10: отправка заглушена по замеру за 90 суток —
+                    # 186 стопов против 69 целей, −$597.85. Глушится ТОЛЬКО
+                    # отправка: record_pushed ниже продолжает вести учёт, и
+                    # setup_outcomes.jsonl продолжает наполняться, иначе мы
+                    # потеряем инструмент, которым это и измерили.
+                    # Вернуть звук — services/setup_detector/push_gate.py.
+                    from services.setup_detector.push_gate import (
+                        actionable_push_enabled)
+                    if actionable_push_enabled():
+                        for cid in primary_chat_ids:
+                            try:
+                                bot.send_message(cid, actionable)
+                            except Exception:
+                                logger.exception("setup_detector.telegram_send_failed cid=%s", cid)
+                    else:
+                        logger.info("setup_push.muted type=%s pair=%s — учёт идёт, "
+                                    "отправка выключена", stype,
+                                    getattr(setup, "pair", "?"))
                     record_pushed(setup)   # Stage 3: для intraday TP/отмена follow-up
                     return
                 # Не-валидный тип (нет в матрице эджей) + не-p15 → молчим. В личку идут
@@ -523,6 +536,13 @@ async def _run_setup_tracker(stop_event: asyncio.Event, *, telegram_app=None) ->
             # пингуем follow-up ТОЛЬКО по пушнутым входам (иначе шум по всем сетапам)
             if setup is None or pop_if_pushed(setup.setup_id) is None:
                 return
+            # 2026-09-17: входы «🎯 ОТКРОЙ» заглушены 10.09, но record_pushed
+            # продолжал вести реестр — и исходы (ОТМЕНА/ИСТЁК/TP1) по входам,
+            # которых оператор не видел, шли в личку: 124 исхода за 6 суток,
+            # гипотетически −$199.65. Исход без входа — шум, глушим тем же флагом.
+            from services.setup_detector.push_gate import actionable_push_enabled
+            if not actionable_push_enabled():
+                return
             for cid in chat_ids:
                 try:
                     bot.send_message(cid, card)
@@ -549,7 +569,12 @@ async def _run_exit_advisor(stop_event: asyncio.Event, *, telegram_app=None) -> 
     import os as _os
     from services.exit_advisor.loop import exit_advisor_loop
 
-    enable_telegram = _os.environ.get("EXIT_ADVISOR_SEND_TELEGRAM", "1") == "1"
+    # 2026-09-17: выключен по умолчанию. Карточка «⚠️ POS» читает последнюю
+    # строку snapshots.csv по КАЖДОМУ боту, включая мёртвые BitMEX-боты:
+    # BTC-LONG-✨ (5268946146) застыл 07.06 со status=2 и позицией $102 400,
+    # отсюда «−40 BTC», «DD=2413h» и совет «рассмотреть балансировку» на
+    # счёте, где живых позиций на $2.7k.
+    enable_telegram = _os.environ.get("EXIT_ADVISOR_SEND_TELEGRAM", "0") == "1"
     send_fn = _build_rh_send_fn(telegram_app) if enable_telegram else None
     if not enable_telegram:
         logger.warning("exit_advisor.telegram_disabled (set EXIT_ADVISOR_SEND_TELEGRAM=1 to enable)")
@@ -718,6 +743,55 @@ async def _run_hedge_shadow(stop_event: asyncio.Event) -> None:
     """
     from services.hedge_shadow.loop import hedge_shadow_loop
     await hedge_shadow_loop(stop_event=stop_event)
+
+
+async def _run_grid_border(stop_event: asyncio.Event) -> None:
+    """Граница набора (2026-09-10): за пределом хода сетка не наращивает.
+
+    Риск-контур меряет МЕШОК, а при усреднении вверх мешок остаётся
+    маленьким, пока позиция раздувается: 03.09 шортовый бот дошёл до
+    плеча 3.65 и номинала $7 883, и остановить это было нечем. Граница
+    смотрит на ЦЕНУ относительно точки, где начался набор, и морозит
+    добор через maxOp — закрытия при этом продолжаются.
+
+    Замер: 11 ботов, 6 280 бот-часов, +$14 008 из $26 048 убытка, вне
+    августовской катастрофы +$7 902. Подробности и отвергнутые варианты —
+    в state/grid_border_config.json.
+    """
+    from services.grid_border.loop import grid_border_loop
+    await grid_border_loop(stop_event=stop_event)
+
+
+async def _run_bot_watch(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Сторож поведения бота (2026-09-17): норма, перекос, резкий перекос.
+
+    Ботов не трогает, только сообщает. Норма у каждого бота своя, по его
+    же истории. Замер на 39 реальных ботах: в норме медиана 87% времени;
+    выход хотя бы одного признака за p95 — 60% настоящих тревог и 84%
+    падения ещё впереди; резкий рост позиции за 4 часа — 7 из 9 настоящих,
+    88% впереди, 19.08 сработал на BTC, ETH и XRP в 15:00.
+    """
+    from services.bot_watch.loop import bot_watch_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "GRID_AUTOTUNE") if telegram_app else None
+    await bot_watch_loop(stop_event=stop_event, send_fn=send_fn)
+
+
+async def _run_short_gate(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Гейт шорт-сеток по дневной SMA100 (2026-09-17). Только сообщает.
+
+    Замер на BTC 15.05.24-17.09.26 (внутри ралли +131%): без гейта половина
+    с ралли −$3 180 при худшей точке −$3 806; с гейтом −$143 и −$231, цена —
+    17% дохода в медвежьей половине. Контроль с тем же временем в рынке и
+    тем же числом переключений: −$791…−$2 121; перевёрнутый гейт −$860.
+    Переключается около 13 раз в год, ботов служба не останавливает.
+    """
+    from services.short_gate.loop import short_gate_loop
+    from services.telegram.channel_router import build_send_fn
+    # 2026-10-02: был эмиттер GRID_AUTOTUNE — он в state/silent_families.json,
+    # и карточка переключения гейта не дошла бы до оператора никогда.
+    send_fn = build_send_fn(telegram_app, "SHORT_GATE") if telegram_app else None
+    await short_gate_loop(stop_event=stop_event, send_fn=send_fn)
 
 
 async def _run_odds_journal(stop_event: asyncio.Event) -> None:
@@ -1500,8 +1574,6 @@ async def main(
     market_intelligence_task = asyncio.create_task(_run_market_intelligence(stop_event), name="market_intelligence")
     market_forward_task = asyncio.create_task(_run_market_forward_analysis(stop_event), name="market_forward_analysis")
     deriv_live_task = asyncio.create_task(_run_deriv_live(stop_event), name="deriv_live")
-    odds_journal_task = asyncio.create_task(_run_odds_journal(stop_event), name="odds_journal")
-    level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
     bitmex_account_task = asyncio.create_task(_run_bitmex_account(stop_event), name="bitmex_account")
     cascade_alert_task = asyncio.create_task(_run_cascade_alert(stop_event, telegram_app=app), name="cascade_alert")
     auto_executor_task = asyncio.create_task(_run_auto_executor(stop_event), name="auto_executor")
@@ -1541,6 +1613,11 @@ async def main(
     grid_autotune_task = asyncio.create_task(_run_grid_autotune(stop_event, telegram_app=app), name="grid_autotune")
     risk_guard_task = asyncio.create_task(_run_risk_guard(stop_event, telegram_app=app), name="risk_guard")
     hedge_shadow_task = asyncio.create_task(_run_hedge_shadow(stop_event), name="hedge_shadow")
+    grid_border_task = asyncio.create_task(_run_grid_border(stop_event), name="grid_border")
+    bot_watch_task = asyncio.create_task(_run_bot_watch(stop_event, telegram_app=app), name="bot_watch")
+    short_gate_task = asyncio.create_task(_run_short_gate(stop_event, telegram_app=app), name="short_gate")
+    odds_journal_task = asyncio.create_task(_run_odds_journal(stop_event), name="odds_journal")
+    level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
     trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
@@ -1590,7 +1667,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, odds_journal_task, level_alerts_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, grid_border_task, bot_watch_task, short_gate_task, odds_journal_task, level_alerts_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0

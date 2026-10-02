@@ -329,13 +329,24 @@ def test_leverage_cap_notifies_before_loss_appears():
 
 
 def test_api_failure_halts():
+    """Тревога — только на ТРЕТЬЕЙ неудаче подряд, не на первой.
+
+    Поведение изменено 10.09: за неделю накопилось 197 записей HALT
+    «API недоступен», в каждой список остановленных пустой — служба
+    объявляла тревогу и ничего не делала, потому что API был недоступен
+    и для остановки тоже. GinArea отдаёт 5xx пачками по несколько минут,
+    поэтому ждём подтверждения серией.
+    """
     _cfg()
 
     class Broken:
         def list_bots(self):
             raise RuntimeError("сеть")
 
-    assert rg.tick(api=Broken()) == "halt"
+    rg.API_FAIL_PATH.unlink(missing_ok=True)
+    assert rg.tick(api=Broken()) == "ok"      # 1-я
+    assert rg.tick(api=Broken()) == "ok"      # 2-я
+    assert rg.tick(api=Broken()) == "halt"    # 3-я — тревога
 
 
 # ─── выключатели ─────────────────────────────────────────────────────────
