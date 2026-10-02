@@ -720,6 +720,29 @@ async def _run_hedge_shadow(stop_event: asyncio.Event) -> None:
     await hedge_shadow_loop(stop_event=stop_event)
 
 
+async def _run_odds_journal(stop_event: asyncio.Event) -> None:
+    """Журнал обещаний внутридневной модели шансов (2026-09-30). Молчит в TG.
+
+    Раз в час пишет шансы касания ±0.5–3% за 1/4/12/24ч, сверка — /odds сверка.
+    Без живой сверки модель остаётся бэктестом (ворота №5).
+    """
+    from services.grid_model.odds_journal import odds_journal_loop
+    await odds_journal_loop(stop_event=stop_event)
+
+
+async def _run_level_alerts(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Сигнал о близком уровне бота (2026-10-02, оператор: «делай»).
+
+    Тейк, выход по средней, граница — шанс дойти за 4ч по внутридневной модели
+    перешёл порог (30%) → одно сообщение на уровень, повтор не чаще 4ч.
+    Ботов не трогает. Конфиг state/level_alerts_config.json.
+    """
+    from services.grid_model.level_alerts import level_alerts_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "BOT_LEVELS") if telegram_app else None
+    await level_alerts_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_alt_momentum_shadow(stop_event: asyncio.Event) -> None:
     """Alt-momentum форвард-сбор (Win 2026-06-17): 4ч кросс-секц. моментум, холд 24ч,
     long топ-4/short низ-4 по excess vs BTC, market-neutral. БЕЗ денег, тег режима
@@ -1477,6 +1500,8 @@ async def main(
     market_intelligence_task = asyncio.create_task(_run_market_intelligence(stop_event), name="market_intelligence")
     market_forward_task = asyncio.create_task(_run_market_forward_analysis(stop_event), name="market_forward_analysis")
     deriv_live_task = asyncio.create_task(_run_deriv_live(stop_event), name="deriv_live")
+    odds_journal_task = asyncio.create_task(_run_odds_journal(stop_event), name="odds_journal")
+    level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
     bitmex_account_task = asyncio.create_task(_run_bitmex_account(stop_event), name="bitmex_account")
     cascade_alert_task = asyncio.create_task(_run_cascade_alert(stop_event, telegram_app=app), name="cascade_alert")
     auto_executor_task = asyncio.create_task(_run_auto_executor(stop_event), name="auto_executor")
@@ -1565,7 +1590,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, odds_journal_task, level_alerts_task, stop_task,
     }
 
     exit_code = 0

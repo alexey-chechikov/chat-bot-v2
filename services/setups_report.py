@@ -279,6 +279,18 @@ def build_setups_report() -> str:
               and "sl" in r]  # only proper trades with SL
 
     p15_legs = _load_p15_legs()
+    # 2026-10-02: P-15 выключен, p15_state.json не обновлялся с 23.05 — карточка
+    # называла бумажные ноги «P-15 LIVE» с PnL −13% / −33%. Файл старше суток =
+    # остаток выключенной стратегии, а не живые позиции.
+    p15_stale = None
+    try:
+        mtime = datetime.fromtimestamp(_P15_STATE.stat().st_mtime, timezone.utc)
+        if now - mtime > timedelta(days=1):
+            p15_stale = mtime
+    except OSError:
+        pass
+    if p15_stale is not None:
+        p15_legs = []
     setups = _load_recent_setups(hours=2)
     fresh_signals = [s for s in setups if not str(s.get("setup_type", "")).startswith("p15_")]
     # Dedupe fresh signals — show only most recent per (type, pair)
@@ -320,6 +332,10 @@ def build_setups_report() -> str:
         for leg in p15_legs:
             lines.extend(_format_p15_leg(leg, prices))
             lines.append("")
+    elif p15_stale is not None:
+        lines.append(f"━━ P-15 выключен (бумажный, данные от {p15_stale:%d.%m}) — "
+                     f"реальных позиций нет ━━")
+        lines.append("")
     else:
         lines.append("━━ P-15 LIVE: нет активных leg ━━")
         lines.append("")

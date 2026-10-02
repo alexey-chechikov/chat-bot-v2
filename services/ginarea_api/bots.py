@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 PRODUCTION_BOT_IDS: frozenset[int] = frozenset()
 _PRODUCTION_LOADED = False
-_PORTFOLIO_PATH = Path("state/portfolio.json")
+# Абсолютный путь: относительный работал только из папки бота. Скрипт,
+# запущенный из другой папки, видел пустой список — и гард молча пропускал всё.
+_PORTFOLIO_PATH = Path(__file__).resolve().parents[2] / "state" / "portfolio.json"
 
 
 def _load_production_bot_ids() -> frozenset[int]:

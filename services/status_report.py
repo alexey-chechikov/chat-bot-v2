@@ -104,8 +104,12 @@ def _processes_status() -> dict[str, int | None]:
     for proc in psutil.process_iter(["pid", "cmdline", "name"]):
         try:
             cl = " ".join(proc.info.get("cmdline") or [])
+            # 2026-10-01: требование «.venv» в строке давало ложное «down» —
+            # macOS показывает разрешённый путь Homebrew-питона, без .venv
+            # (state_snapshot жил, PID 41966, а статус писал «мёртв»).
+            is_python = ".venv" in cl or "python" in cl.lower()
             for key, needle in needles.items():
-                if out[key] is None and needle in cl and ".venv" in cl:
+                if out[key] is None and needle in cl and is_python:
                     out[key] = proc.info["pid"]
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -372,7 +376,21 @@ def build_status_report() -> str:
     lines.append("")
 
     # === 2. ПОЗИЦИИ P-15 ===
-    if legs:
+    # 2026-10-01: P-15 выключен, p15_state.json не обновлялся с 23.05 — статус
+    # показывал бумажные ноги «держим 189920м» как активные позиции. Если
+    # файлу больше суток, это не позиции, а остаток выключенной стратегии.
+    stale_since = None
+    try:
+        mtime = datetime.fromtimestamp(_P15_STATE.stat().st_mtime, timezone.utc)
+        if now - mtime > timedelta(days=1):
+            stale_since = mtime
+    except OSError:
+        pass
+    if legs and stale_since is not None:
+        lines.append(f"💼 P-15 выключен (бумажная стратегия, данные от "
+                     f"{stale_since:%d.%m}) — реальных позиций в нём нет")
+        legs = []
+    elif legs:
         total_size = sum(l["size_usd"] for l in legs)
         avg_dd = sum(abs(l["dd_pct"]) for l in legs) / len(legs)
         lines.append(f"💼 АКТИВНЫЕ ПОЗИЦИИ P-15: {len(legs)} (всего ${total_size:.0f})")

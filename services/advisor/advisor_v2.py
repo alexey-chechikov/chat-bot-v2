@@ -986,6 +986,14 @@ def build_advisor_v2_text() -> str:
     # state_snapshot.py picks newer of operator /margin override and BitMEX-API
     # auto-poll, so we surface whichever source was freshest. Stale > 6h = warn.
     margin_block = _read_margin_block()
+    # 2026-10-02: BitMEX закрыт с 23.07 — данные «1500h old» и вечное «/margin».
+    # Старше недели = источник мёртв: одна строка вместо блока.
+    if margin_block and margin_block.get("data_age_minutes", 0) > 7 * 24 * 60:
+        lines.append("")
+        lines.append(f"💰 MARGIN: источник молчит "
+                     f"{margin_block['data_age_minutes'] / 1440:.0f} дн (BitMEX закрыт) — "
+                     f"блок отключён; залог и уровни ботов — /odds")
+        margin_block = None
     if margin_block:
         lines.append("")
         source = str(margin_block.get("source", "unknown"))

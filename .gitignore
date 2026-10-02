@@ -219,6 +219,14 @@ data/historical/1h_*.csv
 state/odds_intraday_*.json
 state/odds_z_*.json
 state/odds_journal.jsonl
+# прогоны бэктестов GinArea и рабочие файлы карточек (01–02.10.2026)
+state/ginarea_eth_target_sweep.jsonl
+state/ginarea_sweep_*.jsonl
+state/ginarea_sweep_backup*.json
+state/ginarea_deleted_tests.jsonl
+state/charts/
+state/level_alerts_state.json
+state/level_alerts_journal.jsonl
 
 # Local Claude Code settings (operator-specific permissions)
 .claude/settings.json

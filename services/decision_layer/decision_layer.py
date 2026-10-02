@@ -149,6 +149,7 @@ REGIME_STALE_HOURS: float = 2.0
 # docstring; doc fix tracked in TZ-DECISION-LAYER-V1.1-DIAGRAM-FIX.
 MARGIN_DATA_STALE_INFO_HOURS: float = 6.0
 MARGIN_DATA_STALE_PRIMARY_HOURS: float = 12.0
+MARGIN_SOURCE_DEAD_HOURS: float = 168.0
 
 # ── Types ────────────────────────────────────────────────────────────────────
 
@@ -763,6 +764,10 @@ def _rule_D4(inp: DecisionInputs) -> Optional[Event]:
         return None
     age_h = float(inp.margin_data_age_min) / 60.0
     if age_h <= MARGIN_DATA_STALE_INFO_HOURS:
+        return None
+    # 2026-10-02: старше недели — источник мёртв (BitMEX закрыт с 23.07),
+    # а не «данные устарели». Вечный PRIMARY в /advise был шумом.
+    if age_h > MARGIN_SOURCE_DEAD_HOURS:
         return None
     payload = {"age_hours": round(age_h, 1)}
     if age_h > MARGIN_DATA_STALE_PRIMARY_HOURS:

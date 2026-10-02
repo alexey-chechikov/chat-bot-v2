@@ -56,6 +56,24 @@ class BacktestAPI:
         )
         return [Test.from_dict(item) for item in data]  # type: ignore[arg-type]
 
+    def test_range(self, bot_id: int) -> object:
+        """Доступный диапазон дат для бэктеста (вызов веб-приложения GinArea)."""
+        return self.client.request("GET", f"/bots/{bot_id}/tests/range")
+
+    def delete_test(self, bot_id: int, test_id: int) -> object:
+        """Удалить тест. Путь — из веб-приложения GinArea (chunk с TestsService:
+        delete(e) → DELETE /bots/tests/{id}), не подобран перебором.
+
+        GinArea держит ОДИН тест на бота (01.10.2026: «limit on the number of
+        tests for the bot»), поэтому серия бэктестов на клоне = прогон → запись
+        результата → удаление. Проверяем, что тест принадлежит этому боту, и что
+        бот не боевой.
+        """
+        _assert_not_production(bot_id)
+        if not any(t.id == test_id for t in self.list_tests(bot_id)):
+            raise GinAreaAPIError(f"тест {test_id} не принадлежит боту {bot_id}")
+        return self.client.request("DELETE", f"/bots/tests/{test_id}")
+
     def get_test(self, bot_id: int, test_id: int) -> Test:
         for test in self.list_tests(bot_id):
             if test.id == test_id:

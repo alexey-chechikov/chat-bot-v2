@@ -372,6 +372,49 @@ def build_odds(which: str = "") -> str:
     return "\n\n".join(build_odds_parts(which))
 
 
+def build_odds_view(which: str = "") -> list[tuple[str, object]]:
+    """Наглядная карточка по умолчанию: (текст, путь к картинке или None) на монету.
+
+    `/odds подробно` — прежняя таблица, `/odds дни` — дневная, `/odds сверка` —
+    живая сверка журнала. Числа одни и те же, меняется подача.
+    """
+    from services.grid_model import odds_intraday, odds_view, odds_z
+
+    args = (which or "").lower().split()
+    if any(a in ("подробно", "таблица", "full", "дни", "days", "d", "сверка", "check")
+           for a in args):
+        return [(t, None) for t in build_odds_parts(which)]
+    coins = [a.upper() for a in args if a.upper() in ("BTC", "ETH", "BTCUSDT", "ETHUSDT")]
+    try:
+        _, books = _live_books()
+    except Exception:                                    # noqa: BLE001
+        logger.exception("grid_model.odds_bots_failed")
+        books = {}
+    out = []
+    for sym, coin in (("BTCUSDT", "BTC"), ("ETHUSDT", "ETH")):
+        if coins and coin not in coins and sym not in coins:
+            continue
+        try:
+            opt = odds_z.option_levels(coin)
+        except Exception:                                # noqa: BLE001
+            logger.exception("grid_model.option_levels_failed coin=%s", coin)
+            opt = {}
+        try:
+            spot = opt.get("spot") or float(odds_intraday.load_hourly(sym)["close"].iloc[-1])
+            text = odds_view.coin_text(sym, spot, books.get(coin, []), opt)
+        except Exception as exc:                         # noqa: BLE001
+            logger.exception("grid_model.odds_view_failed sym=%s", sym)
+            out.append((f"❌ {coin}: {exc}", None))
+            continue
+        try:
+            chart = odds_view.coin_chart(sym, spot, books.get(coin, []))
+        except Exception:                                # noqa: BLE001
+            logger.exception("grid_model.odds_chart_failed sym=%s", sym)
+            chart = None
+        out.append((text, chart))
+    return out or [("укажи BTC или ETH", None)]
+
+
 def build(arg: str = "") -> str:
     parts = (arg or "").split()
     if not parts:

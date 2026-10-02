@@ -38,10 +38,16 @@ def build_main_keyboard() -> ReplyKeyboardMarkup:
     как часть «открытые позиции» вместе с paper trades.
     """
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    # Row 0 — шансы и деньги ботов (2026-10-01: оператор не видел кнопки
+    # новых карточек — /odds жила только командой)
+    kb.row(_btn("/odds"), _btn("/odds BTC"), _btn("/odds ETH"))
     # Row 1 — состояние
     kb.row(_btn("/status"), _btn("/setups"), _btn("/ginarea"))
-    # Row 2 — решения (/card — 4ч-карточка-брифинг по запросу, 2026-06-10)
-    kb.row(_btn("/card"), _btn("/morning_brief"), _btn("/advise"), _btn("FINAL DECISION"))
+    # Row 2 — брифинги + место под помощника ручного скальпинга (WEEX, план
+    # оператора 02.10). /advise и FINAL DECISION убраны с кнопок 02.10: остатки
+    # BitMEX-эпохи (бумажные сделки, непроверенные «направления»); командой
+    # по-прежнему работают.
+    kb.row(_btn("/card"), _btn("/morning_brief"), _btn("/scalp"))
     # Row 3 — история + помощь
     kb.row(_btn("/changelog"), _btn("/watch"), _btn("HELP"))
     return kb

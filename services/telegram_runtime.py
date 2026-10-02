@@ -2597,14 +2597,39 @@ class TelegramBotApp:
                 return
             arg = (message.text or '').partition(' ')[2].strip()
             try:
-                from services.grid_model.command import build_odds_parts
-                parts = build_odds_parts(arg)
+                from services.grid_model.command import build_odds_view
+                from telegram_ui.keyboards import build_main_keyboard
+                parts = build_odds_view(arg)
             except Exception as exc:
                 logger.exception('handle_odds.failed')
                 self.bot.send_message(chat_id, f'❌ /odds failed: {exc}')
                 return
-            for text in parts:
-                self.bot.send_message(chat_id, text[:4096])
+            for i, (text, chart) in enumerate(parts):
+                if chart:
+                    try:
+                        with open(chart, 'rb') as fh:
+                            self.bot.send_photo(chat_id, fh)
+                    except Exception:
+                        logger.exception('handle_odds.photo_failed')
+                markup = build_main_keyboard() if i == len(parts) - 1 else None
+                self.bot.send_message(chat_id, text[:4096], reply_markup=markup)
+
+        # ── /scalp — место под помощника ручного интрадей-скальпинга (WEEX,
+        # план оператора 02.10.2026). Пока заготовка: что будет и что нужно.
+        @self.bot.message_handler(commands=['scalp'])
+        def handle_scalp(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            self.bot.send_message(chat_id, (
+                '🛠 ПОМОЩНИК СКАЛЬПЕРА — в подготовке\n\n'
+                'Что будет: коридор и шансы касания на 15м/1ч/4ч для ручных '
+                'входов, цена круга с учётом комиссии и проскальзывания, '
+                'журнал сделок с разбором.\n\n'
+                'Что нужно сначала: открыть WEEX, проверить вывод на '
+                '$200–300, сделать 20–30 сделок обычным размером и прислать '
+                'выгрузку — по ней посчитаю настоящую цену круга.'))
 
         @self.bot.message_handler(commands=['report_week', 'weekly_summary'])
         def handle_report_week(message) -> None:
