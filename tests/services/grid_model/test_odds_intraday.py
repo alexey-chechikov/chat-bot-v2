@@ -34,6 +34,18 @@ def model(btc, tmp_path, monkeypatch):
     return m
 
 
+def test_fomc_multiplier_hits_statement_hour_and_next():
+    """Заявление 18:00 UTC, прогноз с 16:00: свечи 18:00 и 19:00 (индексы 2, 3) ×2.5."""
+    import pandas as pd
+    start = pd.Timestamp("2026-10-28T16:00:00Z")
+    ev = [pd.Timestamp("2026-10-28T18:00:00Z")]
+    mult = oi.event_multipliers(start, 4, ev)
+    assert list(mult) == [1.0, 1.0, oi.FOMC_FACTOR, oi.FOMC_FACTOR]
+    assert list(oi.event_multipliers(start, 1, ev)) == [1.0]
+    assert oi.next_fomc(start, 24, ev) == ev[0]
+    assert oi.next_fomc(start + pd.Timedelta(hours=3), 24, ev) is None
+
+
 def test_path_scale_flat_profile_is_sqrt_h():
     s = np.ones(168)
     for h in oi.HOURS:

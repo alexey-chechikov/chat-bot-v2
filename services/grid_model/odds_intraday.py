@@ -239,14 +239,63 @@ class Now:
     ahead4: float            # средний профиль следующих 4 часов
 
 
+# ── Заявления ФРС (03.10.2026). В 2 часа после заявления (14:00 Нью-Йорк)
+# размах BTC в 2.35 раза, ETH в 2.09 раза выше, чем в обычную среду в тот же
+# час: касание ±1% за 4ч обещано 33% → было 54% (44 заседания 2021–2026).
+# Поправка — множитель FOMC_FACTOR к профилю часа заявления и следующего часа;
+# подобрана на ранних 22 заседаниях, проверена на поздних 22: Brier BTC
+# 0.248 → 0.205, ETH 0.276 → 0.240; любой множитель 1.5…5 лучше нуля на обеих
+# половинах. На сутки эффекта нет (обещано 65% → было 67%).
+EVENTS_PATH = ROOT / "state" / "macro_events.json"
+FOMC_FACTOR = 2.5
+FOMC_HOURS = 2
+
+
+def fomc_statements() -> list[pd.Timestamp]:
+    try:
+        raw = json.loads(EVENTS_PATH.read_text(encoding="utf-8"))
+        return [pd.Timestamp(x) for x in raw.get("fomc_statements_utc", [])]
+    except (OSError, ValueError):
+        return []
+
+
+def event_multipliers(start: pd.Timestamp, h: int,
+                      events: list[pd.Timestamp] | None = None) -> np.ndarray:
+    """Множитель к профилю для каждой из h следующих часовых свечей.
+
+    start — время закрытия последней свечи = начало первой свечи прогноза.
+    """
+    events = fomc_statements() if events is None else events
+    mult = np.ones(h)
+    for ev in events:
+        k = int((ev - start) / pd.Timedelta(hours=1))
+        for j in range(k, k + FOMC_HOURS):
+            if 0 <= j < h:
+                mult[j] = FOMC_FACTOR
+    return mult
+
+
+def next_fomc(start: pd.Timestamp, within_h: int = 24,
+              events: list[pd.Timestamp] | None = None) -> pd.Timestamp | None:
+    events = fomc_statements() if events is None else events
+    ahead = [e for e in events if pd.Timedelta(0) <= e - start <= pd.Timedelta(hours=within_h)]
+    return min(ahead) if ahead else None
+
+
 def now_state(m: Model, d: pd.DataFrame) -> Now:
     s = np.asarray(m.profile)
     ds = deseason_sigma(d, s)
     cur = float(ds[-1])
     how = int(d["how"].iloc[-1])
     hist = ds[np.isfinite(ds)]
-    return Now(sigma_hour=cur,
-               paths={h: cur * float(path_scale(s, how, h)) for h in HOURS},
+    start = d.index[-1] + pd.Timedelta(hours=1)
+    events = fomc_statements()
+    paths = {}
+    for h in HOURS:
+        sk = np.array([s[(how + k) % 168] for k in range(1, h + 1)])
+        sk = sk * event_multipliers(start, h, events)
+        paths[h] = cur * float(np.sqrt((sk ** 2).sum()))
+    return Now(sigma_hour=cur, paths=paths,
                pct_rank=float((hist < cur).mean() * 100),
                ahead4=float(np.mean([s[(how + k) % 168] for k in range(1, 5)])))
 

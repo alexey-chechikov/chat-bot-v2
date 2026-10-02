@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
@@ -179,6 +180,12 @@ def coin_text(sym: str, px: float, books: list, opt: dict) -> str:
     x4 = m.corridor(4, now.paths[4], 0.8)
     out.append("")
     out.append("📌 ГЛАВНОЕ НА СУТКИ")
+    ev = oi.next_fomc(d.index[-1] + pd.Timedelta(hours=1))
+    if ev is not None:
+        msk = ev + pd.Timedelta(hours=3)
+        out.append(f"⚡ Решение ФРС {ev:%d.%m} в {ev:%H:%M} UTC ({msk:%H:%M} МСК): "
+                   f"2 часа после него размах обычно в 2–2.5 раза больше. "
+                   f"Шансы ниже это уже учитывают.")
     out.append(f"Обычный ход за 4 часа: {px * (1 - x4):,.0f} … {px * (1 + x4):,.0f}. "
                f"Выйти за эти рамки — событие (1 раз из 5).")
     out.extend(head)
