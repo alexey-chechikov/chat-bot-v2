@@ -156,6 +156,70 @@ def bot_block(book, px: float, touch) -> str:
     return "\n".join(out)
 
 
+# Доход сетки растёт как степень размаха (05.10.2026, 12 месяцев бэктестов
+# GinArea, факт размаха месяца): BTC-шорт 0.6/1.39 — σ^2.0 (R² 0.82), ETH Auto
+# 0.1/2.0 — σ^2.7 (R² 0.77). Заранее размах месяца не угадывается (R² 0–0.2),
+# поэтому это не прогноз, а «сколько при нынешнем рынке и сколько при обычном».
+INCOME_POWER = {"BTC": 2.0, "ETH": 2.7}
+SNAPSHOTS = ROOT / "ginarea_live" / "snapshots.csv"
+
+
+def live_income(bot_ids: list[str], days: int = 14, tail_mb: int = 80) -> dict:
+    """Реализованная прибыль за последние `days` суток АКТИВНОЙ работы (статус 2).
+
+    Читаем хвост snapshots.csv трекера: за 14 дней это ~50 МБ. Дни, когда бот
+    не был запущен, не считаются — на этом я дважды ошибался в сравнении
+    «живое против бэктеста».
+    """
+    import io
+
+    out = {}
+    if not SNAPSHOTS.exists():
+        return out
+    size = SNAPSHOTS.stat().st_size
+    with SNAPSHOTS.open("rb") as f:
+        header = f.readline().decode("utf-8", "ignore")
+        f.seek(max(0, size - tail_mb * 1024 * 1024))
+        f.readline()
+        body = f.read().decode("utf-8", "ignore")
+    t = pd.read_csv(io.StringIO(header + body), on_bad_lines="skip", low_memory=False,
+                    usecols=["ts_utc", "bot_id", "status", "profit"])
+    t["bot"] = t["bot_id"].astype(str).str[:10]
+    t = t[t["bot"].isin(bot_ids)]
+    t["ts"] = pd.to_datetime(t["ts_utc"], utc=True, errors="coerce")
+    for bot, g in t.dropna(subset=["ts"]).sort_values("ts").groupby("bot"):
+        g = g.set_index("ts")
+        daily = g.resample("1D").agg({"status": "max", "profit": "last"})
+        daily["gain"] = daily["profit"].diff()
+        active = daily[daily["status"] == 2].tail(days)
+        if len(active) >= 3:
+            out[bot] = {"per_day": float(active["gain"].sum() / len(active)),
+                        "days": int(len(active))}
+    return out
+
+
+def income_block(books: list, coin: str, sigma_now: float, sigma_year_med: float,
+                 income: dict, px: float) -> list[str]:
+    power = INCOME_POWER.get(coin, 2.0)
+    ratio = (sigma_year_med / sigma_now) ** power if sigma_now > 0 else 1.0
+    lines = []
+    for b in books:
+        bid = getattr(b, "bot_id", None)
+        inc = income.get(str(bid)) if bid else None
+        if not inc:
+            continue
+        per_day = inc["per_day"] * (px if b.inverse else 1.0)
+        short_name = " ".join(b.name.split()[:2]) if b.inverse else b.name.split()[0]
+        kind = "Auto" if b.grid_side == 3 else ("шорт" if b.net_qty() < 0 else "лонг")
+        lines.append(f"  {short_name} {kind}: сейчас ≈ ${per_day:,.1f}/день (${per_day * 30:,.0f}/мес, "
+                     f"за {inc['days']} акт. дн); при обычном для года размахе ≈ "
+                     f"${per_day * ratio:,.1f}/день (×{ratio:.1f})")
+    if lines:
+        lines.insert(0, f"💵 ЗАРАБОТОК (доход сетки ∝ размах^{power:g}; "
+                        f"размах сейчас {sigma_now * 100:.2f}%/день, обычный {sigma_year_med * 100:.2f}%):")
+    return lines
+
+
 def coin_text(sym: str, px: float, books: list, opt: dict) -> str:
     from services.grid_model import odds_intraday as oi
     from services.grid_model import odds_z as oz
@@ -204,8 +268,17 @@ def coin_text(sym: str, px: float, books: list, opt: dict) -> str:
     for b in books:
         out.append("")
         out.append(bot_block(b, px, touch))
+    try:
+        inc = live_income([b.bot_id for b in books if b.bot_id])
+        med = float(dd["sigma"].iloc[-365:].median())
+        block = income_block(books, coin, float(dd["sigma"].iloc[-1]), med, inc, px)
+        if block:
+            out.append("")
+            out.extend(block)
+    except Exception:                                       # noqa: BLE001
+        logger.exception("odds_view.income_failed")
     out.append("")
-    walls = [f"{opt[k]:,.0f}" for k in ("call_wall", "put_wall") if opt.get(k)]
+    walls =[f"{opt[k]:,.0f}" for k in ("call_wall", "put_wall") if opt.get(k)]
     month = (f"🧭 Месяц: ±10% — вверх {pct_txt(md.touch(0.10, 30, sd))}, "
              f"вниз {pct_txt(md.touch(-0.10, 30, sd))}")
     if walls:

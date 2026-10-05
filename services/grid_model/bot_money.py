@@ -53,6 +53,7 @@ class Book:
     tapb: float | None = None      # выход лонгов по средней
     taps: float | None = None      # выход шортов по средней
     bag_usd: float | None = None   # мешок по GinArea: currentProfit − profit
+    bot_id: str = ""
 
     def side_avg(self, side: int) -> float | None:
         lst = [o for o in self.orders if o.side == side]
@@ -245,6 +246,7 @@ def book_from_live(bot, params: dict, orders_raw: list[dict], coin: str) -> Book
         tapb=float(ext.tapb) if ext.tapb else None,
         taps=float(ext.taps) if ext.taps else None,
         bag_usd=bag,
+        bot_id=str(getattr(bot, "id", "") or ""),
     )
 
 

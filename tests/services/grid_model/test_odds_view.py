@@ -59,6 +59,31 @@ def test_first_take_with_negative_total_is_not_green():
     assert line.strip().startswith("↘️")
 
 
+def test_live_income_counts_only_active_days(tmp_path, monkeypatch):
+    """Дни, когда бот не запущен (статус 0), не разбавляют доход в день."""
+    rows = ["ts_utc,bot_id,status,profit"]
+    for day in range(1, 11):
+        status = 0 if day <= 5 else 2
+        profit = 0.0 if day <= 5 else (day - 5) * 10.0
+        rows.append(f"2026-09-{day:02d}T12:00:00+00:00,5021652508,{status},{profit}")
+    p = tmp_path / "snap.csv"
+    p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    monkeypatch.setattr(ov, "SNAPSHOTS", p)
+    inc = ov.live_income(["5021652508"], days=14)
+    assert inc["5021652508"]["days"] == 5
+    assert inc["5021652508"]["per_day"] == pytest.approx(50.0 / 5)   # по 10 в каждый активный
+
+
+def test_income_block_scales_by_power_of_range():
+    b = _short_book()
+    b.bot_id = "1"
+    lines = ov.income_block([b], "BTC", 0.0168, 0.0201, {"1": {"per_day": 12.5, "days": 14}},
+                            85_000.0)
+    assert "ЗАРАБОТОК" in lines[0]
+    ratio = (0.0201 / 0.0168) ** 2.0
+    assert f"${12.5 * ratio:,.1f}/день" in lines[1]
+
+
 needs_hourly = pytest.mark.skipif(not (oi.DATA / "1h_BTCUSDT.csv").exists(),
                                   reason="нет часовой истории")
 
