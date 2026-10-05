@@ -334,3 +334,4 @@ state/*_last_daily_report.json
 state/edge_live_stats.json
 state/paper_signals.jsonl
 state/paper_trades.jsonl
+state/odds_scenarios_*.json

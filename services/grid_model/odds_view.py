@@ -260,6 +260,12 @@ def coin_text(sym: str, px: float, books: list, opt: dict) -> str:
     for h, nm in ((1, "через 1 час "), (4, "через 4 часа"), (24, "через сутки")):
         x = m.corridor(h, now.paths[h], 0.8)
         out.append(f"  {nm}  {px * (1 - x):,.0f} … {px * (1 + x):,.0f}  (±{x:.1%})")
+    try:
+        from services.grid_model import odds_scenarios
+        out.append("")
+        out.extend(odds_scenarios.text(odds_scenarios.get(sym), now.paths[24]))
+    except Exception:                                       # noqa: BLE001
+        logger.exception("odds_view.scenarios_failed")
     out.append("")
     out.append("🎯 ДОЙДЁТ ЛИ ЦЕНА (за 4 часа | за сутки):")
     for pct in (0.03, 0.01, -0.01, -0.03):
@@ -320,6 +326,18 @@ def coin_chart(sym: str, px: float, books: list, path: Path | None = None) -> Pa
     ax.plot(fut, px * (1 - band), color="#60a5fa", lw=0.8)
     lo = min(hist.min(), px * (1 - band[-1])) * 0.995
     hi = max(hist.max(), px * (1 + band[-1])) * 1.005
+    # три типичных сценария суток — формы по 9 годам, масштаб сегодняшнего σ
+    try:
+        from services.grid_model import odds_scenarios
+        colors = {"вниз": "#dc2626", "боковик": "#6b7280", "вверх": "#16a34a"}
+        for sc in odds_scenarios.get(sym):
+            spath = px * (1 + np.r_[0.0, np.asarray(sc.path)] * now.paths[24])
+            ax.plot(fut, spath, color=colors[sc.name], lw=1.4, ls="--", alpha=0.9)
+            ax.text(fut[-1], spath[-1], f" {sc.name} ≈{sc.share:.0%}",
+                    color=colors[sc.name], fontsize=8, va="center", ha="left")
+            lo, hi = min(lo, spath.min() * 0.998), max(hi, spath.max() * 1.002)
+    except Exception:                                       # noqa: BLE001
+        logger.exception("odds_view.scenario_paths_failed")
     marks = []
     for b in books:
         nm = " ".join(b.name.split()[:2]) if b.inverse else b.name.split()[0]
@@ -344,7 +362,7 @@ def coin_chart(sym: str, px: float, books: list, path: Path | None = None) -> Pa
     ax.axvline(t0, color="#6b7280", lw=0.8, ls=":")
     ax.plot([t0], [px], "o", color="#1d4ed8", ms=5)
     ax.set_ylim(lo, hi)
-    ax.set_xlim(hist.index[0], fut[-1] + np.timedelta64(2, "h"))
+    ax.set_xlim(hist.index[0], fut[-1] + np.timedelta64(14, "h"))   # место под подписи сценариев
     coin = sym.replace("USDT", "")
     ax.set_title(f"{coin} {px:,.0f} — где будет цена ближайшие сутки", fontsize=11)
     ax.grid(alpha=0.25)
