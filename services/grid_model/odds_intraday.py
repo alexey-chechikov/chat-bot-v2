@@ -251,34 +251,76 @@ FOMC_FACTOR = 2.5
 FOMC_HOURS = 2
 
 
-def fomc_statements() -> list[pd.Timestamp]:
+# ── Инфляция (CPI) и рынок труда (NFP) США, 08:30 Нью-Йорк (05.10.2026).
+# Даты — из архива и расписания BLS. Эффект появился с 2021: в 2018–20 модель
+# обещала столько же, сколько было; в 2024–26 касание ±1/2% за 4ч обещано
+# 22% → было 44% (CPI, BTC). Подбор множителя свечи выхода на 2021–23,
+# проверка на 2024–26: CPI BTC Brier 0.266 → 0.216, ETH 0.269 → 0.230;
+# NFP BTC 0.225 → 0.192, ETH 0.247 → 0.221. Берём умеренные: CPI ×2.5, NFP ×2.0.
+EVENT_TYPES = {
+    "fomc": ("fomc_statements_utc", FOMC_FACTOR, FOMC_HOURS, "Решение ФРС"),
+    "cpi": ("cpi_releases_utc", 2.5, 1, "Инфляция США (CPI)"),
+    "nfp": ("nfp_releases_utc", 2.0, 1, "Рынок труда США (NFP)"),
+}
+
+
+def macro_events() -> list[tuple[pd.Timestamp, float, int, str]]:
+    """(время UTC, множитель, сколько часов, подпись) по всем событиям календаря."""
     try:
         raw = json.loads(EVENTS_PATH.read_text(encoding="utf-8"))
-        return [pd.Timestamp(x) for x in raw.get("fomc_statements_utc", [])]
     except (OSError, ValueError):
         return []
+    out = []
+    for key, factor, hours, label in EVENT_TYPES.values():
+        out += [(pd.Timestamp(x), factor, hours, label) for x in raw.get(key, [])]
+    return out
 
 
-def event_multipliers(start: pd.Timestamp, h: int,
-                      events: list[pd.Timestamp] | None = None) -> np.ndarray:
+def fomc_statements() -> list[pd.Timestamp]:
+    return [t for t, _, _, label in macro_events() if label == EVENT_TYPES["fomc"][3]]
+
+
+def _as_events(events) -> list[tuple[pd.Timestamp, float, int, str]]:
+    """Совместимость: голые времена = заявления ФРС."""
+    out = []
+    for e in events:
+        if isinstance(e, tuple):
+            out.append(e)
+        else:
+            out.append((pd.Timestamp(e), FOMC_FACTOR, FOMC_HOURS, EVENT_TYPES["fomc"][3]))
+    return out
+
+
+def event_multipliers(start: pd.Timestamp, h: int, events=None) -> np.ndarray:
     """Множитель к профилю для каждой из h следующих часовых свечей.
 
     start — время закрытия последней свечи = начало первой свечи прогноза.
+    Событие внутри часа (CPI в 12:30) попадает в свечу, где оно случилось.
     """
-    events = fomc_statements() if events is None else events
+    import math
+
+    events = macro_events() if events is None else _as_events(events)
     mult = np.ones(h)
-    for ev in events:
-        k = int((ev - start) / pd.Timedelta(hours=1))
-        for j in range(k, k + FOMC_HOURS):
+    for ev, factor, hours, _ in events:
+        k = math.floor((ev - start) / pd.Timedelta(hours=1))
+        for j in range(k, k + hours):
             if 0 <= j < h:
-                mult[j] = FOMC_FACTOR
+                mult[j] = max(mult[j], factor)
     return mult
 
 
-def next_fomc(start: pd.Timestamp, within_h: int = 24,
-              events: list[pd.Timestamp] | None = None) -> pd.Timestamp | None:
-    events = fomc_statements() if events is None else events
-    ahead = [e for e in events if pd.Timedelta(0) <= e - start <= pd.Timedelta(hours=within_h)]
+def next_event(start: pd.Timestamp, within_h: int = 24, events=None):
+    """Ближайшее событие в пределах within_h часов: (время, подпись, множитель)."""
+    events = macro_events() if events is None else _as_events(events)
+    ahead = [(t, label, f) for t, f, _, label in events
+             if pd.Timedelta(hours=-1) < t - start <= pd.Timedelta(hours=within_h)]
+    return min(ahead) if ahead else None
+
+
+def next_fomc(start: pd.Timestamp, within_h: int = 24, events=None) -> pd.Timestamp | None:
+    fomc = [e for e in (_as_events(events) if events is not None else macro_events())
+            if e[3] == EVENT_TYPES["fomc"][3]]
+    ahead = [t for t, *_ in fomc if pd.Timedelta(0) <= t - start <= pd.Timedelta(hours=within_h)]
     return min(ahead) if ahead else None
 
 
@@ -289,7 +331,7 @@ def now_state(m: Model, d: pd.DataFrame) -> Now:
     how = int(d["how"].iloc[-1])
     hist = ds[np.isfinite(ds)]
     start = d.index[-1] + pd.Timedelta(hours=1)
-    events = fomc_statements()
+    events = macro_events()
     paths = {}
     for h in HOURS:
         sk = np.array([s[(how + k) % 168] for k in range(1, h + 1)])

@@ -46,6 +46,23 @@ def test_fomc_multiplier_hits_statement_hour_and_next():
     assert oi.next_fomc(start + pd.Timedelta(hours=3), 24, ev) is None
 
 
+def test_cpi_inside_hour_hits_its_candle_only():
+    """CPI в 12:30 UTC: свеча 12:00 ×2.5, одна; если прогноз начат в 13:00 — мимо."""
+    import pandas as pd
+    cpi = [(pd.Timestamp("2026-10-14T12:30:00Z"), 2.5, 1, "Инфляция США (CPI)")]
+    mult = oi.event_multipliers(pd.Timestamp("2026-10-14T11:00:00Z"), 4, cpi)
+    assert list(mult) == [1.0, 2.5, 1.0, 1.0]
+    after = oi.event_multipliers(pd.Timestamp("2026-10-14T13:00:00Z"), 4, cpi)
+    assert list(after) == [1.0, 1.0, 1.0, 1.0]
+    nxt = oi.next_event(pd.Timestamp("2026-10-14T00:00:00Z"), 24, cpi)
+    assert nxt[1] == "Инфляция США (CPI)" and nxt[2] == 2.5
+
+
+def test_calendar_has_all_three_event_types():
+    names = {label for *_, label in oi.macro_events()}
+    assert {"Решение ФРС", "Инфляция США (CPI)", "Рынок труда США (NFP)"} <= names
+
+
 def test_path_scale_flat_profile_is_sqrt_h():
     s = np.ones(168)
     for h in oi.HOURS:

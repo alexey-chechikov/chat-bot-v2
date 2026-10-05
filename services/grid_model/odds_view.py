@@ -244,11 +244,13 @@ def coin_text(sym: str, px: float, books: list, opt: dict) -> str:
     x4 = m.corridor(4, now.paths[4], 0.8)
     out.append("")
     out.append("📌 ГЛАВНОЕ НА СУТКИ")
-    ev = oi.next_fomc(d.index[-1] + pd.Timedelta(hours=1))
-    if ev is not None:
+    nxt = oi.next_event(d.index[-1] + pd.Timedelta(hours=1))
+    if nxt is not None:
+        ev, label, factor = nxt
         msk = ev + pd.Timedelta(hours=3)
-        out.append(f"⚡ Решение ФРС {ev:%d.%m} в {ev:%H:%M} UTC ({msk:%H:%M} МСК): "
-                   f"2 часа после него размах обычно в 2–2.5 раза больше. "
+        span = "2 часа" if "ФРС" in label else "час"
+        out.append(f"⚡ {label} {ev:%d.%m} в {ev:%H:%M} UTC ({msk:%H:%M} МСК): "
+                   f"{span} после выхода размах обычно в {factor:g} раза больше. "
                    f"Шансы ниже это уже учитывают.")
     out.append(f"Обычный ход за 4 часа: {px * (1 - x4):,.0f} … {px * (1 + x4):,.0f}. "
                f"Выйти за эти рамки — событие (1 раз из 5).")
