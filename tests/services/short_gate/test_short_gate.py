@@ -64,7 +64,7 @@ def test_tick_sends_only_on_flip(monkeypatch):
     assert sg.tick(send_fn=sent.append) == "ok"      # без переключения — молча
     assert sent == []
     assert sg.tick(send_fn=sent.append) == "flip"
-    assert len(sent) == 1 and "ШОРТ ЗАПРЕЩЁН" in sent[0]
+    assert len(sent) == 1 and "ШОРТ: РИСК РАЛЛИ" in sent[0]
     assert "выше SMA5" in sent[0]
     events = [json.loads(x)["event"] for x in
               sg.JOURNAL_PATH.read_text(encoding="utf-8").splitlines()]
