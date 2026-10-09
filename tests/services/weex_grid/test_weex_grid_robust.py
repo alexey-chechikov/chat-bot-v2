@@ -64,16 +64,40 @@ def test_lost_response_not_placed_expires(tmp_path):
     assert not g.st["LONG"]["pending"] and len(bot_open(ex)) == 1
 
 
-def test_orphan_entry_cancelled_and_fill_recorded(tmp_path):
+def test_orphan_entry_adopted_when_side_has_none(tmp_path):
+    """Сирота-вход при пустой стороне становится входом стороны: исполненное — лот, второй вход не ставится."""
     px = Px()
     g, ex = make(tmp_path, px, sides=["LONG"])
     ex.orders["x1"] = {"clientOrderId": "b7gBLe1", "side": "BUY", "positionSide": "LONG", "price": "99000.0",
                        "origQty": "0.0002", "status": "NEW", "executedQty": "0.0001", "avgPrice": "99000.0",
                        "reduceOnly": False}
     g.tick()
-    assert ex.orders["x1"]["status"] == "CANCELED"
-    assert any(l["entry"] == pytest.approx(99000.0) for l in g.st["LONG"]["lots"])
+    assert g.st["LONG"]["entry"]["id"] == "x1"
+    assert [l["qty"] for l in g.st["LONG"]["lots"]] == ["0.0001"]
     assert len([o for o in bot_open(ex) if not o["reduceOnly"]]) == 1
+
+
+def test_orphan_entry_tracked_until_terminal_when_cancel_lags(tmp_path):
+    """Разбор GPT P1-2: отмена сироты не прошла (CANCELING), исполнения во время отмены не теряются
+    и не удваиваются, второй вход на стороне не ставится, пока сирота не в конечном статусе."""
+    px = Px()
+    g, ex = make(tmp_path, px, sides=["LONG"])
+    g.tick()                                          # свой вход стоит
+    ex.orders["x2"] = {"clientOrderId": "b7gBLe9", "side": "BUY", "positionSide": "LONG", "price": "99000.0",
+                       "origQty": "0.0012", "status": "NEW", "executedQty": "0.0004", "avgPrice": "99000.0",
+                       "reduceOnly": False}
+    real_cancel = ex.cancel
+    ex.cancel = lambda oid: (ex.orders[oid].update(status="CANCELING") if oid == "x2" else real_cancel(oid)) or {}
+    g.tick()
+    g.tick()                                          # повтор снимка — учёт не растёт
+    sum_q = sum(float(l["qty"]) for l in g.st["LONG"]["lots"])
+    assert sum_q == pytest.approx(0.0004)
+    assert g.st["LONG"]["strays"] and "лишний" in g.st["LONG"]["blocked"] or g.st["LONG"]["entry"]
+    ex.orders["x2"].update(status="FILLED", executedQty="0.0012")   # поздно исполнился и ушёл из открытых
+    g.tick()
+    assert sum(float(l["qty"]) for l in g.st["LONG"]["lots"]) == pytest.approx(0.0012)
+    assert not g.st["LONG"]["strays"]
+    assert all(l.get("tp_order") for l in g.st["LONG"]["lots"])
 
 
 def test_partial_entry_gets_take_while_order_live(tmp_path):
@@ -127,7 +151,7 @@ def test_external_close_is_not_free(tmp_path):
     ex.orders[lot["tp_order"]["id"]]["status"] = "CANCELED"   # тейк снят, позиции на бирже нет
     for o in ex.orders.values():
         if not o["reduceOnly"] and o["status"] == "FILLED":
-            o["status"] = "CANCELED"                  # имитатор: позиции стороны 0
+            o.update(status="CANCELED", executedQty="0")   # имитатор: позиции стороны 0
 
     def reject(*a, **k):
         return {"success": False, "orderId": None}
@@ -138,7 +162,7 @@ def test_external_close_is_not_free(tmp_path):
     g.tick()
     assert not g.st["LONG"]["lots"]
     assert g.st["LONG"]["realized"] == pytest.approx(0.0001 * (90_000.0 - lot["entry"]), rel=1e-3)
-    assert sent and "закрыт не сеткой" in sent[0]
+    assert sent and "закрыто не сеткой" in sent[0]
 
 
 def test_cap_counts_cost_not_only_value(tmp_path):

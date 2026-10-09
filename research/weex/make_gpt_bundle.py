@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATE = sys.argv[1] if len(sys.argv) > 1 else "2026-10-10"
 OUT = ROOT / "docs" / f"WEEX_GRID_CODE_FOR_GPT_{DATE}.md"
 
-DOCS = ["docs/WEEX_GPT_REVIEW_ANSWERS_2026-10-10.md", "docs/WEEX_GRID_LOGIC_FOR_GPT_2026-10-09.md"]
+DOCS = ["docs/WEEX_GPT_REVIEW2_ANSWERS_2026-10-10.md", "docs/WEEX_GPT_REVIEW_ANSWERS_2026-10-10.md", "docs/WEEX_GRID_LOGIC_FOR_GPT_2026-10-09.md"]
 CODE = [
     ("Движок сетки (решения, учёт, имитатор биржи)", "services/weex_grid/engine.py"),
     ("Цикл, несколько сеток, команды /weex", "services/weex_grid/loop.py"),
@@ -20,6 +20,7 @@ CODE = [
     ("Тесты: сценарии из разбора 10.10", "tests/services/weex_grid/test_weex_grid_robust.py"),
     ("Тесты: несколько сеток и команды", "tests/services/weex_grid/test_weex_grid_multi.py"),
     ("Тесты: /weex set", "tests/services/weex_grid/test_weex_grid_set.py"),
+    ("Тесты: сценарии второго разбора (код 65eae029)", "tests/services/weex_grid/test_weex_grid_review2.py"),
     ("Быстрый прогон для развёрток", "research/weex/fast_grid.py"),
     ("Развёртка шаг×цель с половинами окна", "research/weex/sweep_grid.py"),
     ("Сверка быстрого прогона с движком", "research/weex/validate_fast.py"),

@@ -33,7 +33,7 @@ def one(args):
     mid = int(ts[len(ts) // 2])
     cut = datetime.fromtimestamp(mid, timezone.utc).strftime("%Y-%m-%d")
     cut_ts = int(datetime.fromisoformat(cut).replace(tzinfo=timezone.utc).timestamp())
-    kw = dict(order_usd=USD, cap_usd=CAP, max_orders=10_000, order_qty=QTY)
+    kw = dict(order_usd=USD, cap_usd=CAP, max_orders=50, order_qty=QTY)   # 50 — как у живой сетки (10.10)
     r = fg.run(full, SIDES, step, tgt, cut_ts=cut_ts, **kw)
     h1 = fg.run(fg.load(SYM, None, cut), SIDES, step, tgt, **kw)
     h2 = fg.run(fg.load(SYM, cut, None), SIDES, step, tgt, **kw)

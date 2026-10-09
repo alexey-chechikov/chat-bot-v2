@@ -16,18 +16,20 @@ import time
 from services.weex_grid import engine as eg
 
 logger = logging.getLogger(__name__)
-_SIGMA = {"t": 0.0, "v": None}
+_SIGMA: dict[str, dict] = {}
 
 
-def sigma24() -> float | None:
-    if time.time() - _SIGMA["t"] > 3600:
+def sigma24(symbol: str = "BTCUSDT") -> float | None:
+    """σ за сутки своей монеты (10.10, разбор GPT: для ETH/золота бралась σ BTC), кэш на час."""
+    c = _SIGMA.setdefault(symbol, {"t": 0.0, "v": None})
+    if time.time() - c["t"] > 3600:
         try:
             from services.grid_model.stress_budget import sigma24 as s24
-            _SIGMA["v"] = s24("BTCUSDT")
+            c["v"] = s24(symbol)
         except Exception:                                       # noqa: BLE001
-            logger.exception("weex_grid.sigma_failed")
-        _SIGMA["t"] = time.time()
-    return _SIGMA["v"]
+            logger.exception("weex_grid.sigma_failed symbol=%s", symbol)
+        c["t"] = time.time()
+    return c["v"]
 
 
 def grid_config(name: str = "BTC") -> dict:
@@ -58,6 +60,7 @@ class Runner:
         self.real = None
         self.dry_ex: dict[str, eg.DryExchange] = {}
         self.last_err = 0.0
+        self.last_halt: dict[str, float] = {}
         self.mode: dict[str, tuple] = {}
 
     def _client(self):
@@ -78,6 +81,16 @@ class Runner:
         for name in eg.GRIDS:
             try:
                 self.tick_one(name)
+            except eg.GridHalt as exc:
+                # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
+                logger.error("weex_grid.halt grid=%s err=%s", name, exc)
+                if self.send and time.time() - self.last_halt.get(name, 0.0) > 1800:
+                    self.last_halt[name] = time.time()
+                    try:
+                        self.send(f"🛑 Сетка WEEX {name} остановлена: {str(exc)[:250]}. Ордера на бирже не трогаю; "
+                                  f"нужно восстановить файл.")
+                    except Exception:                           # noqa: BLE001
+                        logger.exception("weex_grid.send_failed")
             except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.tick_failed grid=%s", name)
                 first = first or RuntimeError(f"{name}: {exc}")
@@ -106,7 +119,9 @@ class Runner:
         if mode != self.mode.get(name):
             logger.info("weex_grid.mode grid=%s dry=%s enabled=%s", name, dry, cfg["enabled"])
             self.mode[name] = mode
-        grid = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path, sigma_fn=sigma24, send_fn=self.send)
+        sym = cfg["symbol"]
+        grid = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path, sigma_fn=lambda: sigma24(sym),
+                       send_fn=self.send)
         grid.tick()
 
     def _live_leftovers(self, name: str, cfg: dict) -> None:
@@ -114,10 +129,12 @@ class Runner:
         живой проход с enabled=false — входы снимаются (исполненное записывается), тейки
         остаются и учитываются. Без этого живые входы висели бы на бирже без присмотра (10.10)."""
         st_path, jr_path = run_files(name, False)
+        if not st_path.exists():
+            return
         try:
             st = json.loads(st_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
+        except (OSError, ValueError) as exc:
+            raise eg.StateCorrupt(f"живой учёт {st_path.name} не читается: {exc}") from exc
         if not any(st.get(s, {}).get("entry") or st.get(s, {}).get("lots") or st.get(s, {}).get("pending")
                    for s in ("LONG", "SHORT")):
             return
@@ -141,12 +158,15 @@ def card(name: str | None = None) -> str:
     real.sync_time()
     out = []
     for n in ([name] if name else eg.GRIDS):
-        cfg = grid_config(n)
-        st_path, _ = run_files(n, bool(cfg["dry_run"]))
-        sym = cfg["symbol"]
-        client = eg.DryExchange(lambda: real.book(sym), symbol=sym) if cfg["dry_run"] else real
-        g = eg.Grid(client, cfg, state_path=st_path, journal_path=eg.JOURNAL.with_name("_unused.jsonl"))
-        out.append(g.card())
+        try:
+            cfg = grid_config(n)
+            st_path, _ = run_files(n, bool(cfg["dry_run"]))
+            sym = cfg["symbol"]
+            client = eg.DryExchange(lambda: real.book(sym), symbol=sym) if cfg["dry_run"] else real
+            g = eg.Grid(client, cfg, state_path=st_path, journal_path=eg.JOURNAL.with_name("_unused.jsonl"))
+            out.append(g.card())
+        except eg.GridHalt as exc:
+            out.append(f"🛑 СЕТКА WEEX {n} — ОСТАНОВЛЕНА: {exc}")
     return "\n\n".join(out)
 
 
@@ -212,6 +232,13 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
 def command(arg: str) -> str:
     """/weex [eth|btc] [start|stop|live|dry|set ...] — управление; без аргумента — карточки всех сеток.
     Без имени монеты команды относятся к BTC (как было до 09.10)."""
+    try:
+        return _command(arg)
+    except eg.GridHalt as exc:
+        return f"🛑 Сетка WEEX не тронута: {exc}. Нужно восстановить файл."
+
+
+def _command(arg: str) -> str:
     raw = (arg or "").strip()
     first = raw.split(None, 1)[0].lower() if raw else ""
     name = NAMES.get(first)
@@ -235,12 +262,14 @@ def command(arg: str) -> str:
         cfg["enabled"] = True
         for dry in (False, True):
             p, _ = run_files(name, dry)
+            if not p.exists():
+                continue
             try:
                 st = json.loads(p.read_text(encoding="utf-8"))
-                st["halted"], st["halt_reason"] = False, ""
-                p.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
             except (OSError, ValueError):
-                pass
+                continue                      # битый учёт не перезаписываем — его разберёт проход (GridHalt)
+            st["halted"], st["halt_reason"] = False, ""
+            eg.atomic_write(p, json.dumps(st, ensure_ascii=False, indent=1))
         save_grid_config(cfg, name)
         return f"▶️ {tag} включена (" + ("холостой режим" if cfg["dry_run"] else "ЖИВАЯ") + ")."
     if arg in ("stop", "стоп"):
@@ -265,7 +294,10 @@ async def weex_grid_loop(stop_event=None, send_fn=None) -> None:
     while True:
         if stop_event is not None and stop_event.is_set():
             return
-        poll = int(eg.load_config().get("poll_sec", 10))
+        try:
+            poll = int(eg.load_config().get("poll_sec", 10))
+        except eg.GridHalt:
+            poll = 10                         # битый конфиг BTC — сетка BTC стоит, остальные работают
         try:
             await asyncio.to_thread(runner.tick)
         except Exception as exc:                                # noqa: BLE001

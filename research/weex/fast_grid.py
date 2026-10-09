@@ -69,6 +69,11 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
     eq_cut = None
     peak, max_dd = 0.0, 0.0
     for i in range(len(ts)):
+        if cut_ts is not None and eq_cut is None and ts[i] >= cut_ts:
+            # капитал на ГРАНИЦЕ — до первой сделки второй части, по закрытию последней минуты первой
+            # (10.10, разбор GPT: брался после обработки минуты среза и только на часовых точках)
+            pc = c[i - 1] if i > 0 else o[i]
+            eq_cut = sum(s.realized - s.fees + sum(s.d * x[1] * (pc - x[0]) for x in s.lots) for s in st.values())
         for p in pts[i]:
             for s in st.values():
                 d = s.d
@@ -104,22 +109,20 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
                         s.fees += fee * q * e
                         s.turnover += q * e
                         s.entries += 1
+        # капитал и мешок — по закрытию КАЖДОЙ минуты (10.10, разбор GPT: раз в час занижало просадку)
         px = c[i]
-        eq = sum(s.realized - s.fees + sum(s.d * x[1] * (px - x[0]) for x in s.lots) for s in st.values()) \
-            if i % 60 == 0 or i == len(ts) - 1 else None
-        if eq is not None:
+        bag = sum(s.d * x[1] * (px - x[0]) for s in st.values() for x in s.lots)
+        eq = sum(s.realized - s.fees for s in st.values()) + bag
+        if i % 1440 == 0 or i == len(ts) - 1:
             m = datetime.fromtimestamp(int(ts[i]), timezone.utc).strftime("%Y-%m")
             if m != cur_m:
                 if cur_m is not None:
                     months.append((cur_m, last_eq))
                 cur_m = m
-            last_eq = eq
-            bag = sum(s.d * x[1] * (px - x[0]) for s in st.values() for x in s.lots)
-            worst = min(worst, bag)
-            peak = max(peak, eq)
-            max_dd = min(max_dd, eq - peak)
-            if cut_ts is not None and eq_cut is None and ts[i] >= cut_ts:
-                eq_cut = eq
+        last_eq = eq
+        worst = min(worst, bag)
+        peak = max(peak, eq)
+        max_dd = min(max_dd, eq - peak)
     months.append((cur_m, last_eq))
     px = c[-1]
     res = {
@@ -133,7 +136,7 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
                         for k, s in st.items()},
     }
     res["итог"] = res["закрыто"] - res["комиссии"] + res["мешок"]
-    res["просадка капитала"] = max_dd                        # от пика до дна по часовым точкам
+    res["просадка капитала"] = max_dd                        # от пика до дна по закрытиям минут
     if eq_cut is not None:
         res["2-я часть непрерывно"] = res["итог"] - eq_cut
         res["1-я часть непрерывно"] = eq_cut

@@ -112,9 +112,16 @@ class WeexClient:
                 return out
             page += 1
 
-    def order_history(self, symbol: str, limit: int = 100, page: int = 0) -> list[dict]:
-        """Последние ордера (вес 10) — поиск ордера по clientOrderId, когда ответ на постановку потерян."""
-        return self.get(FUTURES, "/capi/v3/order/history", {"symbol": symbol, "limit": limit, "page": page}) or []
+    def order_history(self, symbol: str, limit: int = 100, page: int = 0,
+                      start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
+        """Ордера символа (вес 10), с окном по времени и постранично — поиск ордера по clientOrderId,
+        когда ответ на постановку потерян."""
+        p = {"symbol": symbol, "limit": limit, "page": page}
+        if start_ms is not None:
+            p["startTime"] = int(start_ms)
+        if end_ms is not None:
+            p["endTime"] = int(end_ms)
+        return self.get(FUTURES, "/capi/v3/order/history", p) or []
 
     def order_info(self, order_id: str | int) -> dict:
         return self.get(FUTURES, "/capi/v3/order", {"orderId": order_id})
@@ -129,10 +136,16 @@ class WeexClient:
     def cancel(self, order_id: str | int) -> dict:
         return self.delete(FUTURES, "/capi/v3/order", {"orderId": order_id})
 
-    def user_trades(self, symbol: str, order_id: str | int | None = None) -> list[dict]:
+    def user_trades(self, symbol: str, order_id: str | int | None = None,
+                    start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
+        """Сделки (вес 5), до 100 за запрос; окно startTime..endTime не длиннее 7 суток."""
         p = {"symbol": symbol, "limit": 100}
         if order_id is not None:
             p["orderId"] = order_id
+        if start_ms is not None:
+            p["startTime"] = int(start_ms)
+        if end_ms is not None:
+            p["endTime"] = int(end_ms)
         return self.get(FUTURES, "/capi/v3/userTrades", p)
 
     # --- фьючерсы
