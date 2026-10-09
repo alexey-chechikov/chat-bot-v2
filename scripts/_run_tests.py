@@ -37,6 +37,7 @@ TEST_DIRS = [
     "tests/services/morning_brief/test_regime_fallback.py",
     "tests/services/trend_signals/",
     "tests/services/grid_model/",
+    "tests/services/weex_grid/",
 ]
 
 def main():

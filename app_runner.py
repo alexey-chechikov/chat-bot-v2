@@ -817,6 +817,31 @@ async def _run_level_alerts(stop_event: asyncio.Event, *, telegram_app=None) -> 
     await level_alerts_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_stress_budget(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Стресс-бюджет живых сеток (2026-10-06, оператор: «делай»).
+
+    Раз в 30 минут: сколько потеряет каждый бот при резком ходе против позиции
+    (max(10%, 3·σ24ч·√3) за 3 дня) и граница, при которой убыток ≤ 25% депозита.
+    Пишет сам только при 🔴 (≥ половины депозита), остальное — /stress.
+    Ботов не трогает. Конфиг state/stress_budget_config.json.
+    """
+    from services.grid_model.stress_budget import stress_budget_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "STRESS_BUDGET") if telegram_app else None
+    await stress_budget_loop(stop_event=stop_event, send_fn=send_fn)
+
+
+async def _run_weex_grid(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Сетка WEEX (2026-10-09, оператор: «делай на этом ключе»): BTC, шаг 0.2 / цель 0.3,
+    0.0001 BTC, лимитки POST_ONLY, свои ордера с префиксом b7g. Управление — /weex.
+    Конфиг state/weex_grid_config.json (enabled / dry_run).
+    """
+    from services.weex_grid.loop import weex_grid_loop
+    from services.telegram.channel_router import build_send_fn
+    send_fn = build_send_fn(telegram_app, "WEEX_GRID") if telegram_app else None
+    await weex_grid_loop(stop_event=stop_event, send_fn=send_fn)
+
+
 async def _run_alt_momentum_shadow(stop_event: asyncio.Event) -> None:
     """Alt-momentum форвард-сбор (Win 2026-06-17): 4ч кросс-секц. моментум, холд 24ч,
     long топ-4/short низ-4 по excess vs BTC, market-neutral. БЕЗ денег, тег режима
@@ -1618,6 +1643,8 @@ async def main(
     short_gate_task = asyncio.create_task(_run_short_gate(stop_event, telegram_app=app), name="short_gate")
     odds_journal_task = asyncio.create_task(_run_odds_journal(stop_event), name="odds_journal")
     level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
+    stress_budget_task = asyncio.create_task(_run_stress_budget(stop_event, telegram_app=app), name="stress_budget")
+    weex_grid_task = asyncio.create_task(_run_weex_grid(stop_event, telegram_app=app), name="weex_grid")
     trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
@@ -1667,7 +1694,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, grid_border_task, bot_watch_task, short_gate_task, odds_journal_task, level_alerts_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, grid_border_task, bot_watch_task, short_gate_task, odds_journal_task, level_alerts_task, stress_budget_task, weex_grid_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0

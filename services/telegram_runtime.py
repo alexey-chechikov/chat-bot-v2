@@ -2614,6 +2614,42 @@ class TelegramBotApp:
                 markup = build_main_keyboard() if i == len(parts) - 1 else None
                 self.bot.send_message(chat_id, text[:4096], reply_markup=markup)
 
+        # ── /stress — стресс-бюджет живых сеток (2026-10-06): сколько потеряет
+        # каждый бот при резком ходе против позиции и какая граница держит
+        # убыток в 25% депозита. Проверка — research/grid_risk/.
+        @self.bot.message_handler(commands=['stress', 'risk'])
+        def handle_stress(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.grid_model.stress_budget import build_card
+                from telegram_ui.keyboards import build_main_keyboard
+                text = build_card()
+            except Exception as exc:
+                logger.exception('handle_stress.failed')
+                self.bot.send_message(chat_id, f'❌ /stress failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text[:4096], reply_markup=build_main_keyboard())
+
+        # ── /weex — сетка WEEX (2026-10-09): карточка; /weex start|stop|live|dry.
+        @self.bot.message_handler(commands=['weex'])
+        def handle_weex(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            arg = (message.text or '').partition(' ')[2].strip()
+            try:
+                from services.weex_grid.loop import command
+                text = command(arg)
+            except Exception as exc:
+                logger.exception('handle_weex.failed')
+                self.bot.send_message(chat_id, f'❌ /weex failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text[:4096])
+
         # ── /scalp — место под помощника ручного интрадей-скальпинга (WEEX,
         # план оператора 02.10.2026). Пока заготовка: что будет и что нужно.
         @self.bot.message_handler(commands=['scalp'])
