@@ -14,8 +14,8 @@ class Px:
 
 def make(tmp_path, px, **cfg):
     conf = {**eg.DEFAULT, "enabled": True, "dry_run": True, **cfg}
-    ex = eg.DryExchange(px)
     clock = {"t": 1_800_000_000.0}
+    ex = eg.DryExchange(px, now_fn=lambda: clock["t"])
 
     def now():
         clock["t"] += 10

@@ -192,6 +192,13 @@ class Grid:
         st.setdefault("day", None)
         st.setdefault("day_start_pnl", 0.0)
         st.setdefault("fee_checked", 0.0)
+        # миграция курсора комиссии из учёта до 10.10 (entry/stray['fee_done']) — иначе следующий
+        # прирост прибавил бы уже учтённую комиссию заново (разбор GPT, перепроверка 10.10)
+        for s in ("LONG", "SHORT"):
+            sd = st[s]
+            for o in [sd.get("entry")] + list(sd.get("strays") or []):
+                if o and o.get("fee_done") and str(o["id"]) not in sd["fee_book"]:
+                    sd["fee_book"][str(o["id"])] = {"done": float(o["fee_done"]), "t": self.now()}
         return st
 
     def save(self) -> None:
@@ -236,28 +243,65 @@ class Grid:
             trades = []
         fee_all = sum(float(t.get("commission") or 0) for t in trades)
         makers = {bool(t.get("maker")) for t in trades}
-        rec = s["fee_book"].setdefault(str(order_id), {"done": 0.0, "t": self.now()})
+        rec = s["fee_book"].setdefault(str(order_id), {"done": 0.0, "t": self.now(), "t0": self.now()})
         delta = max(fee_all - rec["done"], 0.0)
         rec["done"] = max(rec["done"], fee_all)
         rec["t"] = self.now()
         return delta, (makers.pop() if len(makers) == 1 else None)
 
+    def _referenced(self, side: str) -> set[str]:
+        """Ордера стороны, которые учёт ещё ведёт (их курсоры не истекают)."""
+        s = self.st[side]
+        ids = {str(x["id"]) for x in s["strays"]}
+        if s.get("entry"):
+            ids.add(str(s["entry"]["id"]))
+        ids.update(str(l["tp_order"]["id"]) for l in s["lots"] if l.get("tp_order"))
+        return ids
+
+    def _trades_window(self, start_ms: int, end_ms: int, budget: list | None = None) -> tuple[list[dict], bool]:
+        """Все сделки символа за окно: окно с 100 сделками делится пополам (до 1 с), не больше 64
+        запросов за раз. Второе значение — выборка ПОЛНАЯ (False: окно переполнено или лимит
+        запросов исчерпан — результат неполон, курсоры не закрываются)."""
+        budget = budget if budget is not None else [64]
+        if budget[0] <= 0:
+            return [], False
+        budget[0] -= 1
+        rows = self.c.user_trades(self.cfg["symbol"], start_ms=start_ms, end_ms=end_ms) or []
+        if len(rows) < 100:
+            return rows, True
+        if end_ms - start_ms <= 1000:
+            return rows, False
+        m = (start_ms + end_ms) // 2
+        a, ca = self._trades_window(start_ms, m, budget)
+        b, cb = self._trades_window(m + 1, end_ms, budget)
+        return a + b, ca and cb
+
     def _settle_fees(self) -> None:
-        """Раз в минуту одним запросом сделок символа дописать комиссии, которых не было в момент
-        исполнения (10.10, разбор GPT: при пустом ответе сделок комиссия терялась навсегда)."""
+        """Раз в минуту дописать комиссии, которых не было в момент исполнения. Сделки — ВСЕ за окно
+        от самого старого открытого курсора (не последние 100). Курсор ордера, который учёт ещё ведёт,
+        не истекает; курсор завершённого ордера держится FEE_WINDOW (перепроверка GPT 10.10: курсор
+        живого частичного ордера истекал, и следующий прирост учитывал старую комиссию заново)."""
         now = self.now()
         books = [(sd, oid, rec) for sd in ("LONG", "SHORT") for oid, rec in self.st[sd]["fee_book"].items()]
         if not books or now - float(self.st.get("fee_checked") or 0) < FEE_POLL:
             return
         self.st["fee_checked"] = now
+        oldest = min(float(rec.get("t0", rec["t"])) for _, _, rec in books)
         try:
-            trades = self.c.user_trades(self.cfg["symbol"]) or []
+            trades, complete = self._trades_window(int((oldest - 600) * 1000), int((now + 60) * 1000))
         except Exception:                                       # noqa: BLE001
             logger.exception("weex_grid.trades_failed")
             return
         by_order: dict[str, float] = {}
+        seen = set()
         for t in trades:
+            key = str(t.get("id")) if t.get("id") is not None else None
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
             by_order[str(t.get("orderId"))] = by_order.get(str(t.get("orderId")), 0.0) + float(t.get("commission") or 0)
+        refs = {sd: self._referenced(sd) for sd in ("LONG", "SHORT")}
         for sd, oid, rec in books:
             fee_all = by_order.get(oid)
             if fee_all is not None and fee_all > rec["done"] + 1e-12:
@@ -265,7 +309,12 @@ class Grid:
                 self.st[sd]["fees"] += add
                 rec["done"] = fee_all
                 self._journal({"side": sd, "kind": "комиссия (поздняя)", "fee": add, "order_id": oid})
+            if oid in refs[sd] or not complete:
+                continue                                        # ордер ещё ведётся / выборка неполна — курсор держим
             if now - rec["t"] > FEE_WINDOW:
+                if rec["done"] <= 0:
+                    logger.warning("weex_grid.fee_unresolved side=%s order=%s", sd, oid)
+                    self._journal({"side": sd, "kind": "комиссия не найдена за час", "order_id": oid})
                 self.st[sd]["fee_book"].pop(oid, None)
 
     def equity(self) -> float | None:
@@ -277,6 +326,7 @@ class Grid:
                 self._equity_ts = self.now()
             except Exception:                                   # noqa: BLE001
                 logger.exception("weex_grid.balance_failed")
+                self._equity = None                             # просроченный кэш не выдаём за известный баланс
         return self._equity
 
     def unrealized(self, mid: float) -> float:
@@ -369,21 +419,25 @@ class Grid:
         s["pending"] = None
         return {"id": str(r["orderId"]), "cid": cid, "price": price, "qty": q}
 
-    def _find_by_cid(self, cid: str, since: float) -> dict | None:
-        """Свой ордер по clientOrderId: открытые, затем ВСЯ история символа с момента намерения
-        (постранично по времени, а не только первые 100 — 10.10, разбор GPT)."""
+    def _find_by_cid(self, cid: str, since: float) -> tuple[dict | None, bool]:
+        """Свой ордер по clientOrderId: открытые, затем история символа в узком окне вокруг момента
+        намерения (±2 мин — ордер создан именно тогда), постранично. Второе значение — поиск ПОЛНЫЙ:
+        False, если все 10 страниц заполнены (перепроверка GPT 10.10: неполный поиск не доказывает,
+        что ордер не дошёл, — такой pending не истекает)."""
         o = next((x for x in self.open.values() if x.get("clientOrderId") == cid), None)
         if o is not None:
-            return o
+            return o, True
         start_ms = int((since - 120) * 1000)
-        end_ms = int((self.now() + 60) * 1000)
+        end_ms = int((since + 120) * 1000)
         for page in range(10):
             chunk = self.c.order_history(self.cfg["symbol"], limit=100, page=page,
                                          start_ms=start_ms, end_ms=end_ms) or []
             o = next((x for x in chunk if x.get("clientOrderId") == cid), None)
-            if o is not None or len(chunk) < 100:
-                return o
-        return None
+            if o is not None:
+                return o, True
+            if len(chunk) < 100:
+                return None, True
+        return None, False
 
     def _resolve_pending(self, side: str) -> bool:
         """Ордер с потерянным ответом: найти и привязать. False — ещё не выяснено (на этой стороне
@@ -393,12 +447,20 @@ class Grid:
         if not p:
             return True
         try:
-            o = self._find_by_cid(p["cid"], p["t"])
+            o, complete = self._find_by_cid(p["cid"], p["t"])
         except Exception:                                       # noqa: BLE001
             logger.exception("weex_grid.history_failed")
             return False
         if o is None:
             if self.now() - p["t"] < PENDING_TTL:
+                return False
+            if not complete:                                    # поиск неполный — не считаем «не дошёл»
+                if not p.get("warned"):
+                    p["warned"] = True
+                    self.save()
+                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ордер {p['cid']} с потерянным ответом не "
+                                 f"найден, история слишком плотная для полного поиска — новые ордера стороны "
+                                 f"{side} не ставлю до выяснения.")
                 return False
             logger.warning("weex_grid.pending_not_found side=%s cid=%s — ордер не дошёл", side, p["cid"])
             self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ биржи на ордер {p['cid']} потерян, за "
@@ -425,9 +487,11 @@ class Grid:
         return True
 
     def _to_stray(self, side: str, order: dict, kind: str) -> None:
-        """Лишний свой ордер: снять и ВЕСТИ до конечного статуса (исполненное — записать)."""
-        self._cancel(order)
+        """Лишний свой ордер: СНАЧАЛА записать на диск, потом снять и вести до конечного статуса
+        (перепроверка GPT 10.10: снятие до сохранения при сбое оставляло исполненный ордер без учёта)."""
         self.st[side]["strays"].append({**order, "kind": kind})
+        self.save()
+        self._cancel(order)
 
     def _orphans(self) -> None:
         """Свои (b7g) ордера этого символа, о которых учёт не знает (потерянный ответ, откат учёта).
@@ -461,11 +525,18 @@ class Grid:
                     continue
                 self._to_stray(side, order, "e")
             else:
-                lot = next((l for l in s["lots"] if l.get("tp_order") is None
-                            and abs(float(l["qty"]) - float(o.get("origQty") or 0)) <= self._tiny()
-                            and abs(l["tp"] - price) <= tick + 1e-9), None)
+                orig, exq = float(o.get("origQty") or 0), float(o.get("executedQty") or 0)
+                near = [l for l in s["lots"] if l.get("tp_order") is None and abs(l["tp"] - price) <= tick + 1e-9]
+                # исполненное ещё не записано: лот целый → курсор с нуля
+                lot = next((l for l in near if abs(float(l["qty"]) - orig) <= self._tiny()), None)
                 if lot is not None:
                     lot["tp_order"] = order
+                    continue
+                # исполненное уже записано (лот уменьшен на него) → курсор = исполненное, без повторного учёта
+                lot = next((l for l in near if exq > 0 and abs(float(l["qty"]) - (orig - exq)) <= self._tiny()), None)
+                if lot is not None:
+                    avg = float(o.get("avgPrice") or 0) or price
+                    lot["tp_order"] = {**order, "filled": exq, "filled_val": avg * exq}
                     continue
                 self._to_stray(side, order, "t")
             self.open.pop(oid, None)
@@ -539,8 +610,13 @@ class Grid:
         self._orphans()
         open_ids = set(self.open)
         self._day_roll(mid)
-        for side in cfg["sides"]:
-            self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]))
+        # обе стороны сопровождаются всегда, пока у стороны есть что-то на бирже/в учёте; новые входы —
+        # только на сторонах из конфига (перепроверка GPT 10.10: после смены sides LONG→SHORT старый
+        # вход LONG исполнялся без учёта и тейка)
+        for side in ("LONG", "SHORT"):
+            s = self.st[side]
+            if side in cfg["sides"] or s.get("entry") or s["lots"] or s["strays"] or s.get("pending"):
+                self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]) and side in cfg["sides"])
         self._settle_fees()
         self._risk(mid)
         self.save()
@@ -784,7 +860,13 @@ class Grid:
             live = self.open.get(e["id"])
             same_qty = live is None or abs(float(live.get("origQty") or 0) - float(cfg["order_qty"])) < 1e-12
             if same_qty and abs(e["price"] - desired) / desired * 100 <= float(cfg["trail_min_move_pct"]):
-                return                        # цена и объём те же — оставить
+                # оставить можно, только если стоящий ордер САМ проходит потолок по своей цене (перепроверка
+                # GPT 10.10: допуск 0.05% оставлял старую заявку чуть сверх сниженного потолка)
+                keep_ok, keep_why = self.may_add(side, e["price"], mid,
+                                                 qty=float(e.get("qty") or (live or {}).get("origQty") or cfg["order_qty"]))
+                if keep_ok:
+                    return                    # цена и объём те же — оставить
+                s["blocked"] = keep_why
             if self._drop_entry(side) or s["entry"]:
                 return                        # успел исполниться — новый вход считаем на следующем проходе
         s["entry"] = self._place(side, "e", desired, False, bid, ask)
@@ -805,8 +887,10 @@ class Grid:
         mode = ("ВЫКЛ" if not cfg["enabled"] else "ХОЛОСТОЙ (без ордеров)" if cfg["dry_run"] else "ЖИВАЯ")
         lines = [f"🕸 СЕТКА WEEX {cfg['symbol']} — {mode}" + (f" · СТОП: {self.st['halt_reason']}" if self.st["halted"] else ""),
                  f"шаг {cfg['step_pct']}% · цель {cfg['target_pct']}% · ордер {cfg['order_qty']} · цена {fmt_px(mid, tick)}"]
-        for side in cfg["sides"]:
+        for side in ("LONG", "SHORT"):
             s = self.st[side]
+            if side not in cfg["sides"] and not (s.get("entry") or s["lots"] or s["strays"]):
+                continue                      # сторона снята из конфига — показываем, пока у неё есть остатки
             q = sum(float(l["qty"]) for l in s["lots"])
             un = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in s["lots"])
             ent = f"вход {fmt_px(s['entry']['price'], tick)}" if s.get("entry") else ("вход нет: " + s.get("blocked", "") if s.get("blocked") else "вход нет")
@@ -822,9 +906,11 @@ class DryExchange:
     """Имитатор биржи для холостого прогона и тестов: цены — живые (или заданные), ордера
     исполняются, когда стакан их пересекает (покупка — ask ≤ цены, продажа — bid ≥ цены)."""
 
-    def __init__(self, book_fn, maker_fee: float = 0.00016, balance: float = 3300.0, symbol: str = "BTCUSDT"):
+    def __init__(self, book_fn, maker_fee: float = 0.00016, balance: float = 3300.0, symbol: str = "BTCUSDT",
+                 now_fn=time.time):
         self.book_fn = book_fn
         self.symbol = symbol
+        self.now_fn = now_fn                         # время сделок — для выборки по окну, как у биржи
         self.maker_fee = maker_fee
         self.orders: dict[str, dict] = {}
         self.trades: dict[str, list] = {}
@@ -840,8 +926,10 @@ class DryExchange:
             hit = (o["side"] == "BUY" and ask <= px) or (o["side"] == "SELL" and bid >= px)
             if hit:
                 o.update(status="FILLED", executedQty=o["origQty"], avgPrice=o["price"])
-                self.trades[oid] = [{"orderId": oid, "commission": str(float(o["origQty"]) * px * self.maker_fee),
-                                     "maker": True, "price": o["price"], "qty": o["origQty"]}]
+                self.trades[oid] = [{"id": f"t{oid}", "orderId": oid,
+                                     "commission": str(float(o["origQty"]) * px * self.maker_fee),
+                                     "maker": True, "price": o["price"], "qty": o["origQty"],
+                                     "time": int(self.now_fn() * 1000)}]
         return bid, ask
 
     def open_orders(self, symbol):
@@ -871,10 +959,12 @@ class DryExchange:
             o["status"] = "CANCELED"
         return {"success": True, "orderId": oid}
 
-    def user_trades(self, symbol, order_id=None):
-        if order_id is None:
-            return [t for ts in self.trades.values() for t in ts]
-        return self.trades.get(str(order_id), [])
+    def user_trades(self, symbol, order_id=None, start_ms=None, end_ms=None):
+        if order_id is not None:
+            return self.trades.get(str(order_id), [])
+        rows = [t for ts in self.trades.values() for t in ts
+                if (start_ms is None or t.get("time", 0) >= start_ms) and (end_ms is None or t.get("time", 0) <= end_ms)]
+        return sorted(rows, key=lambda t: -t.get("time", 0))[:100]     # как биржа: новые первыми, не больше 100
 
     def futures_balance(self):
         return [{"asset": "USDT", "balance": str(self.balance), "unrealizePnl": "0"}]

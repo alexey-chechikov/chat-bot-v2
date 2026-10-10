@@ -23,12 +23,20 @@ start = int((datetime.fromisoformat(first).timestamp() - 3600) * 1000)
 end = int(time.time() * 1000) + 60_000
 
 
+INCOMPLETE = []
+
+
 def fetch(a: int, b: int) -> list[dict]:
+    """Окно с 100 сделками делится пополам до 1 с; переполненное секундное окно — неполная выборка
+    (перепроверка GPT 10.10: деление останавливалось на 60 с и молча теряло сделки)."""
     rows = c.user_trades("BTCUSDT", start_ms=a, end_ms=b) or []
-    if len(rows) >= 100 and b - a > 60_000:           # окно переполнено — делим пополам
-        m = (a + b) // 2
-        return fetch(a, m) + fetch(m + 1, b)
-    return rows
+    if len(rows) < 100:
+        return rows
+    if b - a <= 1000:
+        INCOMPLETE.append((a, b))
+        return rows
+    m = (a + b) // 2
+    return fetch(a, m) + fetch(m + 1, b)
 
 
 trades, a = [], start
@@ -67,4 +75,7 @@ for side, d in (("LONG", 1), ("SHORT", -1)):
     print(f"{side}: бот   — остаток {held:.4f}, закрыто ${s['realized']:+.4f} + мешок ${bag:+.4f} = ${bot:+.4f}, "
           f"комиссии ${s['fees']:.4f}, после ${bot - s['fees']:+.4f}")
     print(f"{side}: расхождение — деньги ${diff:+.4f}, комиссии ${fdiff:+.4f}, объём {qdiff:+.4f}")
-print("ИТОГ:", "совпадает (деньги и комиссии ±$0.01, объём точно)" if ok else "ЕСТЬ РАСХОЖДЕНИЕ")
+if INCOMPLETE:
+    print(f"ВЫБОРКА НЕПОЛНА: {len(INCOMPLETE)} секундных окон со 100 сделками — сверка недостоверна")
+print("ИТОГ:", "совпадает (деньги и комиссии ±$0.01, объём точно)" if ok and not INCOMPLETE else "ЕСТЬ РАСХОЖДЕНИЕ/НЕПОЛНО")
+sys.exit(0 if ok and not INCOMPLETE else 1)          # ненулевой код — для автоматической проверки

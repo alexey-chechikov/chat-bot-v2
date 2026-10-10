@@ -11,11 +11,15 @@ import asyncio
 import json
 import logging
 import math
+import threading
 import time
 
 from services.weex_grid import engine as eg
 
 logger = logging.getLogger(__name__)
+# Один владелец конфига/учёта: проход сетки и команды /weex не пересекаются (перепроверка GPT 10.10:
+# проход, начатый до /weex start, сохранял старый halted=true поверх команды).
+STATE_LOCK = threading.RLock()
 _SIGMA: dict[str, dict] = {}
 
 
@@ -80,7 +84,8 @@ class Runner:
         first = None
         for name in eg.GRIDS:
             try:
-                self.tick_one(name)
+                with STATE_LOCK:
+                    self.tick_one(name)
             except eg.GridHalt as exc:
                 # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
                 logger.error("weex_grid.halt grid=%s err=%s", name, exc)
@@ -135,9 +140,9 @@ class Runner:
             st = json.loads(st_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise eg.StateCorrupt(f"живой учёт {st_path.name} не читается: {exc}") from exc
-        if not any(st.get(s, {}).get("entry") or st.get(s, {}).get("lots") or st.get(s, {}).get("pending")
-                   for s in ("LONG", "SHORT")):
-            return
+        if not any(st.get(s, {}).get(k) for s in ("LONG", "SHORT")
+                   for k in ("entry", "lots", "pending", "strays", "fee_book")):
+            return                            # живых остатков нет (сироты и недосверенные комиссии — тоже остатки)
         live_cfg = {**cfg, "dry_run": False, "enabled": False}
         eg.Grid(self._client(), live_cfg, state_path=st_path, journal_path=jr_path, send_fn=self.send).tick()
 
@@ -233,7 +238,8 @@ def command(arg: str) -> str:
     """/weex [eth|btc] [start|stop|live|dry|set ...] — управление; без аргумента — карточки всех сеток.
     Без имени монеты команды относятся к BTC (как было до 09.10)."""
     try:
-        return _command(arg)
+        with STATE_LOCK:
+            return _command(arg)
     except eg.GridHalt as exc:
         return f"🛑 Сетка WEEX не тронута: {exc}. Нужно восстановить файл."
 
