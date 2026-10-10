@@ -56,9 +56,16 @@ class Side:
 
 
 def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.0, cap_usd=4000.0,
-        max_orders=50, fee=MAKER, order_qty: float | None = None, cut_ts: int | None = None):
+        max_orders=50, fee=MAKER, order_qty: float | None = None, cut_ts: int | None = None,
+        exit_mode: str = "limit", min_stop: float = 0.006, max_stop: float = 0.02, exit_fee: float = 0.00048):
     """order_qty — фиксированный объём в монете (как у живой сетки); иначе — order_usd / цена уровня.
-    cut_ts — момент, с которого считается непрерывный результат второй части окна (без обнуления)."""
+    cut_ts — момент, с которого считается непрерывный результат второй части окна (без обнуления).
+    exit_mode="trail" — выход как у GinArea: цена дошла до цели лота → лот «взведён», общий стоп-профит
+    стороны = триггер − min_stop%, дальше тянется за ценой на расстоянии max_stop%; откат до стопа →
+    ВСЕ взведённые лоты закрываются по цене стопа рыночным ордером (комиссия exit_fee)."""
+    if exit_mode == "trail":
+        return _run_trail(sym_data, sides, step, target, order_usd, cap_usd, max_orders, fee, order_qty,
+                          min_stop / 100, max_stop / 100, exit_fee)
     ts, o, h, l, c = sym_data
     pts = path4(o, h, l, c)
     st = {s: Side(1 if s == "LONG" else -1) for s in sides}
@@ -145,4 +152,84 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
     for m, e in months:
         res["по месяцам"].append((m, round(e - prev, 2)))
         prev = e
+    return res
+
+
+def _run_trail(sym_data, sides, step, target, order_usd, cap_usd, max_orders, fee, order_qty, mn, mx, xfee):
+    """Выход GinArea (Out Stop): взведённые лоты закрываются вместе по тянущемуся стопу рыночным ордером.
+    Входы — те же лимитки (мейкер), правило опорной цены — от крайнего открытого лота."""
+    ts, o, h, l, c = sym_data
+    pts = path4(o, h, l, c)
+    g, t = step / 100, target / 100
+    st = {}
+    for sd in sides:
+        st[sd] = {"d": 1 if sd == "LONG" else -1, "lots": [], "ref": None, "stop": None,
+                  "realized": 0.0, "fees": 0.0, "turnover": 0.0, "closes": 0, "lots_closed": 0, "entries": 0}
+    peak, max_dd, worst = 0.0, 0.0, 0.0
+    for i in range(len(ts)):
+        for p in pts[i]:
+            for s in st.values():
+                d = s["d"]
+                # взвести лоты, чья цена цели пройдена; общий стоп: триггер − min_stop, затем тянется на max_stop
+                for lot in s["lots"]:
+                    if not lot[3] and ((d > 0 and p >= lot[2]) or (d < 0 and p <= lot[2])):
+                        lot[3] = True
+                        first = lot[2] * (1 - d * mn)
+                        s["stop"] = first if s["stop"] is None else (min(s["stop"], first) if d > 0 else max(s["stop"], first))
+                if s["stop"] is not None:
+                    trail = p * (1 - d * mx)
+                    if (d > 0 and trail > s["stop"]) or (d < 0 and trail < s["stop"]):
+                        s["stop"] = trail
+                    if (d > 0 and p <= s["stop"]) or (d < 0 and p >= s["stop"]):
+                        px = s["stop"]
+                        keep = []
+                        for lot in s["lots"]:
+                            if lot[3]:
+                                e, q = lot[0], lot[1]
+                                s["realized"] += d * q * (px - e)
+                                s["fees"] += xfee * q * px
+                                s["turnover"] += q * px
+                                s["lots_closed"] += 1
+                            else:
+                                keep.append(lot)
+                        s["lots"] = keep
+                        s["stop"] = None
+                        s["closes"] += 1
+                # опорная цена и вход — как в основном прогоне
+                if s["lots"]:
+                    s["ref"] = min(x[0] for x in s["lots"]) if d > 0 else max(x[0] for x in s["lots"])
+                elif s["ref"] is None:
+                    s["ref"] = p
+                else:
+                    s["ref"] = max(s["ref"], p) if d > 0 else min(s["ref"], p)
+                lvl = s["ref"] * (1 - d * g)
+                if len(s["lots"]) < max_orders and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
+                    q = order_qty if order_qty else order_usd / lvl
+                    cost = sum(x[1] * x[0] for x in s["lots"])
+                    value = sum(x[1] for x in s["lots"]) * p
+                    if max(cost, value) + q * lvl <= cap_usd:
+                        s["lots"].append([lvl, q, lvl * (1 + d * t), False])
+                        s["fees"] += fee * q * lvl
+                        s["turnover"] += q * lvl
+                        s["entries"] += 1
+        px = c[i]
+        bag = sum(s["d"] * x[1] * (px - x[0]) for s in st.values() for x in s["lots"])
+        eq = sum(s["realized"] - s["fees"] for s in st.values()) + bag
+        worst = min(worst, bag)
+        peak = max(peak, eq)
+        max_dd = min(max_dd, eq - peak)
+    px = c[-1]
+    bag = sum(s["d"] * x[1] * (px - x[0]) for s in st.values() for x in s["lots"])
+    res = {
+        "тейков": sum(s["lots_closed"] for s in st.values()),
+        "закрытий стопом": sum(s["closes"] for s in st.values()),
+        "оборот": sum(s["turnover"] for s in st.values()),
+        "закрыто": sum(s["realized"] for s in st.values()),
+        "комиссии": sum(s["fees"] for s in st.values()),
+        "мешок": bag,
+        "худший мешок": worst,
+        "просадка капитала": max_dd,
+    }
+    res["итог"] = res["закрыто"] - res["комиссии"] + res["мешок"]
+    res["на лот"] = res["закрыто"] / res["тейков"] if res["тейков"] else 0.0
     return res

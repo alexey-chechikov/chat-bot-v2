@@ -67,7 +67,9 @@ TEMPLATES = {
 }
 PENDING_TTL = 120.0      # с: ордер с потерянным ответом не нашёлся за полный поиск по времени → не дошёл
 FEE_WINDOW = 3600.0      # с: сколько ждать появления комиссии по исполненному ордеру
-FEE_POLL = 60.0          # с: как часто досверять комиссии (один запрос сделок символа)
+FEE_POLL = 60.0          # с: как часто досверять комиссии
+FEE_BATCH = 5            # курсоров комиссий за одну досверку (по кругу, давно не проверявшиеся первыми)
+ORDER_FILLS_KEEP = 7 * 86400.0   # с: сколько хранить курсор исполнения завершённого ордера
 
 
 class GridHalt(RuntimeError):
@@ -145,9 +147,11 @@ def fmt_px(px: float, tick: float) -> str:
 
 
 def new_side_state() -> dict:
+    # order_fills — долговечный курсор исполненного по номеру ордера, независимый от лота: при потере
+    # привязки тейка восстановление считает только то, что ещё не учтено (перепроверка GPT 10.10)
     return {"ref": None, "entry": None, "lots": [], "realized": 0.0, "fees": 0.0,
             "n_entries": 0, "n_tps": 0, "seq": 0, "turnover": 0.0, "pending": None,
-            "strays": [], "fee_book": {}}
+            "strays": [], "fee_book": {}, "order_fills": {}}
 
 
 class Grid:
@@ -249,6 +253,27 @@ class Grid:
         rec["t"] = self.now()
         return delta, (makers.pop() if len(makers) == 1 else None)
 
+    def _mark_fills(self, side: str, order: dict) -> None:
+        """Записать долговечный курсор исполненного ордера (по номеру, отдельно от лота)."""
+        self.st[side]["order_fills"][str(order["id"])] = {"filled": float(order.get("filled") or 0),
+                                                           "val": float(order.get("filled_val") or 0),
+                                                           "t": self.now()}
+
+    def _with_cursor(self, side: str, order: dict) -> dict:
+        """Ордер с курсором исполненного из order_fills (если ордер уже учитывался)."""
+        cur = self.st[side]["order_fills"].get(str(order["id"]))
+        if cur:
+            order = {**order, "filled": cur["filled"], "filled_val": cur["val"]}
+        return order
+
+    def _prune_fills(self) -> None:
+        now = self.now()
+        for sd in ("LONG", "SHORT"):
+            refs = self._referenced(sd)
+            book = self.st[sd]["order_fills"]
+            for oid in [k for k, v in book.items() if k not in refs and now - float(v["t"]) > ORDER_FILLS_KEEP]:
+                book.pop(oid, None)
+
     def _referenced(self, side: str) -> set[str]:
         """Ордера стороны, которые учёт ещё ведёт (их курсоры не истекают)."""
         s = self.st[side]
@@ -258,64 +283,40 @@ class Grid:
         ids.update(str(l["tp_order"]["id"]) for l in s["lots"] if l.get("tp_order"))
         return ids
 
-    def _trades_window(self, start_ms: int, end_ms: int, budget: list | None = None) -> tuple[list[dict], bool]:
-        """Все сделки символа за окно: окно с 100 сделками делится пополам (до 1 с), не больше 64
-        запросов за раз. Второе значение — выборка ПОЛНАЯ (False: окно переполнено или лимит
-        запросов исчерпан — результат неполон, курсоры не закрываются)."""
-        budget = budget if budget is not None else [64]
-        if budget[0] <= 0:
-            return [], False
-        budget[0] -= 1
-        rows = self.c.user_trades(self.cfg["symbol"], start_ms=start_ms, end_ms=end_ms) or []
-        if len(rows) < 100:
-            return rows, True
-        if end_ms - start_ms <= 1000:
-            return rows, False
-        m = (start_ms + end_ms) // 2
-        a, ca = self._trades_window(start_ms, m, budget)
-        b, cb = self._trades_window(m + 1, end_ms, budget)
-        return a + b, ca and cb
-
     def _settle_fees(self) -> None:
-        """Раз в минуту дописать комиссии, которых не было в момент исполнения. Сделки — ВСЕ за окно
-        от самого старого открытого курсора (не последние 100). Курсор ордера, который учёт ещё ведёт,
-        не истекает; курсор завершённого ордера держится FEE_WINDOW (перепроверка GPT 10.10: курсор
-        живого частичного ордера истекал, и следующий прирост учитывал старую комиссию заново)."""
+        """Раз в минуту дописать комиссии, которых не было в момент исполнения: адресно, сделками
+        КОНКРЕТНОГО ордера (orderId), до FEE_BATCH давно не проверявшихся курсоров за проход, по кругу.
+        Без окон по времени — нет ни лимита 7 суток, ни застревания на плотной истории (перепроверка
+        GPT 10.10: общая выборка окном упиралась в 7 суток и бюджет запросов). Курсор ордера, который
+        учёт ещё ведёт, не истекает; завершённого — снимается через FEE_WINDOW после последней проверки."""
         now = self.now()
         books = [(sd, oid, rec) for sd in ("LONG", "SHORT") for oid, rec in self.st[sd]["fee_book"].items()]
         if not books or now - float(self.st.get("fee_checked") or 0) < FEE_POLL:
             return
         self.st["fee_checked"] = now
-        oldest = min(float(rec.get("t0", rec["t"])) for _, _, rec in books)
-        try:
-            trades, complete = self._trades_window(int((oldest - 600) * 1000), int((now + 60) * 1000))
-        except Exception:                                       # noqa: BLE001
-            logger.exception("weex_grid.trades_failed")
-            return
-        by_order: dict[str, float] = {}
-        seen = set()
-        for t in trades:
-            key = str(t.get("id")) if t.get("id") is not None else None
-            if key and key in seen:
-                continue
-            if key:
-                seen.add(key)
-            by_order[str(t.get("orderId"))] = by_order.get(str(t.get("orderId")), 0.0) + float(t.get("commission") or 0)
         refs = {sd: self._referenced(sd) for sd in ("LONG", "SHORT")}
-        for sd, oid, rec in books:
-            fee_all = by_order.get(oid)
-            if fee_all is not None and fee_all > rec["done"] + 1e-12:
+        books.sort(key=lambda b: float(b[2].get("checked") or 0))
+        for sd, oid, rec in books[:FEE_BATCH]:
+            try:
+                trades = self.c.user_trades(self.cfg["symbol"], oid) or []
+            except Exception:                                   # noqa: BLE001
+                logger.exception("weex_grid.trades_failed")
+                continue
+            rec["checked"] = now
+            fee_all = sum(float(t.get("commission") or 0) for t in trades)
+            if fee_all > rec["done"] + 1e-12:
                 add = fee_all - rec["done"]
                 self.st[sd]["fees"] += add
                 rec["done"] = fee_all
+                rec["t"] = now
                 self._journal({"side": sd, "kind": "комиссия (поздняя)", "fee": add, "order_id": oid})
-            if oid in refs[sd] or not complete:
-                continue                                        # ордер ещё ведётся / выборка неполна — курсор держим
-            if now - rec["t"] > FEE_WINDOW:
-                if rec["done"] <= 0:
-                    logger.warning("weex_grid.fee_unresolved side=%s order=%s", sd, oid)
-                    self._journal({"side": sd, "kind": "комиссия не найдена за час", "order_id": oid})
-                self.st[sd]["fee_book"].pop(oid, None)
+        for sd, oid, rec in books:
+            if oid in refs[sd] or now - float(rec["t"]) <= FEE_WINDOW or not rec.get("checked"):
+                continue
+            if rec["done"] <= 0:
+                logger.warning("weex_grid.fee_unresolved side=%s order=%s", sd, oid)
+                self._journal({"side": sd, "kind": "комиссия не найдена за час", "order_id": oid})
+            self.st[sd]["fee_book"].pop(oid, None)
 
     def equity(self) -> float | None:
         if self._equity is None or self.now() - self._equity_ts > 60:
@@ -398,8 +399,11 @@ class Grid:
                 s["blocked"] = why
                 return None
         cid = self._cid(side, kind)
+        # srv — время намерения по часам БИРЖИ (сдвиг из синхронизации подписи): история ордеров фильтруется
+        # по серверному времени (перепроверка GPT 10.10: при расхождении часов >2 мин ордер выпадал из окна)
+        srv = self.now() + float(getattr(self.c, "_offset_ms", 0) or 0) / 1000
         s["pending"] = {"cid": cid, "kind": kind, "price": price, "qty": q, "lot_t": lot["t"] if lot else None,
-                        "t": self.now()}
+                        "t": self.now(), "srv": srv}
         self.save()
         try:
             r = self.c.place_limit(cfg["symbol"], "BUY" if buy else "SELL", side, q,
@@ -419,16 +423,15 @@ class Grid:
         s["pending"] = None
         return {"id": str(r["orderId"]), "cid": cid, "price": price, "qty": q}
 
-    def _find_by_cid(self, cid: str, since: float) -> tuple[dict | None, bool]:
-        """Свой ордер по clientOrderId: открытые, затем история символа в узком окне вокруг момента
-        намерения (±2 мин — ордер создан именно тогда), постранично. Второе значение — поиск ПОЛНЫЙ:
-        False, если все 10 страниц заполнены (перепроверка GPT 10.10: неполный поиск не доказывает,
-        что ордер не дошёл, — такой pending не истекает)."""
+    def _find_by_cid(self, cid: str, since: float, half: float = 600.0) -> tuple[dict | None, bool]:
+        """Свой ордер по clientOrderId: открытые, затем история символа в окне ±half секунд вокруг момента
+        намерения по часам биржи, постранично. Второе значение — поиск ПОЛНЫЙ: False, если все 10
+        страниц заполнены (неполный поиск не доказывает, что ордер не дошёл, — такой pending не истекает)."""
         o = next((x for x in self.open.values() if x.get("clientOrderId") == cid), None)
         if o is not None:
             return o, True
-        start_ms = int((since - 120) * 1000)
-        end_ms = int((since + 120) * 1000)
+        start_ms = int((since - half) * 1000)
+        end_ms = int((since + half) * 1000)
         for page in range(10):
             chunk = self.c.order_history(self.cfg["symbol"], limit=100, page=page,
                                          start_ms=start_ms, end_ms=end_ms) or []
@@ -447,7 +450,8 @@ class Grid:
         if not p:
             return True
         try:
-            o, complete = self._find_by_cid(p["cid"], p["t"])
+            # намерение без серверного времени (учёт до 10.10) — окно шире: ±30 мин
+            o, complete = self._find_by_cid(p["cid"], p.get("srv") or p["t"], 600.0 if p.get("srv") else 1800.0)
         except Exception:                                       # noqa: BLE001
             logger.exception("weex_grid.history_failed")
             return False
@@ -468,7 +472,8 @@ class Grid:
             s["pending"] = None
             self.save()
             return True
-        order = {"id": str(o["orderId"]), "cid": p["cid"], "price": p["price"], "qty": p.get("qty")}
+        order = self._with_cursor(side, {"id": str(o["orderId"]), "cid": p["cid"], "price": p["price"],
+                                         "qty": p.get("qty")})
         logger.warning("weex_grid.pending_adopted side=%s kind=%s cid=%s status=%s", side, p["kind"], p["cid"],
                        o.get("status"))
         if p["kind"] == "e":
@@ -516,28 +521,33 @@ class Grid:
                 continue
             s = self.st[side]
             price = float(o.get("price") or 0)
-            order = {"id": oid, "cid": o.get("clientOrderId"), "price": price, "qty": o.get("origQty")}
+            # курсор исполненного — из долговечного order_fills: уже учтённое не учитывается повторно
+            order = self._with_cursor(side, {"id": oid, "cid": o.get("clientOrderId"), "price": price,
+                                             "qty": o.get("origQty")})
+            known_cursor = str(oid) in s["order_fills"]
             logger.warning("weex_grid.orphan_order id=%s cid=%s side=%s reduce=%s", oid, o.get("clientOrderId"),
                            side, o.get("reduceOnly"))
             if not o.get("reduceOnly"):
                 if s["entry"] is None and not s.get("pending"):
-                    s["entry"] = order                      # курсор исполнения с нуля — всё исполненное пойдёт в лоты
+                    s["entry"] = order                      # неучтённое исполненное пойдёт в лоты
                     continue
                 self._to_stray(side, order, "e")
             else:
                 orig, exq = float(o.get("origQty") or 0), float(o.get("executedQty") or 0)
                 near = [l for l in s["lots"] if l.get("tp_order") is None and abs(l["tp"] - price) <= tick + 1e-9]
-                # исполненное ещё не записано: лот целый → курсор с нуля
-                lot = next((l for l in near if abs(float(l["qty"]) - orig) <= self._tiny()), None)
+                rec = float(order.get("filled") or 0)
+                # лот = заявка минус уже учтённое по курсору → принять тейк с этим курсором
+                lot = next((l for l in near if abs(float(l["qty"]) - (orig - rec)) <= self._tiny()), None)
                 if lot is not None:
                     lot["tp_order"] = order
                     continue
-                # исполненное уже записано (лот уменьшен на него) → курсор = исполненное, без повторного учёта
-                lot = next((l for l in near if exq > 0 and abs(float(l["qty"]) - (orig - exq)) <= self._tiny()), None)
-                if lot is not None:
-                    avg = float(o.get("avgPrice") or 0) or price
-                    lot["tp_order"] = {**order, "filled": exq, "filled_val": avg * exq}
-                    continue
+                # курсора нет (учёт до 10.10) и лот уменьшен ровно на исполненное → оно уже учтено
+                if not known_cursor and exq > 0:
+                    lot = next((l for l in near if abs(float(l["qty"]) - (orig - exq)) <= self._tiny()), None)
+                    if lot is not None:
+                        avg = float(o.get("avgPrice") or 0) or price
+                        lot["tp_order"] = {**order, "filled": exq, "filled_val": avg * exq}
+                        continue
                 self._to_stray(side, order, "t")
             self.open.pop(oid, None)
         self.save()
@@ -562,6 +572,7 @@ class Grid:
                     val = avg * exq
                     px = (val - float(x.get("filled_val") or 0)) / dq
                     x["filled"], x["filled_val"] = exq, val
+                    self._mark_fills(side, x)
                     fee, maker = self._fee_delta(side, x["id"])
                     s["fees"] += fee
                     left = dq
@@ -618,6 +629,7 @@ class Grid:
             if side in cfg["sides"] or s.get("entry") or s["lots"] or s["strays"] or s.get("pending"):
                 self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]) and side in cfg["sides"])
         self._settle_fees()
+        self._prune_fills()
         self._risk(mid)
         self.save()
 
@@ -655,6 +667,7 @@ class Grid:
         px = (val - float(e.get("filled_val") or 0)) / dq
         fee, maker = self._fee_delta(side, e["id"])
         e["filled"], e["filled_val"] = exq, val
+        self._mark_fills(side, e)
         lot = {"entry": px, "qty": self._qty_str(dq),
                "tp": round_tick(px * (1 + d * float(cfg["target_pct"]) / 100), float(cfg["price_tick"]), up=d > 0),
                "tp_order": None, "t": self.now(), "parent": e["id"]}
@@ -682,6 +695,7 @@ class Grid:
             val = avg * exq
             px = (val - float(o.get("filled_val") or 0)) / dq
             o["filled"], o["filled_val"] = exq, val
+            self._mark_fills(side, o)
             fee, maker = self._fee_delta(side, o["id"])
             pnl = d * dq * (px - lot["entry"])
             s["realized"] += pnl
@@ -759,9 +773,10 @@ class Grid:
 
     def _side(self, side: str, bid: float, ask: float, mid: float, open_ids: set, enabled: bool) -> None:
         cfg, s, d = self.cfg, self.st[side], DIR[side]
-        # 0) ордер с потерянным ответом — сначала выяснить, иначе на этой стороне ничего не ставим
-        if not self._resolve_pending(side):
-            return
+        # 0) ордер с потерянным ответом: пока не выяснено — НОВЫХ ордеров на стороне не ставим, но
+        # сопровождение продолжается (учёт исполнений, отмена входа при стопе/потолке). Перепроверка GPT
+        # 10.10: раньше неясный тейк блокировал всю сторону, и /weex stop не снимал известный вход.
+        can_place = self._resolve_pending(side)
         if s["strays"]:
             self._process_strays(side, mid)
         # 1) входной ордер: исполненная часть записывается сразу (и пока ордер ещё висит — чтобы
@@ -823,12 +838,14 @@ class Grid:
                 if self._take_tp_fill(side, lot, o, info, terminal=True):
                     continue
             if lot.get("tp_order") is None:
+                if not can_place:
+                    continue                  # неясный ордер на стороне — тейк не ставим поверх (не дублировать)
                 lot["tp_order"] = self._place(side, "t", lot["tp"], True, bid, ask, qty=lot["qty"], lot=lot)
                 if lot["tp_order"] is None and not s.get("pending"):
                     self._reconcile_side(side, mid)
                 self.save()
                 if s.get("pending"):
-                    return                    # исход постановки неизвестен — дальше по этой стороне не идём
+                    can_place = False         # исход постановки неизвестен — новых ордеров больше не ставим
         # 3) опорная цена — как у GinArea: шаг от крайнего ОТКРЫТОГО ордера (лонг — нижний, шорт —
         # верхний); после тейка уровень заполняется снова. Сверено 09.10 по журналу шортового бота
         # 5021652508: 9 из 9 входов после тейка ровно на шаг от верхнего открытого (±0.06%).
@@ -869,6 +886,8 @@ class Grid:
                 s["blocked"] = keep_why
             if self._drop_entry(side) or s["entry"]:
                 return                        # успел исполниться — новый вход считаем на следующем проходе
+        if not can_place:
+            return                            # неясный ордер на стороне — новый вход не ставим
         s["entry"] = self._place(side, "e", desired, False, bid, ask)
         self.save()
 
