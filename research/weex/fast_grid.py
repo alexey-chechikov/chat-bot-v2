@@ -57,7 +57,8 @@ class Side:
 
 def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.0, cap_usd=4000.0,
         max_orders=50, fee=MAKER, order_qty: float | None = None, cut_ts: int | None = None,
-        exit_mode: str = "limit", min_stop: float = 0.006, max_stop: float = 0.02, exit_fee: float = 0.00048):
+        exit_mode: str = "limit", min_stop: float = 0.006, max_stop: float = 0.02, exit_fee: float = 0.00048,
+        gate: dict | None = None):
     """order_qty — фиксированный объём в монете (как у живой сетки); иначе — order_usd / цена уровня.
     cut_ts — момент, с которого считается непрерывный результат второй части окна (без обнуления).
     exit_mode="trail" — выход как у GinArea: цена дошла до цели лота → лот «взведён», общий стоп-профит
@@ -106,7 +107,9 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
                     s.ref = max(s.ref, p) if d > 0 else min(s.ref, p)
                 # вход
                 lvl = s.ref * (1 - d * g)
-                if len(s.lots) < max_orders and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
+                gated = gate is not None and gate.get("LONG" if d > 0 else "SHORT") is not None \
+                    and not gate["LONG" if d > 0 else "SHORT"][i]       # выключатель режима: новые входы запрещены
+                if not gated and len(s.lots) < max_orders and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
                     q = order_qty if order_qty else order_usd / lvl
                     cost = sum(x[1] * x[0] for x in s.lots)
                     value = sum(x[1] for x in s.lots) * p

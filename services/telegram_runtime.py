@@ -2633,6 +2633,22 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text[:4096], reply_markup=build_main_keyboard())
 
+        # ── /tgpt — журнал сигналов Bybit TradeGPT (2026-10-10): сколько угадано через 1/4/24 ч.
+        @self.bot.message_handler(commands=['tgpt'])
+        def handle_tgpt(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.signal_journal.tradegpt import summary
+                text = summary()
+            except Exception as exc:
+                logger.exception('handle_tgpt.failed')
+                self.bot.send_message(chat_id, f'❌ /tgpt failed: {exc}')
+                return
+            self.bot.send_message(chat_id, text[:4096])
+
         # ── /weex — сетка WEEX (2026-10-09): карточка; /weex start|stop|live|dry.
         @self.bot.message_handler(commands=['weex'])
         def handle_weex(message) -> None:
@@ -3611,6 +3627,22 @@ class TelegramBotApp:
                 if result is not None:
                     self.bot.send_message(chat_id, result.get("message", "Причина сохранена."))
                     return
+            # TradeGPT (Bybit): пересланный сигнал → журнал, результат считает /tgpt (2026-10-10).
+            try:
+                from services.signal_journal.tradegpt import is_tradegpt, record
+                if is_tradegpt(text):
+                    ts = float(getattr(message, 'forward_date', None) or getattr(message, 'date', 0) or 0)
+                    rec = record(text, ts or __import__('time').time())
+                    if rec is None:
+                        self.bot.send_message(chat_id, '⚠️ Похоже на TradeGPT, но не разобрал монету/направление.')
+                    elif rec.get('duplicate'):
+                        self.bot.send_message(chat_id, f"📒 Этот сигнал уже в журнале: {rec['symbol']} {rec['side']}.")
+                    else:
+                        self.bot.send_message(chat_id, f"📒 Записал TradeGPT: {rec['symbol']} {rec['side']} "
+                                              f"по {rec.get('price')} ({rec['ts'][5:16]} UTC). Итог через 1/4/24 ч — /tgpt.")
+                    return
+            except Exception:
+                logger.exception('tradegpt_journal.failed')
             # TV-bridge: если сообщение похоже на TradingView alert с уровнями
             # ("LEVELS BTCUSD poc=... vah=... val=..."), парсим и сохраняем.
             # Регистр-нечувствительно, без команды-префикса.

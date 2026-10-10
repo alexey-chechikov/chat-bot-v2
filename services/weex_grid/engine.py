@@ -363,6 +363,9 @@ class Grid:
         notional = max(cost, value) + q * price
         if notional > float(cfg["max_notional_usd"]) + 1e-9:
             return False, "достигнут потолок позиции"
+        free = cfg.get("portfolio_free_usd")                # общий потолок всех живых сеток и тренда (10.10)
+        if free is not None and q * price > float(free) + 1e-9:
+            return False, "достигнут общий потолок счёта"
         if float(cfg["stress_budget_frac"]) <= 0:          # 0 = стресс-бюджет выключен оператором
             return True, ""
         sigma = self.sigma_fn() if self.sigma_fn else None

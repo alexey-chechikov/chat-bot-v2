@@ -133,6 +133,44 @@ class WeexClient:
                 "newClientOrderId": cid, "reduceOnly": reduce_only}
         return self.post(FUTURES, "/capi/v3/order", body)
 
+    def place_market(self, symbol: str, side: str, position_side: str, qty: str, cid: str,
+                     reduce_only: bool = False) -> dict:
+        """Рыночный ордер (трендовый бот: вход по сигналу, выход по закрытию 4ч за стопом)."""
+        body = {"symbol": symbol, "side": side, "positionSide": position_side, "type": "MARKET",
+                "quantity": qty, "newClientOrderId": cid, "reduceOnly": reduce_only}
+        return self.post(FUTURES, "/capi/v3/order", body)
+
+    def place_stop_market(self, symbol: str, side: str, position_side: str, qty: str, trigger: str,
+                          cid: str) -> dict:
+        """Условный STOP_MARKET reduceOnly с ЯВНЫМ объёмом (не «вся позиция» — на ней могут быть ручные
+        сделки): аварийный стоп трендового бота на самой бирже."""
+        body = {"symbol": symbol, "side": side, "positionSide": position_side, "type": "STOP_MARKET",
+                "quantity": qty, "triggerPrice": trigger, "clientAlgoId": cid, "reduceOnly": True,
+                "workingType": "CONTRACT_PRICE"}
+        return self.post(FUTURES, "/capi/v3/algoOrder", body)
+
+    def open_algo_orders(self, symbol: str) -> list[dict]:
+        out, page = [], 1
+        while True:
+            chunk = self.get(FUTURES, "/capi/v3/openAlgoOrders", {"symbol": symbol, "limit": 100, "page": page}) or []
+            out.extend(chunk)
+            if len(chunk) < 100 or page >= 10:
+                return out
+            page += 1
+
+    def algo_history(self, symbol: str, start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
+        """История условных ордеров (сработал ли аварийный стоп и по какой цене)."""
+        p = {"symbol": symbol, "limit": 500}
+        if start_ms is not None:
+            p["startTime"] = int(start_ms)
+        if end_ms is not None:
+            p["endTime"] = int(end_ms)
+        r = self.get(FUTURES, "/capi/v3/allAlgoOrders", p) or {}
+        return r.get("orders", []) if isinstance(r, dict) else r
+
+    def cancel_algo(self, algo_id: str | int) -> dict:
+        return self.delete(FUTURES, "/capi/v3/algoOrder", {"orderId": algo_id})
+
     def cancel(self, order_id: str | int) -> dict:
         return self.delete(FUTURES, "/capi/v3/order", {"orderId": order_id})
 

@@ -66,6 +66,7 @@ class Runner:
         self.last_err = 0.0
         self.last_halt: dict[str, float] = {}
         self.mode: dict[str, tuple] = {}
+        self.trend = None
 
     def _client(self):
         from services.weex_api.client import WeexClient
@@ -82,6 +83,7 @@ class Runner:
         """Проход по всем сеткам; ошибка одной не мешает остальным, но после прохода поднимается
         наверх (цикл делает паузу 60 с и шлёт одно предупреждение в 30 мин)."""
         first = None
+        self.portfolio_free = self._portfolio_free()
         for name in eg.GRIDS:
             try:
                 with STATE_LOCK:
@@ -99,11 +101,42 @@ class Runner:
             except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.tick_failed grid=%s", name)
                 first = first or RuntimeError(f"{name}: {exc}")
+        # трендовый бот ETH (services/weex_trend) — в том же цикле, ошибки отделены от сеток
+        try:
+            with STATE_LOCK:
+                if self.trend is None:
+                    from services.weex_trend.loop import TrendRunner
+                    self.trend = TrendRunner(self._client, self.send)
+                self.trend.tick(portfolio_free=self.portfolio_free)
+        except Exception as exc:                                # noqa: BLE001
+            logger.exception("weex_trend.tick_failed")
+            first = first or RuntimeError(f"тренд: {exc}")
         if first:
             raise first
 
+    def _portfolio_free(self) -> float | None:
+        """Свободное место под общим потолком счёта (живые сетки + живой тренд)."""
+        try:
+            from services.weex_grid import portfolio
+            from services.weex_trend import engine as te
+            from services.weex_trend.loop import files as trend_files, symbols as trend_symbols
+            grids = [run_files(n, False)[0] for n in eg.GRIDS]
+            try:
+                tsyms = trend_symbols(te.load_config())
+            except eg.GridHalt:
+                tsyms = ["ETHUSDT"]
+            free, _, _ = portfolio.free_usd(grids, [trend_files(False, s)[0] for s in tsyms])
+            return free
+        except eg.GridHalt:
+            return 0.0                                          # битый конфиг потолка — новых входов нет
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_portfolio.failed")
+            return 0.0
+
     def tick_one(self, name: str) -> None:
         cfg = grid_config(name)
+        if not cfg["dry_run"] and getattr(self, "portfolio_free", None) is not None:
+            cfg = {**cfg, "portfolio_free_usd": self.portfolio_free}
         dry = bool(cfg["dry_run"])
         if dry:
             self._live_leftovers(name, cfg)
@@ -172,7 +205,50 @@ def card(name: str | None = None) -> str:
             out.append(g.card())
         except eg.GridHalt as exc:
             out.append(f"🛑 СЕТКА WEEX {n} — ОСТАНОВЛЕНА: {exc}")
+    if not name:
+        try:
+            from services.weex_trend.loop import card as trend_card
+            out.append(trend_card())
+        except Exception as exc:                                # noqa: BLE001
+            out.append(f"📈 ТРЕНД: карточка недоступна ({exc})")
+        out.append(_account_line(real))
     return "\n\n".join(out)
+
+
+def _account_line(client) -> str:
+    """Общий потолок (занято/свободно) и фандинг по символам живых сеток с начала их журналов."""
+    lines = []
+    try:
+        from services.weex_grid import portfolio
+        from services.weex_trend import engine as te
+        from services.weex_trend.loop import files as trend_files, symbols as trend_symbols
+        free, used, cap = portfolio.free_usd([run_files(n, False)[0] for n in eg.GRIDS],
+                                             [trend_files(False, s)[0] for s in trend_symbols(te.load_config())])
+        lines.append(f"💼 Счёт: занято ${used:,.0f} из общего потолка ${cap:,.0f}")
+    except Exception as exc:                                    # noqa: BLE001
+        lines.append(f"💼 Счёт: потолок недоступен ({exc})")
+    try:
+        from services.weex_api.client import FUTURES
+        start = None
+        if eg.JOURNAL.exists():
+            first = eg.JOURNAL.read_text(encoding="utf-8").splitlines()[:1]
+            if first:
+                from datetime import datetime
+                start = int(datetime.fromisoformat(json.loads(first[0])["ts"]).timestamp() * 1000)
+        body = {"incomeType": "position_funding", "limit": 100}
+        if start:                                       # биржа принимает начало только вместе с концом
+            body["startTime"] = start
+            body["endTime"] = int(time.time() * 1000)
+        r = client.post(FUTURES, "/capi/v3/account/income", body) or {}
+        by_sym: dict[str, float] = {}
+        for x in r.get("items", []):
+            by_sym[x.get("symbol")] = by_sym.get(x.get("symbol"), 0.0) + float(x.get("income") or 0)
+        if by_sym:
+            lines.append("фандинг (вся позиция символа, вкл. ручные): " +
+                         ", ".join(f"{k} ${v:+.2f}" for k, v in by_sym.items()))
+    except Exception:                                           # noqa: BLE001
+        logger.exception("weex_card.funding_failed")
+    return "\n".join(lines)
 
 
 SET_KEYS = {"target": "target_pct", "цель": "target_pct", "таргет": "target_pct",
@@ -247,6 +323,23 @@ def command(arg: str) -> str:
 def _command(arg: str) -> str:
     raw = (arg or "").strip()
     first = raw.split(None, 1)[0].lower() if raw else ""
+    if first in ("тренд", "trend"):                    # трендовый бот ETH: /weex тренд …
+        from services.weex_trend.loop import command as trend_command
+        return trend_command(raw.split(None, 1)[1] if " " in raw else "")
+    if first in ("портфель", "portfolio"):             # общий потолок счёта: /weex портфель 12000
+        from services.weex_grid import portfolio
+        cfg = portfolio.load()
+        rest = raw.split()[1:]
+        if rest:
+            try:
+                val = float(rest[0].replace("$", "").replace(",", "."))
+            except ValueError:
+                return "Формат: /weex портфель 12000 (потолок себестоимости всех живых позиций, $)"
+            if not 500 <= val <= 100_000:
+                return f"{val:g} вне [500; 100000] — не меняю."
+            cfg["gross_cap_usd"] = val
+            eg.atomic_write(portfolio.CONFIG, json.dumps(cfg, ensure_ascii=False, indent=1))
+        return f"💼 Общий потолок счёта: ${float(cfg['gross_cap_usd']):,.0f} (себестоимость всех живых позиций сеток и тренда)."
     name = NAMES.get(first)
     if name:
         raw = raw.split(None, 1)[1] if " " in raw else ""
