@@ -53,9 +53,10 @@ DEFAULT = {
 # Новая сетка создаётся ВЫКЛЮЧЕННОЙ и ХОЛОСТОЙ: живой режим включает только оператор (/weex eth live).
 GRIDS = ("BTC", "ETH", "XAU")
 TEMPLATES = {
-    # 09.10 развёртка 10 мес XAUUSDT (лонг+шорт, $100, потолок $4 000): шаг 0.75 — обе половины окна
-    # в плюсе (+$293 / +$116), итог +$349, худший мешок −$684; цель 0.3…1.0 плоско (+349…372),
-    # 0.3 даёт оборот ×2.5. Соседи по шагу 0.5 и 1.0 тоже в плюсе. research/weex/sweep_XAUUSDT_*.jsonl
+    # 09.10 развёртка 10 мес XAUUSDT (лонг+шорт, $100, потолок $4 000): шаг 0.75 итог +$349 — но «+$116 во
+    # второй половине» был второй старт без старого мешка. После исправления методики (ордер 0.023, 50
+    # ордеров, непрерывные половины) итог +$270.76, первая половина +$304.99, ВТОРАЯ −$34.23 — проверку по
+    # времени НЕ проходит (разбор GPT 11.10), живым не включать. research/weex/sweep_XAUUSDT_*_q0.023.jsonl
     "XAU": {"symbol": "XAUUSDT", "sides": ["LONG", "SHORT"], "price_tick": 0.01, "qty_step": 0.001,
             "qty_max": 1.0, "order_qty": "0.023", "step_pct": 0.75, "target_pct": 0.3, "max_lots_per_side": 50,
             "max_notional_usd": 4000.0, "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0},
@@ -165,6 +166,7 @@ class Grid:
         self.send = send_fn
         self.now = now_fn
         self.st = self._load()
+        self._room_used = 0.0                    # $ общего потолка, занятые новыми входами текущего прохода
         self._equity = None
         self._equity_ts = 0.0
         self.open: dict[str, dict] = {}
@@ -364,8 +366,13 @@ class Grid:
         if notional > float(cfg["max_notional_usd"]) + 1e-9:
             return False, "достигнут потолок позиции"
         free = cfg.get("portfolio_free_usd")                # общий потолок всех живых сеток и тренда (10.10)
-        if free is not None and q * price > float(free) + 1e-9:
-            return False, "достигнут общий потолок счёта"
+        if free is not None:
+            # место = свободное на начало прохода − занятое новыми входами этого прохода + резерв входа
+            # этой же стороны (его заменяет новый). 11.10, разбор GPT: при свободных $200 две стороны
+            # ставили по $120 — одно место раздавалось дважды
+            room = float(free) - self._room_used + self._entry_res(side)
+            if q * price > room + 1e-9:
+                return False, "достигнут общий потолок счёта"
         if float(cfg["stress_budget_frac"]) <= 0:          # 0 = стресс-бюджет выключен оператором
             return True, ""
         sigma = self.sigma_fn() if self.sigma_fn else None
@@ -381,6 +388,20 @@ class Grid:
         return True, ""
 
     # ---------- ордера
+    def _entry_res(self, side: str) -> float:
+        """Сколько $ общего потолка держит вход стороны: остаток стоящего входа + неясная постановка входа."""
+        return self._standing_res(side) + self._pending_res(side)
+
+    def _standing_res(self, side: str) -> float:
+        e = self.st[side].get("entry")
+        if not e:
+            return 0.0
+        return max(float(e.get("qty") or 0) - float(e.get("filled") or 0), 0.0) * float(e["price"])
+
+    def _pending_res(self, side: str) -> float:
+        p = self.st[side].get("pending")
+        return float(p.get("qty") or 0) * float(p["price"]) if p and p.get("kind") == "e" else 0.0
+
     def _place(self, side: str, kind: str, price: float, reduce: bool, bid: float, ask: float,
                qty: str | None = None, lot: dict | None = None):
         """kind: 'e' вход, 't' тейк. POST_ONLY: цену не пускаем пересечь стакан.
@@ -407,6 +428,8 @@ class Grid:
         srv = self.now() + float(getattr(self.c, "_offset_ms", 0) or 0) / 1000
         s["pending"] = {"cid": cid, "kind": kind, "price": price, "qty": q, "lot_t": lot["t"] if lot else None,
                         "t": self.now(), "srv": srv}
+        if kind == "e":
+            self._room_used += float(q) * price                 # место занято с момента намерения
         self.save()
         try:
             r = self.c.place_limit(cfg["symbol"], "BUY" if buy else "SELL", side, q,
@@ -420,6 +443,8 @@ class Grid:
                 logger.warning("weex_grid.place_no_id side=%s kind=%s resp=%s", side, kind, r)
                 return None
             s["pending"] = None                                 # явный отказ — исход известен
+            if kind == "e":
+                self._room_used -= float(q) * price
             logger.warning("weex_grid.place_rejected side=%s kind=%s price=%s resp=%s", side, kind, price, r)
             self.save()
             return None
@@ -619,6 +644,7 @@ class Grid:
         sym = cfg["symbol"]
         bid, ask = self.c.book(sym)
         mid = (bid + ask) / 2
+        self._room_used = 0.0
         self.open = {str(o["orderId"]): o for o in self.c.open_orders(sym)
                      if str(o.get("clientOrderId", "")).startswith(PREFIX)}
         self._orphans()
@@ -733,6 +759,7 @@ class Grid:
             return False                      # оставим отслеживание — разберёмся на следующем проходе
         got = self._take_entry_fill(side, e, info)
         if info.get("status") not in LIVE:    # отмена подтверждена — забываем; иначе ждём (исполнения
+            self._room_used -= self._standing_res(side)                       # место входа освободилось
             s["entry"] = None                 # во время отмены запишутся на следующем проходе)
         self.save()
         return got

@@ -32,22 +32,52 @@ def test_long_and_not_tradegpt():
 def test_barrier_rules():
     # шорт от 100: сначала против на 2%, потом вниз на 1.2% → тейк 1% при стопе 3%, но стоп при стопе 2%
     k = [(0, 100, 102, 99.5, 101), (60_000, 101, 101, 98.8, 99)]
-    assert tg.barrier(k, -1, 100.0, 1.0, 3.0, expired=False) == 1.0 - tg.FEE
-    assert tg.barrier(k, -1, 100.0, 1.0, 2.0, expired=False) == -2.0 - tg.FEE
-    assert tg.barrier(k, -1, 100.0, 5.0, 5.0, expired=False) is None          # ещё открыта
-    assert abs(tg.barrier(k, -1, 100.0, 5.0, 5.0, expired=True) - (1.0 - tg.FEE)) < 1e-9   # 72 ч — по закрытию
+    assert tg.barrier(k, -1, 100.0, 1.0, 3.0, expired=False) == (1.0 - tg.FEE, "TP")
+    assert tg.barrier(k, -1, 100.0, 1.0, 2.0, expired=False) == (-2.0 - tg.FEE, "SL")
+    assert tg.barrier(k, -1, 100.0, 5.0, 5.0, expired=False) == (None, "")   # ещё открыта
+    res, why = tg.barrier(k, -1, 100.0, 5.0, 5.0, expired=True)              # 72 ч — по закрытию, НЕ «тейк»
+    assert abs(res - (1.0 - tg.FEE)) < 1e-9 and why == "TIME"
     # обе границы в одной минуте — стоп (осторожно)
-    assert tg.barrier([(0, 100, 104, 98, 100)], 1, 100.0, 1.0, 1.5, expired=False) == -1.5 - tg.FEE
+    assert tg.barrier([(0, 100, 104, 98, 100)], 1, 100.0, 1.0, 1.5, expired=False) == (-1.5 - tg.FEE, "SL")
+
+
+def test_barrier_gap_not_counted():
+    """Пропущенная минута (в ней мог быть стоп) — сделка не засчитывается (разбор GPT 11.10)."""
+    k = [(0, 100, 100, 99.9, 100), (120_000, 100, 100, 98.9, 99)]           # минуты 60_000 нет
+    assert tg.barrier(k, -1, 100.0, 1.0, 3.0, expired=False, start_ms=0) == (None, "дыра")
+
+
+def test_entry_is_next_full_minute_after_receipt(tmp_path, monkeypatch):
+    """Вход — открытие следующей минуты; high/low минуты до получения не учитываются (разбор GPT 11.10)."""
+    monkeypatch.setattr(tg, "JOURNAL", tmp_path / "j.jsonl")
+    t0 = 1_790_000_030.0                                                     # сигнал в середине минуты
+    asked = {}
+
+    def fake_price(symbol, ts):
+        asked.setdefault("p0", ts)
+        return 100.0
+    monkeypatch.setattr(tg, "price_at", fake_price)
+
+    def fake_klines(symbol, a, b):
+        asked["k"] = a
+        start = int(a * 1000)
+        return [(start, 100, 100.2, 99.5, 99.6)]                             # после получения до тейка не дошло
+    monkeypatch.setattr(tg, "klines", fake_klines)
+    tg.record(SAMPLE, t0)
+    rows = tg.update_outcomes(now=t0 + 2 * 3600)
+    assert asked["p0"] == asked["k"] == 1_790_000_040.0                      # следующая полная минута
+    assert rows[0].get("tp1_sl3") is None and not rows[0].get("tp1_sl3_why")
 
 
 def test_virtual_trades_in_journal(tmp_path, monkeypatch):
     monkeypatch.setattr(tg, "JOURNAL", tmp_path / "j.jsonl")
     monkeypatch.setattr(tg, "price_at", lambda s, ts: 100.0)
-    monkeypatch.setattr(tg, "klines", lambda s, a, b: [(0, 100, 100.2, 98.9, 99)])   # шорт: −1.1% в нашу сторону
+    monkeypatch.setattr(tg, "klines", lambda s, a, b: [(int(a * 1000), 100, 100.2, 98.9, 99)])  # шорт: −1.1%
     t0 = 1_790_000_000.0
     tg.record(SAMPLE, t0)
     rows = tg.update_outcomes(now=t0 + 2 * 3600)
-    assert rows[0]["tp1_sl3"] == 1.0 - tg.FEE and rows[0]["tp1_sl5"] == 1.0 - tg.FEE
+    assert rows[0]["tp1_sl3"] == 1.0 - tg.FEE and rows[0]["tp1_sl3_why"] == "TP"
+    assert rows[0]["tp1_sl5"] == 1.0 - tg.FEE
     assert rows[0].get("tp2_sl5") is None                                    # 2% ещё не дошла, 72 ч не прошли
 
 

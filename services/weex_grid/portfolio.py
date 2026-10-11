@@ -4,8 +4,9 @@
 Занято = себестоимость (объём × цена входа) всех ЖИВЫХ лотов всех сеток + позиций трендового бота.
 Свободно = потолок − занято. Живые сетки и тренд получают «свободно» в конфиг прохода
 (portfolio_free_usd) и не открывают вход больше него. Холостые режимы не ограничиваются (денег не
-тратят). Проверка раз за проход: в одном проходе два входа могут взять одно и то же место — превышение
-не больше одного ордера на сторону.
+тратят). 11.10 (разбор GPT): «занято» включает всё, что ещё может исполниться на вход; свободное
+считается заново перед каждой сеткой и каждой монетой тренда, а внутри прохода сетки новые входы
+вычитаются из места сразу (одно место не раздаётся дважды); нечитаемый учёт — свободное 0.
 """
 from __future__ import annotations
 
@@ -33,18 +34,38 @@ def load() -> dict:
 
 
 def _read(p: Path) -> dict:
-    try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
-    except (OSError, ValueError):
+    """Учёт стратегии. Нет файла — пусто; нечитаемый — ОШИБКА (11.10, разбор GPT: битый файл давал 0
+    занятого и открывал место под новые входы; вызывающий при ошибке ставит свободное = 0)."""
+    if not p.exists():
         return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"учёт {p.name} не читается: {exc}") from exc
+
+
+def _order_res(o: dict | None) -> float:
+    """Ещё не исполненный остаток входного ордера (стоящего, сироты или неясной постановки), $."""
+    if not o:
+        return 0.0
+    left = float(o.get("qty") or o.get("origQty") or 0) - float(o.get("filled") or o.get("executedQty") or 0)
+    return max(left, 0.0) * float(o.get("price") or 0)
 
 
 def used_usd(grid_states: list[Path], trend_states: list[Path]) -> float:
+    """Занято = лоты + всё, что ещё может исполниться на вход: стоящие входы, неясные постановки входа,
+    сироты-входы (11.10, разбор GPT: считались только лоты)."""
     total = 0.0
     for p in grid_states:
         st = _read(p)
         for side in ("LONG", "SHORT"):
-            total += sum(float(l["qty"]) * float(l["entry"]) for l in (st.get(side) or {}).get("lots", []))
+            s = st.get(side) or {}
+            total += sum(float(l["qty"]) * float(l["entry"]) for l in s.get("lots", []))
+            total += _order_res(s.get("entry"))
+            pend = s.get("pending")
+            if pend and pend.get("kind") == "e":
+                total += _order_res(pend)
+            total += sum(_order_res(x) for x in s.get("strays", []) if x.get("kind") == "e")
     for p in trend_states:
         ep = _read(p).get("episode") or {}
         if ep.get("qty"):

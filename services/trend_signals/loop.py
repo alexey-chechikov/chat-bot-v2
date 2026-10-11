@@ -55,6 +55,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _signal_ts(s: dict) -> str:
+    """Время сигнала — ЗАКРЫТИЕ 4ч свечи пробоя (since — её открытие), а не момент, когда служба его
+    увидела (11.10, разбор GPT: после потери файла состояния старый тренд публиковался как свежий и
+    обходил запрет входа в старый эпизод у services/weex_trend)."""
+    since = s.get("since")
+    if since is None:
+        return _now()
+    import pandas as pd
+    t = pd.Timestamp(since)
+    t = t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+    return (t + pd.Timedelta("4h")).to_pydatetime().isoformat(timespec="seconds")
+
+
 def load_config() -> dict:
     out = dict(DEFAULT_CONFIG)
     try:
@@ -170,7 +183,7 @@ def tick(send_fn=None) -> int:
         # ── ВХОД: тренда не было → появился
         if s["pos"] and not prev_pos:
             rec = {"side": s["pos"], "entry_px": s["px"],
-                   "entry_ts": _now(), "stop": s["stop"], "exh_sent": False}
+                   "entry_ts": _signal_ts(s), "seen_ts": _now(), "stop": s["stop"], "exh_sent": False}
             st[sym] = rec
             _journal({"event": "ENTRY", "symbol": sym, "side": s["pos"],
                       "px": s["px"], "stop": s["stop"], "adx": s["adx"]})

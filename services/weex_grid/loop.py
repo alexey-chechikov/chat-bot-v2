@@ -83,10 +83,12 @@ class Runner:
         """Проход по всем сеткам; ошибка одной не мешает остальным, но после прохода поднимается
         наверх (цикл делает паузу 60 с и шлёт одно предупреждение в 30 мин)."""
         first = None
-        self.portfolio_free = self._portfolio_free()
         for name in eg.GRIDS:
             try:
                 with STATE_LOCK:
+                    # свободное — заново перед каждой сеткой: входы предыдущей уже в её учёте (11.10, разбор
+                    # GPT: одно место раздавалось всем сеткам и тренду)
+                    self.portfolio_free = self._portfolio_free()
                     self.tick_one(name)
             except eg.GridHalt as exc:
                 # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
@@ -107,7 +109,7 @@ class Runner:
                 if self.trend is None:
                     from services.weex_trend.loop import TrendRunner
                     self.trend = TrendRunner(self._client, self.send)
-                self.trend.tick(portfolio_free=self.portfolio_free)
+                self.trend.tick(portfolio_free=self._portfolio_free)     # функция — заново перед каждой монетой
         except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_trend.tick_failed")
             first = first or RuntimeError(f"тренд: {exc}")

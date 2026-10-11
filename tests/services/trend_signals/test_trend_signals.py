@@ -140,3 +140,14 @@ def test_summarize_reads_journal(monkeypatch):
     ]) + "\n", encoding="utf-8")
     s = ts.summarize()
     assert s["n"] == 2 and s["wr_pct"] == 50 and s["total_pct"] == 5.0
+
+
+def test_entry_ts_is_signal_bar_close_not_discovery(monkeypatch):
+    """11.10, разбор GPT: после потери файла состояния тренд с января публиковался со временем «сейчас»
+    и проходил у services/weex_trend как свежий. Время сигнала — закрытие 4ч свечи пробоя."""
+    import pandas as pd
+    _patch_analyze(monkeypatch, {"pos": "SHORT", "px": 2500.0, "stop": 2600.0, "adx": 25.0,
+                                 "since": pd.Timestamp("2026-01-05 08:00", tz="UTC")})
+    ts.tick(send_fn=lambda t: None)
+    st = json.loads(ts.STATE.read_text())
+    assert st["ETHUSDT"]["entry_ts"] == "2026-01-05T12:00:00+00:00"

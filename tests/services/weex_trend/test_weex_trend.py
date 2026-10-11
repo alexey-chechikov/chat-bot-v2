@@ -52,11 +52,11 @@ def test_fresh_short_signal_opens_with_risk_sizing(tmp_path):
     st = json.loads((tmp_path / "st.json").read_text())
     ep = st["episode"]
     assert ep["status"] == "open" and ep["side"] == "SHORT"
-    assert float(ep["qty"]) == pytest.approx(0.33, abs=0.001)          # $33 / $100 до стопа
-    assert ex.pos["SHORT"] == pytest.approx(0.33, abs=0.001)
+    assert float(ep["qty"]) == pytest.approx(0.233, abs=0.001)         # $33 / ($139 до стопа на бирже + $2.5 комиссии)
+    assert ex.pos["SHORT"] == pytest.approx(0.233, abs=0.001)
     stops = ex.open_algo_orders("ETHUSDT")
     assert len(stops) == 1 and float(stops[0]["triggerPrice"]) == pytest.approx(2600 * 1.015, abs=0.02)
-    assert stops[0]["side"] == "BUY" and float(stops[0]["quantity"]) == pytest.approx(0.33)
+    assert stops[0]["side"] == "BUY" and float(stops[0]["quantity"]) == pytest.approx(0.233)
 
 
 def test_notional_cap_limits_size(tmp_path):
@@ -84,7 +84,7 @@ def test_signal_exit_closes_and_cancels_stop(tmp_path):
     st = json.loads((tmp_path / "st.json").read_text())
     assert st["episode"] is None and ex.pos["SHORT"] == pytest.approx(0)
     assert not ex.open_algo_orders("ETHUSDT")
-    assert st["realized"] == pytest.approx(0.33 * (2499.99 - 2400.01), rel=1e-3) and st["n_trades"] == 1
+    assert st["realized"] == pytest.approx(0.233 * (2499.99 - 2400.01), rel=1e-3) and st["n_trades"] == 1
 
 
 def test_emergency_stop_closes_and_no_reentry_same_episode(tmp_path):
@@ -128,7 +128,7 @@ def test_lost_entry_response_no_double_entry(tmp_path):
         raise TimeoutError("read timeout")
     ex.place_market = lose
     tick(make, clock, 4)
-    assert ex.pos["SHORT"] == pytest.approx(0.33, abs=0.001)          # одна позиция, не две
+    assert ex.pos["SHORT"] == pytest.approx(0.233, abs=0.001)          # одна позиция, не две
     assert json.loads((tmp_path / "st.json").read_text())["episode"]["status"] == "open"
 
 
@@ -163,7 +163,7 @@ def test_xrp_lot_step_ten(tmp_path):
         clock["t"] += 60
         te.Trend(ex, conf, state_path=tmp_path / "x.json", journal_path=tmp_path / "xj.jsonl",
                  signals_path=sig, now_fn=lambda: clock["t"]).tick()
-    assert ex.pos["SHORT"] == 470                    # $33 / 0.0701 = 470.7 → 470 XRP (шаг 10)
+    assert ex.pos["SHORT"] == 350                    # $33 / (0.09205 до стопа + 0.0014) = 353 → 350 XRP (шаг 10)
     assert px.mid == 1.40
 
 
@@ -188,4 +188,4 @@ def test_unreadable_signals_file_does_nothing(tmp_path):
     tick(make, clock, 2)
     (tmp_path / "sig.json").write_text('{"ETHUSDT": {', encoding="utf-8")   # служба сигналов пишет файл
     tick(make, clock, 2)
-    assert ex.pos["SHORT"] == pytest.approx(0.33, abs=0.001)          # не закрыли по «пустому» сигналу
+    assert ex.pos["SHORT"] == pytest.approx(0.233, abs=0.001)          # не закрыли по «пустому» сигналу

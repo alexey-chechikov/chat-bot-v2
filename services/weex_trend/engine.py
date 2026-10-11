@@ -8,7 +8,10 @@ XRP +32.4%):
   АВАРИЙНЫЙ СТОП — условный STOP_MARKET reduceOnly на самой бирже на emergency_buffer_pct дальше
            Chandelier, подтягивается за ним. Срабатывает, только если бот/мак лежат или цена
            проскакивает внутри свечи (известная цена отмены есть всегда).
-  РАЗМЕР — риск / расстояние до Chandelier-стопа, не больше max_notional_usd.
+  РАЗМЕР — риск / (расстояние до АВАРИЙНОГО стопа на бирже + тейкер входа и выхода), не больше
+           max_notional_usd (11.10, разбор GPT: размер до Chandelier при стопе на 1.5% дальше давал
+           $89 убытка при «риске $50»). Частичный выход (свой или внешний) уменьшает эпизод, остаток
+           остаётся под стопом; эпизод закрывается только при подтверждённом нулевом остатке.
   Вход только по СВЕЖЕМУ сигналу (не старше max_entry_age_sec): в старый эпизод не вскакиваем —
   стоп уже подтянут, риск/прибыль другие. Один эпизод — одна сделка: после аварийного стопа в тот же
   эпизод не входим.
@@ -40,6 +43,7 @@ OPEN_SIDE = {"LONG": "BUY", "SHORT": "SELL"}
 CLOSE_SIDE = {"LONG": "SELL", "SHORT": "BUY"}
 LIVE = {"NEW", "PENDING", "CANCELING", "UNTRIGGERED", "UNACTIVATED", "PARTIALLY_FILLED"}
 PENDING_TTL = 120.0
+RISK_FEE = 0.0005           # тейкер на сторону с запасом (замер 0.048%) — входит в риск сделки
 DEFAULT = {
     "enabled": False,               # новые входы; позиция ведётся до выхода и при enabled=false
     "dry_run": True,                # холостой: ордера не отправляются, исполнение по живым ценам
@@ -288,7 +292,9 @@ class Trend:
         if dist <= 0:
             self._journal({"kind": "пропуск: цена уже за стопом", "side": side, "mid": mid, "stop": chand})
             return
-        qty = min(float(cfg["risk_usd"]) / dist, float(cfg["max_notional_usd"]) / mid)
+        # риск — до настоящего стопа на бирже (Chandelier + буфер) с комиссией входа и выхода
+        hard = d * (mid - self._emergency(side, chand)) + 2 * RISK_FEE * mid
+        qty = min(float(cfg["risk_usd"]) / hard, float(cfg["max_notional_usd"]) / mid)
         free = cfg.get("portfolio_free_usd")                # общий потолок счёта (сетки + тренд)
         if free is not None:
             qty = min(qty, max(float(free), 0.0) / mid)
@@ -327,11 +333,11 @@ class Trend:
         self.st["fees"] += fee
         self._journal({"kind": "вход", "side": ep["side"], "price": px, "qty": ep["qty"], "fee": fee,
                        "chand": ep["chand"], "order_id": o["id"]})
-        risk = abs(px - ep["chand"]) * exq
+        hard = self._emergency(ep["side"], ep["chand"])
+        risk = (abs(px - hard) + 2 * RISK_FEE * px) * exq
         self._notify(f"🟢 Тренд {self.cfg['symbol'].replace('USDT', '')} {ep['side']} {ep['qty']} по {px:,.2f} "
                      f"({'холостой' if self.cfg['dry_run'] else 'ЖИВОЙ'}). Отмена — закрытие 4ч за "
-                     f"{ep['chand']:,.2f} (риск ${risk:.0f}); аварийный стоп на бирже "
-                     f"{self._emergency(ep['side'], ep['chand']):,.2f}.")
+                     f"{ep['chand']:,.2f}; аварийный стоп на бирже {hard:,.2f} (до него с комиссией ${risk:.0f}).")
         self._place_stop(ep, ep["chand"])
 
     def _place_stop(self, ep: dict, chand: float) -> None:
@@ -383,11 +389,34 @@ class Trend:
             ep.pop("exit_order", None)
             return
         px = float(info.get("avgPrice") or 0) or mid
-        self._finish(ep, px, self._fee(o["id"]), ep.get("exit_reason", "выход"))
+        fee = self._fee(o["id"])
+        if exq < float(ep["qty"]) - self._step() / 2:
+            # исполнен не весь выход (11.10, разбор GPT: эпизод закрывался целиком, стоп снимался, остаток
+            # оставался на бирже без учёта и защиты) — учесть часть, остаток держать под стопом и закрыть
+            # следующим проходом
+            self._book_part(ep, exq, px, fee, ep.get("exit_reason", "выход") + " (часть)")
+            ep["status"] = "open"
+            ep.pop("exit_order", None)
+            self._place_stop(ep, ep["chand"])
+            return
+        self._finish(ep, px, fee, ep.get("exit_reason", "выход"))
 
-    def _closed_outside(self, ep: dict, held: float, mid: float) -> None:
-        """Позиции на бирже меньше нашей: сработал аварийный стоп (цена из истории условных ордеров)
-        либо закрыто вручную (оценка по текущей цене)."""
+    def _book_part(self, ep: dict, q: float, px: float, fee: float, reason: str) -> None:
+        """Учесть закрытую часть эпизода; в эпизоде остаётся фактический остаток."""
+        d = DIR[ep["side"]]
+        pnl = d * q * (px - ep["entry_px"])
+        self.st["realized"] += pnl
+        self.st["fees"] += fee
+        ep["part_net"] = float(ep.get("part_net") or 0) + pnl - fee
+        ep["qty"] = self._qty_str(float(ep["qty"]) - q)
+        self._journal({"kind": "частичный выход", "reason": reason, "side": ep["side"], "price": px, "qty": q,
+                       "entry": ep["entry_px"], "pnl": pnl, "fee": fee, "left": ep["qty"]})
+        self._notify(f"⚠️ Тренд {self.cfg['symbol'].replace('USDT', '')} {ep['side']}: закрыта часть {q:g} по "
+                     f"{px:,.2f} ({reason}); остаток {ep['qty']} под стопом.")
+
+    def _outside_fill(self, ep: dict, mid: float) -> tuple[float, str, float]:
+        """Цена/причина/комиссия уменьшения позиции не ботом: аварийный стоп (история условных ордеров)
+        либо вручную (оценка по текущей цене)."""
         px, reason, fee = mid, "закрыто не ботом (оценка по текущей цене)", 0.0
         stop = ep.get("stop")
         if stop:
@@ -402,6 +431,16 @@ class Trend:
                 reason = "аварийный стоп на бирже"
                 if h.get("actualOrderId"):
                     fee = self._fee(h["actualOrderId"])
+        return px, reason, fee
+
+    def _closed_outside(self, ep: dict, held: float, mid: float) -> None:
+        """Позиции на бирже меньше нашей. Остаток есть — учесть ушедшую часть, остаток держать под стопом
+        (11.10, разбор GPT: частичное уменьшение закрывало эпизод целиком); нуля — эпизод закрыт."""
+        px, reason, fee = self._outside_fill(ep, mid)
+        if held >= self._step() / 2:
+            self._book_part(ep, float(ep["qty"]) - held, px, fee, reason)
+            self._place_stop(ep, ep["chand"])                   # стоп на фактический остаток
+            return
         self._finish(ep, px, fee, reason, cancel_stop=reason != "аварийный стоп на бирже")
 
     def _finish(self, ep: dict, px: float, fee: float, reason: str, cancel_stop: bool = True) -> None:
@@ -410,10 +449,10 @@ class Trend:
         self.st["realized"] += pnl
         self.st["fees"] += fee
         self.st["n_trades"] += 1
-        self.st["n_wins"] += 1 if pnl - fee - float(ep.get("entry_fee") or 0) > 0 else 0
+        net = pnl - fee - float(ep.get("entry_fee") or 0) + float(ep.get("part_net") or 0)
+        self.st["n_wins"] += 1 if net > 0 else 0
         if cancel_stop:
             self._cancel_algo(ep.get("stop"))
-        net = pnl - fee - float(ep.get("entry_fee") or 0)
         self._journal({"kind": "выход", "reason": reason, "side": ep["side"], "price": px, "qty": ep["qty"],
                        "entry": ep["entry_px"], "pnl": pnl, "fee": fee, "net": net})
         self._notify(f"{'✅' if net > 0 else '🛑'} Тренд {self.cfg['symbol'].replace('USDT', '')} {ep['side']} закрыт по "

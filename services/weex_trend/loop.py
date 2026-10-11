@@ -40,7 +40,9 @@ class TrendRunner:
         self.dry_ex: dict[str, te.DryTrendExchange] = {}
         self.last_halt = 0.0
 
-    def tick(self, portfolio_free: float | None = None) -> None:
+    def tick(self, portfolio_free=None) -> None:
+        """portfolio_free — число или функция; функция вызывается заново перед каждой монетой (11.10, разбор
+        GPT: одно свободное место отдавалось обеим монетам)."""
         try:
             cfg = te.load_config()
         except te.GridHalt as exc:
@@ -49,8 +51,9 @@ class TrendRunner:
         for sym in symbols(cfg):
             try:
                 c = symbol_cfg(cfg, sym)
-                if not c["dry_run"] and portfolio_free is not None:
-                    c["portfolio_free_usd"] = portfolio_free    # общий потолок счёта — только живому режиму
+                free = portfolio_free() if callable(portfolio_free) else portfolio_free
+                if not c["dry_run"] and free is not None:
+                    c["portfolio_free_usd"] = free              # общий потолок счёта — только живому режиму
                 self._tick_symbol(c)
             except te.GridHalt as exc:
                 self._halt(exc)

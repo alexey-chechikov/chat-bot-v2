@@ -128,16 +128,29 @@ def rule_key(tp: float, sl: float) -> str:
     return f"tp{tp:g}_sl{sl:g}"
 
 
-def barrier(k: list[tuple], d: int, entry: float, tp: float, sl: float, expired: bool) -> float | None:
-    """Результат виртуальной сделки в % цены после комиссии; None — ещё открыта."""
-    for _, _o, h, l, _c in k:
+def barrier(k: list[tuple], d: int, entry: float, tp: float, sl: float, expired: bool,
+            start_ms: int | None = None) -> tuple[float | None, str]:
+    """Виртуальная сделка: (результат в % цены после комиссии, причина TP/SL/TIME); (None, '') — ещё
+    открыта; (None, 'дыра') — в минутках пропуск (11.10, разбор GPT: пропущенная минута со стопом
+    превращала −3.1% в +0.9%), такую сделку не засчитываем."""
+    prev = None if start_ms is None else start_ms - 60_000
+    for ts, _o, h, l, _c in k:
+        if prev is not None and ts - prev != 60_000:
+            return None, "дыра"
+        prev = ts
         if d * ((l if d > 0 else h) / entry - 1) * 100 <= -sl:
-            return -sl - FEE
+            return -sl - FEE, "SL"
         if d * ((h if d > 0 else l) / entry - 1) * 100 >= tp:
-            return tp - FEE
+            return tp - FEE, "TP"
     if expired and k:
-        return d * (k[-1][4] / entry - 1) * 100 - FEE
-    return None
+        return d * (k[-1][4] / entry - 1) * 100 - FEE, "TIME"
+    return None, ""
+
+
+def entry_time(t0: float) -> float:
+    """Вход — открытие ПЕРВОЙ ПОЛНОЙ минуты после получения сигнала (11.10, разбор GPT: брались открытие
+    минуты до получения и её high/low)."""
+    return (t0 // 60 + 1) * 60
 
 
 def update_outcomes(now: float | None = None) -> list[dict]:
@@ -146,8 +159,8 @@ def update_outcomes(now: float | None = None) -> list[dict]:
     rows = _read()
     changed = False
     for r in rows:
-        t0 = datetime.fromisoformat(r["ts"]).timestamp()
-        if r.get("p0") is None:
+        t0 = entry_time(datetime.fromisoformat(r["ts"]).timestamp())
+        if r.get("p0") is None and now >= t0 + 60:
             r["p0"] = price_at(r["symbol"], t0)
             changed = True
         for h in HORIZ:
@@ -155,15 +168,18 @@ def update_outcomes(now: float | None = None) -> list[dict]:
             if r.get(k) is None and now >= t0 + h * 3600 + 60:
                 r[k] = price_at(r["symbol"], t0 + h * 3600)
                 changed = True
-        todo = [(tp, sl) for tp, sl in RULES if r.get(rule_key(tp, sl)) is None]
+        todo = [(tp, sl) for tp, sl in RULES if r.get(rule_key(tp, sl)) is None
+                and not r.get(rule_key(tp, sl) + "_why")]
         if r.get("p0") and todo and now > t0 + 60:
             end = min(now, t0 + MAX_H * 3600)
             k = klines(r["symbol"], t0, end)
             d = 1 if r["side"] == "LONG" else -1
             for tp, sl in todo:
-                res = barrier(k, d, r["p0"], tp, sl, expired=now >= t0 + MAX_H * 3600)
-                if res is not None:
-                    r[rule_key(tp, sl)] = round(res, 3)
+                res, why = barrier(k, d, r["p0"], tp, sl, expired=now >= t0 + MAX_H * 3600,
+                                   start_ms=int(t0 * 1000))
+                if why:
+                    r[rule_key(tp, sl)] = None if res is None else round(res, 3)
+                    r[rule_key(tp, sl) + "_why"] = why
                     changed = True
     if changed:
         _write(rows)
@@ -190,12 +206,16 @@ def summary() -> str:
                          f"{avg:+.2f}% (после комиссии {avg - FEE:+.2f}%)")
     lines.append(f"виртуально по ${STAKE:.0f} без плеча (тейк/стоп, после комиссии):")
     for tp, sl in RULES:
-        res = [r[rule_key(tp, sl)] for r in rows if r.get(rule_key(tp, sl)) is not None]
-        if res:
-            win = sum(1 for x in res if x > 0)
-            usd = sum(res) * STAKE / 100
-            lines.append(f"  {tp:g}% / −{sl:g}%: закрыто {len(res)}, тейков {win} ({win / len(res):.0%}, безубыток "
-                         f"{(sl + FEE) / (tp + sl):.0%}), итог ${usd:+.2f}, открыто {len(rows) - len(res)}")
+        key = rule_key(tp, sl)
+        done = [r for r in rows if r.get(key) is not None]
+        if done:
+            why = [r.get(key + "_why") for r in done]
+            n_tp, n_sl, n_t = why.count("TP"), why.count("SL"), why.count("TIME")
+            usd = sum(r[key] for r in done) * STAKE / 100
+            holes = sum(1 for r in rows if r.get(key + "_why") == "дыра")
+            lines.append(f"  {tp:g}% / −{sl:g}%: закрыто {len(done)} — тейк {n_tp}, стоп {n_sl}, по времени {n_t} "
+                         f"(тейков {n_tp / len(done):.0%}, безубыток {(sl + FEE) / (tp + sl):.0%}), итог ${usd:+.2f}; "
+                         f"открыто {len(rows) - len(done) - holes}" + (f", дыры в данных {holes}" if holes else ""))
     lines.append("  бэктест 2 года (4 173 похожих сигнала): 1/3 −0.13%, 1/5 −0.10%, 2/5 −0.06% на сделку")
     last = rows[-5:]
     lines.append("последние: " + "; ".join(f"{r['symbol']} {r['side']} {r['ts'][5:16]}" for r in last))
