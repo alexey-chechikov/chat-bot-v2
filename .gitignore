@@ -335,3 +335,4 @@ state/edge_live_stats.json
 state/paper_signals.jsonl
 state/paper_trades.jsonl
 state/odds_scenarios_*.json
+state/weex_book/

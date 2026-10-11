@@ -842,6 +842,13 @@ async def _run_weex_grid(stop_event: asyncio.Event, *, telegram_app=None) -> Non
     await weex_grid_loop(stop_event=stop_event, send_fn=send_fn)
 
 
+async def _run_weex_book(stop_event: asyncio.Event) -> None:
+    """Запись стакана и сделок WEEX BTC/ETH (2026-10-11, разбор GPT: замер цены оборота для maker-бота
+    на объём ДО первого ордера). Только публичный websocket, ордеров нет. state/weex_book/."""
+    from services.weex_book.recorder import weex_book_loop
+    await weex_book_loop(stop_event=stop_event)
+
+
 async def _run_alt_momentum_shadow(stop_event: asyncio.Event) -> None:
     """Alt-momentum форвард-сбор (Win 2026-06-17): 4ч кросс-секц. моментум, холд 24ч,
     long топ-4/short низ-4 по excess vs BTC, market-neutral. БЕЗ денег, тег режима
@@ -1645,6 +1652,7 @@ async def main(
     level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
     stress_budget_task = asyncio.create_task(_run_stress_budget(stop_event, telegram_app=app), name="stress_budget")
     weex_grid_task = asyncio.create_task(_run_weex_grid(stop_event, telegram_app=app), name="weex_grid")
+    weex_book_task = asyncio.create_task(_run_weex_book(stop_event), name="weex_book")
     trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
     # test3_tpflat and test3_tpflat_b retired 2026-05-11 — see TZ-B10
@@ -1694,7 +1702,7 @@ async def main(
         range_hunter_signal_eth_5m_task, range_hunter_outcome_eth_5m_task,
         range_hunter_signal_xrp_5m_task, range_hunter_outcome_xrp_5m_task,
         cascade_followup_signal_task, cascade_followup_outcome_task,
-        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, grid_border_task, bot_watch_task, short_gate_task, odds_journal_task, level_alerts_task, stress_budget_task, weex_grid_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
+        liq_pre_cascade_task, alt_guard_task, ma_cross_shadow_task, alt_momentum_shadow_task, scalp_liq_task, order_harvester_task, grid_autotune_task, risk_guard_task, hedge_shadow_task, grid_border_task, bot_watch_task, short_gate_task, odds_journal_task, level_alerts_task, stress_budget_task, weex_grid_task, weex_book_task, trend_signals_task, spike_alert_task, regime_shadow_task, regime_narrator_task, pre_cascade_task, grid_coordinator_task, grid_coordinator_intraday_task, alt_decorr_task, heartbeat_task, watchlist_task, play_outcome_task, confluence_task, daily_report_task, volume_nodes_task, short_bots_guard_task, bot_brain_state_task, bot_brain_executor_task, paper_grid_eth_task, paper_grid_xrp_task, tv_webhook_task, paper_trader_task, stale_monitor_task, stop_task,
     }
 
     exit_code = 0
