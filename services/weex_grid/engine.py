@@ -27,6 +27,7 @@ JOURNAL = ROOT / "state" / "weex_grid_journal.jsonl"
 PREFIX = "b7g"
 DIR = {"LONG": 1, "SHORT": -1}
 LIVE = {"NEW", "PENDING", "CANCELING", "UNTRIGGERED", "UNACTIVATED", "PARTIALLY_FILLED"}   # может ещё исполниться
+TERMINAL = {"FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED"}   # подтверждённо больше не исполнится
 OPEN_SIDE = {"LONG": "BUY", "SHORT": "SELL"}
 CLOSE_SIDE = {"LONG": "SELL", "SHORT": "BUY"}
 DEFAULT = {
@@ -158,29 +159,43 @@ def new_side_state() -> dict:
 _REGIME_CACHE: dict[tuple, tuple] = {}
 
 
-def regime_up(symbol: str, sma_days: int = 100, now: float | None = None) -> bool | None:
-    """Режим SMA (research/weex/regime_grid.py, проверен 11.10 на 2 годах BTC/ETH и на движке GinArea): закрытие
-    последнего ЗАКРЫТОГО дня UTC выше SMA за sma_days закрытых дней → True (лонг), ниже → False; нет данных →
-    None (новых входов нет, ничего не закрываем). Дневки Binance spot, как в исследовании; кэш 30 мин; при сбое
-    прежнее решение действует до суток."""
+def _fetch_daily(symbol: str, limit: int) -> list:
     import urllib.request
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit={limit}"
+    return json.loads(urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "bot7"}),
+                                             timeout=15).read())
+
+
+def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=None) -> bool | None:
+    """Режим SMA (research/weex/regime_grid.py, проверен 11.10 на 2 годах BTC/ETH и на движке GinArea): закрытие
+    ВЧЕРАШНЕГО дня UTC выше SMA за sma_days последовательных закрытых дней → True (лонг), ниже → False.
+    Решение привязано к дню: в новых сутках — новый запрос (12.10, разбор GPT L6: кэш на 30 мин пускал вчерашнее
+    решение после полуночи). Данные проверяются: сортировка по времени, без повторов и пропусков дней, последняя
+    закрытая свеча — вчерашняя, цены конечные и положительные. Сбой/устаревшие/битые данные → None (новых входов
+    нет, нового закрытия по режиму нет; уже начатое закрытие доводится)."""
     now = now or time.time()
+    today = int(now // 86400)
     key = (symbol, sma_days)
     c = _REGIME_CACHE.get(key)
-    if c and now - c[0] < 1800:
+    if c and c[0] == today:
         return c[1]
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit={sma_days + 5}"
-        rows = json.loads(urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "bot7"}),
-                                                 timeout=15).read())
-        closed = [float(r[4]) for r in rows if int(r[6]) < now * 1000]
-        if len(closed) < sma_days:
-            raise ValueError(f"закрытых дней {len(closed)} < {sma_days}")
-        up = closed[-1] > sum(closed[-sma_days:]) / sma_days
+        rows = (fetch or _fetch_daily)(symbol, sma_days + 5)
+        bars = {int(r[0]) // 86_400_000: r for r in rows if int(r[6]) < now * 1000}   # день → закрытая свеча
+        days = sorted(bars)
+        if not days or days[-1] != today - 1:
+            raise ValueError(f"последняя закрытая свеча не вчерашняя: {days[-1] if days else None} vs {today - 1}")
+        tail = days[-sma_days:]
+        if len(tail) < sma_days or tail != list(range(tail[0], tail[0] + sma_days)):
+            raise ValueError("меньше дней или пропуск дня")
+        closes = [float(bars[d][4]) for d in tail]
+        if not all(math.isfinite(x) and x > 0 for x in closes):
+            raise ValueError("битая цена закрытия")
+        up = closes[-1] > sum(closes) / sma_days
     except Exception:                                           # noqa: BLE001
         logger.exception("weex_grid.regime_failed %s", symbol)
-        return c[1] if c and now - c[0] < 86400 else None
-    _REGIME_CACHE[key] = (now, up)
+        return None
+    _REGIME_CACHE[key] = (today, up)
     return up
 
 
@@ -313,6 +328,8 @@ class Grid:
         if s.get("entry"):
             ids.add(str(s["entry"]["id"]))
         ids.update(str(l["tp_order"]["id"]) for l in s["lots"] if l.get("tp_order"))
+        if s.get("flatten") and s["flatten"].get("id"):          # рыночное закрытие (12.10, разбор GPT L7)
+            ids.add(str(s["flatten"]["id"]))
         return ids
 
     def _settle_fees(self) -> None:
@@ -570,6 +587,11 @@ class Grid:
             known.update(x["id"] for x in s["strays"])
             if s.get("pending"):
                 pend.add(s["pending"]["cid"])
+            fl = s.get("flatten")                               # рыночное закрытие — не сирота (разбор GPT L1)
+            if fl:
+                pend.add(fl["cid"])
+                if fl.get("id"):
+                    known.add(fl["id"])
         tick = float(self.cfg["price_tick"])
         for oid, o in list(self.open.items()):
             if oid in known or o.get("clientOrderId") in pend:
@@ -586,6 +608,9 @@ class Grid:
             logger.warning("weex_grid.orphan_order id=%s cid=%s side=%s reduce=%s", oid, o.get("clientOrderId"),
                            side, o.get("reduceOnly"))
             if not o.get("reduceOnly"):
+                # ранее неучтённый вход занимает место общего потолка СРАЗУ: свободное этого прохода посчитано
+                # без него (12.10, разбор GPT R5: место выдавалось новому входу поверх сироты)
+                self._room_used += max(float(o.get("origQty") or 0) - float(o.get("executedQty") or 0), 0.0) * price
                 if s["entry"] is None and not s.get("pending"):
                     s["entry"] = order                      # неучтённое исполненное пойдёт в лоты
                     continue
@@ -810,13 +835,11 @@ class Grid:
         if not e:
             return False
         self._cancel(e)
-        try:
-            info = self.c.order_info(e["id"])
-        except Exception:                                       # noqa: BLE001
-            logger.exception("weex_grid.info_after_cancel_failed id=%s", e["id"])
+        kind, info = self._detail(e["id"])
+        if kind == "unknown":                 # пустой/чужой/без статуса ответ — не конечный (разбор GPT L4)
             return False                      # оставим отслеживание — разберёмся на следующем проходе
         got = self._take_entry_fill(side, e, info)
-        if info.get("status") not in LIVE:    # отмена подтверждена — забываем; иначе ждём (исполнения
+        if kind == "terminal":                # отмена подтверждена — забываем; иначе ждём (исполнения
             self._room_used -= self._standing_res(side)                       # место входа освободилось
             s["entry"] = None                 # во время отмены запишутся на следующем проходе)
         self.save()
@@ -981,33 +1004,64 @@ class Grid:
 
     def _side_busy(self, side: str) -> bool:
         s = self.st[side]
-        return bool(s["lots"] or s.get("entry") or s["strays"] or s.get("pending"))
+        return bool(s["lots"] or s.get("entry") or s["strays"] or s.get("pending") or s.get("flatten"))
 
-    def release_side(self, side: str, mid: float) -> bool:
-        """Передать сторону оператору (11.10: «шорт-сетку оставляю за собой, закрывать буду сам»): снять свои
-        ордера стороны (вход, тейки, сироты), учесть исполнения до снятия, убрать лоты из учёта бота. Позиция на
-        бирже остаётся — её ведёт оператор. False — что-то ещё не в конечном статусе, повторить на следующем
-        проходе (лоты не теряются)."""
+    def _detail(self, oid) -> tuple[str, dict]:
+        """Деталь ордера с проверкой: ('terminal'|'live'|'unknown', info). Конечным считается только явный статус
+        из TERMINAL у ответа с тем же orderId (12.10, разбор GPT L4: пустой/ошибочный ответ без статуса принимался
+        за конечный — ордер забывался, хотя стоял на бирже)."""
+        try:
+            info = self.c.order_info(oid) or {}
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.order_info_failed id=%s", oid)
+            return "unknown", {}
+        if str(info.get("orderId")) != str(oid):
+            return "unknown", info
+        st = str(info.get("status") or "")
+        if st in TERMINAL:
+            return "terminal", info
+        if st in LIVE:
+            return "live", info
+        return "unknown", info
+
+    def _cancel_tps(self, side: str) -> bool:
+        """Снять тейки стороны, исполненное до снятия — в прибыль. True — все тейки в подтверждённом конечном
+        статусе (тейк забывается только тогда)."""
         s = self.st[side]
-        if s.get("pending") and not self._resolve_pending(side):
-            return False
-        self._drop_entry(side)
-        if s.get("entry"):
-            return False
+        ok = True
         for lot in list(s["lots"]):
             o = lot.get("tp_order")
             if not o:
                 continue
             self._cancel(o)
-            try:
-                info = self.c.order_info(o["id"])
-            except Exception:                                   # noqa: BLE001
-                logger.exception("weex_grid.release_info_failed id=%s", o.get("id"))
+            kind, info = self._detail(o["id"])
+            if kind == "unknown":
+                ok = False
+                continue
+            self._take_tp_fill(side, lot, o, info, terminal=kind == "terminal")
+            if kind != "terminal":
+                ok = False
+        return ok
+
+    def release_side(self, side: str, mid: float) -> bool:
+        """Передать сторону оператору (11.10: «шорт-сетку оставляю за собой, закрывать буду сам»): снять свои
+        ордера стороны (вход, тейки, сироты), учесть исполнения до снятия, довести уже отправленное рыночное
+        закрытие (12.10, разбор GPT L3), и только потом убрать лоты из учёта бота. Позиция на бирже остаётся —
+        её ведёт оператор. False — что-то ещё не в подтверждённом конечном статусе, повторить на следующем проходе
+        (лоты не теряются, сообщение «передано» не отправляется)."""
+        s = self.st[side]
+        if s.get("pending") and not self._resolve_pending(side):
+            return False
+        if s.get("flatten"):
+            self._flatten_progress(side, mid)
+            if s.get("flatten"):
                 return False
-            terminal = info.get("status") not in LIVE
-            self._take_tp_fill(side, lot, o, info, terminal=terminal)
-            if not terminal:
-                return False
+        self._drop_entry(side)
+        if s.get("entry"):
+            return False
+        if not self._cancel_tps(side):
+            self.save()
+            return False
         if s["strays"]:
             self._process_strays(side, mid)
             if s["strays"]:
@@ -1026,90 +1080,114 @@ class Grid:
         self.save()
         return True
 
+    def _find_market(self, side: str, fl: dict) -> dict | None:
+        """Потерянный ответ рыночного закрытия: история ордеров по clientOrderId, затем сделки окна ±10 мин →
+        деталь ордера → clientOrderId (12.10, разбор GPT L2: завершённого market нет в открытых, а короткая или
+        пустая история — не доказательство, что он не исполнился)."""
+        o, _ = self._find_by_cid(fl["cid"], fl.get("srv") or fl["t"])
+        if o is not None:
+            return o
+        srv = fl.get("srv") or fl["t"]
+        try:
+            trades = self.c.user_trades(self.cfg["symbol"], start_ms=int((srv - 600) * 1000),
+                                        end_ms=int((srv + 600) * 1000)) or []
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.flatten_trades_failed")
+            return None
+        known = self._referenced("LONG") | self._referenced("SHORT")
+        seen = set()
+        for t in trades:
+            oid = str(t.get("orderId") or "")
+            if not oid or oid in known or oid in seen or len(seen) >= 20:
+                continue
+            seen.add(oid)
+            kind, info = self._detail(oid)
+            if kind != "unknown" and info.get("clientOrderId") == fl["cid"]:
+                return info
+        return None
+
     def _flatten_side(self, side: str, bid: float, ask: float, mid: float) -> None:
         """Закрыть сторону по смене режима (как в research/weex/regime_grid.py): снять вход и тейки (исполненное до
-        снятия — в прибыль), затем ОДИН рыночный reduceOnly на объём лотов бота (ручную позицию оператора на той же
-        стороне не трогает). Намерение — на диск до отправки; потерянный ответ ищется по clientOrderId, повторной
-        отправки до выяснения нет; частичное исполнение — остаток закрывается следующим ордером."""
-        s, d = self.st[side], DIR[side]
+        снятия — в прибыль), затем ОДИН рыночный reduceOnly на объём лотов бота. Намерение — на диск до отправки;
+        пока исход отправленного ордера не выяснен — НОВОГО рыночного нет (12.10, разбор GPT L2); частичное —
+        остаток следующим ордером только после конечного статуса прежнего."""
+        s = self.st[side]
         if self.st["halted"] and int(s.get("flatten_rejects") or 0) >= 3:
             return                                              # стоп после трёх отказов — ждём оператора
         if s.get("pending") and not self._resolve_pending(side):
             return
-        fl = s.get("flatten")
-        if fl is None:
-            self._drop_entry(side)
-            if s.get("entry"):
-                return
-            for lot in list(s["lots"]):
-                o = lot.get("tp_order")
-                if not o:
-                    continue
-                self._cancel(o)
-                try:
-                    info = self.c.order_info(o["id"])
-                except Exception:                               # noqa: BLE001
-                    logger.exception("weex_grid.flatten_info_failed id=%s", o.get("id"))
-                    return
-                terminal = info.get("status") not in LIVE
-                self._take_tp_fill(side, lot, o, info, terminal=terminal)
-                if not terminal:
-                    return
-            if s["strays"]:
-                self._process_strays(side, mid)
-                if s["strays"]:
-                    return
-            q = sum(float(l["qty"]) for l in s["lots"])
-            if q <= self._tiny():
-                s["ref"] = None
-                self.save()
-                return
-            cid = self._cid(side, "x")
-            srv = self.now() + float(getattr(self.c, "_offset_ms", 0) or 0) / 1000
-            s["flatten"] = {"cid": cid, "qty": self._qty_str(q), "t": self.now(), "srv": srv,
-                            "filled": 0.0, "filled_val": 0.0}
-            self.save()
-            try:
-                r = self.c.place_market(self.cfg["symbol"], CLOSE_SIDE[side], side, self._qty_str(q), cid,
-                                        reduce_only=True)
-            except Exception as exc:                            # noqa: BLE001 — исход неизвестен, найдём по cid
-                logger.warning("weex_grid.flatten_send_failed side=%s err=%s", side, exc)
-                return
-            if r and r.get("success") and r.get("orderId"):
-                s["flatten"]["id"] = str(r["orderId"])
-                s["flatten_rejects"] = 0
-                self._notify(f"↩️ Сетка WEEX {self.cfg['symbol']}: режим сменился — закрываю {side} {self._qty_str(q)} "
-                             f"по рынку (лоты бота; ручную позицию не трогаю).")
-            elif r and not r.get("success"):
-                # отказ (чаще всего позиции на бирже меньше лотов — часть закрыта вручную): привести учёт к позиции
-                # биржи; три отказа подряд — стоп сетки и сообщение, без повторов каждые 10 с
-                s["flatten"] = None
-                s["flatten_rejects"] = int(s.get("flatten_rejects") or 0) + 1
-                self._reconcile_side(side, mid)
-                if s["flatten_rejects"] >= 3 and s["lots"]:
-                    self.st["halted"] = True
-                    self.st["halt_reason"] = f"рыночное закрытие {side} по режиму отклонено 3 раза"
-                    self._notify(f"🛑 Сетка WEEX {self.cfg['symbol']}: биржа 3 раза отклонила закрытие {side} по режиму "
-                                 f"({r.get('errorCode') or r.get('msg') or r}). Сетка остановлена, позицию проверь руками.")
-                else:
-                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: биржа не приняла закрытие {side} по режиму — "
-                                 f"сверил учёт с позицией, повторю.")
+        if s.get("flatten"):
+            self._flatten_progress(side, mid)
+            return
+        self._drop_entry(side)
+        if s.get("entry"):
+            return
+        if not self._cancel_tps(side):
             self.save()
             return
-        if not fl.get("id"):
-            o, complete = self._find_by_cid(fl["cid"], fl.get("srv") or fl["t"])
-            if o is None:
-                if self.now() - fl["t"] < PENDING_TTL or not complete:
-                    return
-                s["flatten"] = None                             # не дошёл — следующий проход отправит заново
-                self.save()
+        if s["strays"]:
+            self._process_strays(side, mid)
+            if s["strays"]:
                 return
-            fl["id"] = str(o["orderId"])
+        q = sum(float(l["qty"]) for l in s["lots"])
+        if q <= self._tiny():
+            s["ref"] = None
             self.save()
+            return
+        cid = self._cid(side, "x")
+        srv = self.now() + float(getattr(self.c, "_offset_ms", 0) or 0) / 1000
+        s["flatten"] = {"cid": cid, "qty": self._qty_str(q), "t": self.now(), "srv": srv,
+                        "filled": 0.0, "filled_val": 0.0}
+        self.save()
         try:
-            info = self.c.order_info(fl["id"])
-        except Exception:                                       # noqa: BLE001
-            logger.exception("weex_grid.flatten_info_failed id=%s", fl.get("id"))
+            r = self.c.place_market(self.cfg["symbol"], CLOSE_SIDE[side], side, self._qty_str(q), cid,
+                                    reduce_only=True)
+        except Exception as exc:                                # noqa: BLE001 — исход неизвестен, найдём по cid
+            logger.warning("weex_grid.flatten_send_failed side=%s err=%s", side, exc)
+            return
+        if r and r.get("success") and r.get("orderId"):
+            s["flatten"]["id"] = str(r["orderId"])
+            self._notify(f"↩️ Сетка WEEX {self.cfg['symbol']}: режим сменился — закрываю {side} {self._qty_str(q)} "
+                         f"по рынку (лоты бота).")
+        elif r and not r.get("success"):
+            # явный отказ (чаще всего позиции на бирже меньше лотов — часть закрыта вручную): учёт к позиции
+            # биржи; три отказа подряд (вместе с конечными исходами без исполнения) — стоп и сообщение
+            s["flatten"] = None
+            self._reconcile_side(side, mid)
+            self._count_reject(side, r.get("errorCode") or r.get("msg") or r)
+        self.save()
+
+    def _count_reject(self, side: str, why) -> None:
+        s = self.st[side]
+        s["flatten_rejects"] = int(s.get("flatten_rejects") or 0) + 1
+        if s["flatten_rejects"] >= 3 and s["lots"]:
+            self.st["halted"] = True
+            self.st["halt_reason"] = f"рыночное закрытие {side} по режиму не исполнилось 3 раза"
+            self._notify(f"🛑 Сетка WEEX {self.cfg['symbol']}: закрытие {side} по режиму 3 раза не исполнилось ({why}). "
+                         f"Сетка остановлена, лоты бота в учёте — проверь позицию руками.")
+        else:
+            self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: закрытие {side} по режиму не исполнилось ({why}) — "
+                         f"сверил учёт с позицией, повторю.")
+
+    def _flatten_progress(self, side: str, mid: float) -> None:
+        """Сопровождение УЖЕ отправленного рыночного закрытия: найти (если ответ потерян), учесть прирост
+        исполнения по курсору, завершить только на подтверждённом конечном статусе. Новых ордеров не ставит."""
+        s, d = self.st[side], DIR[side]
+        fl = s["flatten"]
+        if not fl.get("id"):
+            o = self._find_market(side, fl)
+            if o is None:
+                if self.now() - fl["t"] >= PENDING_TTL and not fl.get("warned"):
+                    fl["warned"] = True
+                    self.save()
+                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ на рыночное закрытие {side} потерян и ордер "
+                                 f"{fl['cid']} пока не найден. Повторно НЕ отправляю (мог исполниться) — ищу дальше; "
+                                 f"проверь позицию.")
+                return
+            fl["id"] = str(o.get("orderId"))
+            self.save()
+        kind, info = self._detail(fl["id"])
+        if kind == "unknown":
             return
         exq = float(info.get("executedQty") or 0)
         dq = exq - float(fl.get("filled") or 0)
@@ -1135,12 +1213,16 @@ class Grid:
             s["realized"] += pnl
             s["fees"] += fee
             s["turnover"] += dq * px
+            s["flatten_rejects"] = 0                            # был прогресс
+            self.save()                                         # учёт на диск ДО журнала (12.10, разбор GPT L8)
             self._journal({"side": side, "kind": "закрытие по режиму", "price": px, "qty": self._qty_str(dq),
                            "fee": fee, "pnl": pnl, "order_id": fl["id"], "cum_qty": exq})
-        if info.get("status") in LIVE:
+        if kind == "live":
             self.save()
             return
         s["flatten"] = None
+        if exq <= self._tiny():                                 # конечный без исполнения (REJECTED/EXPIRED…)
+            self._count_reject(side, info.get("status"))
         if not s["lots"]:
             s["ref"] = None
             self._notify(f"✅ Сетка WEEX {self.cfg['symbol']}: {side} закрыт по режиму, новых входов до смены режима нет.")
