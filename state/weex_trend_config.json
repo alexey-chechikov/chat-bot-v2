@@ -1,0 +1,25 @@
+{
+ "enabled": true,
+ "dry_run": true,
+ "symbol": "ETHUSDT",
+ "risk_usd": 50.0,
+ "max_notional_usd": 3000.0,
+ "qty_step": 0.001,
+ "price_tick": 0.01,
+ "emergency_buffer_pct": 1.5,
+ "max_entry_age_sec": 14400,
+ "stop_update_min_pct": 0.2,
+ "poll_sec": 60,
+ "_note": "Трендовый бот ETH на WEEX (services/weex_trend): исполняет сигналы trend_signals. enabled/dry_run меняет оператор (/weex тренд start|stop|live|dry). Создан 10.10 по команде оператора «делай трендового по эфиру» — включён в ХОЛОСТОМ режиме.",
+ "symbols": [
+  "ETHUSDT",
+  "XRPUSDT"
+ ],
+ "_symbols_note": "10.10 «делай все»: XRP добавлен (2г +117%, все 16 настроек в плюсе; живые сигналы 2 мес +32%, PF 3.5)",
+ "per_symbol": {
+  "XRPUSDT": {
+   "qty_step": 10,
+   "price_tick": 0.0001
+  }
+ }
+}

@@ -23,9 +23,15 @@ ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "state" / "tradegpt_signals.jsonl"
 HORIZ = (1, 4, 24)
 FEE = 0.1                     # % за круг тейкером (для чистого результата)
+# виртуальные сделки «тейк / стоп» (вопрос оператора 11.10: $200, тейк 1%, стоп 3–5%) — без денег, по минуткам
+# Bybit от цены входа p0; в одной минуте задеты оба — стоп; не закрылась за 72 ч — по цене закрытия.
+# Бэктест 2г (research/tradegpt/barrier.py, N 4173): 1/3 −0.13%, 1/5 −0.10%, 2/5 −0.06% на сделку.
+RULES = ((1.0, 3.0), (1.0, 5.0), (2.0, 5.0))
+MAX_H = 72
+STAKE = 200.0
 
 DOWN = ("снижается", "снижение", "шорт", "short", "bearish", "down", "падает", "продав")
-UP = ("растёт", "растет", "повышается", "рост", "лонг", "long", "bullish", "up", "покуп")
+UP = ("возраст", "растёт", "растет", "повышается", "рост", "лонг", "long", "bullish", "up", "покуп")
 
 
 def is_tradegpt(text: str) -> bool:
@@ -96,8 +102,46 @@ def price_at(symbol: str, ts: float) -> float | None:
     return None
 
 
+def klines(symbol: str, start: float, end: float) -> list[tuple]:
+    """Минутки Bybit linear [start, end): (ts_ms, open, high, low, close) по возрастанию."""
+    out: list[tuple] = []
+    a, b = int(start // 60 * 60_000), int(end * 1000)
+    while a < b:
+        u = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=1&start={a}&limit=1000"
+        try:
+            data = json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "bot7"}),
+                                                     timeout=15).read())
+        except Exception:                                       # noqa: BLE001
+            logger.exception("tradegpt.klines_failed %s", symbol)
+            return []
+        rows = sorted((int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]))
+                      for x in data.get("result", {}).get("list") or [])
+        rows = [x for x in rows if x[0] < b and (not out or x[0] > out[-1][0])]
+        if not rows:
+            break
+        out += rows
+        a = rows[-1][0] + 60_000
+    return out
+
+
+def rule_key(tp: float, sl: float) -> str:
+    return f"tp{tp:g}_sl{sl:g}"
+
+
+def barrier(k: list[tuple], d: int, entry: float, tp: float, sl: float, expired: bool) -> float | None:
+    """Результат виртуальной сделки в % цены после комиссии; None — ещё открыта."""
+    for _, _o, h, l, _c in k:
+        if d * ((l if d > 0 else h) / entry - 1) * 100 <= -sl:
+            return -sl - FEE
+        if d * ((h if d > 0 else l) / entry - 1) * 100 >= tp:
+            return tp - FEE
+    if expired and k:
+        return d * (k[-1][4] / entry - 1) * 100 - FEE
+    return None
+
+
 def update_outcomes(now: float | None = None) -> list[dict]:
-    """Дописать цены входа и через 1/4/24 ч там, где время уже наступило."""
+    """Дописать цены входа и через 1/4/24 ч там, где время уже наступило, и итоги виртуальных сделок."""
     now = now or time.time()
     rows = _read()
     changed = False
@@ -111,6 +155,16 @@ def update_outcomes(now: float | None = None) -> list[dict]:
             if r.get(k) is None and now >= t0 + h * 3600 + 60:
                 r[k] = price_at(r["symbol"], t0 + h * 3600)
                 changed = True
+        todo = [(tp, sl) for tp, sl in RULES if r.get(rule_key(tp, sl)) is None]
+        if r.get("p0") and todo and now > t0 + 60:
+            end = min(now, t0 + MAX_H * 3600)
+            k = klines(r["symbol"], t0, end)
+            d = 1 if r["side"] == "LONG" else -1
+            for tp, sl in todo:
+                res = barrier(k, d, r["p0"], tp, sl, expired=now >= t0 + MAX_H * 3600)
+                if res is not None:
+                    r[rule_key(tp, sl)] = round(res, 3)
+                    changed = True
     if changed:
         _write(rows)
     return rows
@@ -134,6 +188,15 @@ def summary() -> str:
             avg = sum(res) / len(res)
             lines.append(f"через {h} ч: {len(res)} шт., угадано {hit} ({hit / len(res):.0%}), средний ход "
                          f"{avg:+.2f}% (после комиссии {avg - FEE:+.2f}%)")
+    lines.append(f"виртуально по ${STAKE:.0f} без плеча (тейк/стоп, после комиссии):")
+    for tp, sl in RULES:
+        res = [r[rule_key(tp, sl)] for r in rows if r.get(rule_key(tp, sl)) is not None]
+        if res:
+            win = sum(1 for x in res if x > 0)
+            usd = sum(res) * STAKE / 100
+            lines.append(f"  {tp:g}% / −{sl:g}%: закрыто {len(res)}, тейков {win} ({win / len(res):.0%}, безубыток "
+                         f"{(sl + FEE) / (tp + sl):.0%}), итог ${usd:+.2f}, открыто {len(rows) - len(res)}")
+    lines.append("  бэктест 2 года (4 173 похожих сигнала): 1/3 −0.13%, 1/5 −0.10%, 2/5 −0.06% на сделку")
     last = rows[-5:]
     lines.append("последние: " + "; ".join(f"{r['symbol']} {r['side']} {r['ts'][5:16]}" for r in last))
     lines.append("Монетка угадывает 50%; вывод — не раньше ~50 сигналов.")
