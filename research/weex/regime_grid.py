@@ -24,7 +24,7 @@ import fast_grid as fg  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 SYM = next((a for a in sys.argv[1:] if a.endswith("USDT")), "BTCUSDT")
 SRC = ROOT / "backtests" / "frozen" / f"{SYM}_1m_2y.csv"
-QTY = {"BTCUSDT": 0.0012, "ETHUSDT": 0.04}[SYM]          # ≈ $100 на ордер
+QTY = {"BTCUSDT": 0.0012, "ETHUSDT": 0.04, "PAXGUSDT": 0.025}[SYM]   # ≈ $100 на ордер
 MAKER, TAKER, SLIP = 0.00016, 0.00048, 0.0002
 
 
@@ -45,7 +45,10 @@ def load():
 def run(args):
     name, mode, seed, step, tgt = args
     ts, o, h, l, c, reg = DATA
-    if mode == "shuffle":                                 # отрезкам режима — случайная сторона
+    # границы отрезков ИСХОДНОГО режима: на каждой — обязательное закрытие (11.10, разбор GPT: в контроле
+    # соседние одинаковые случайные стороны сливались — меньше закрытий, другая механика выхода)
+    bound = np.r_[False, reg[1:] != reg[:-1]]
+    if mode in ("shuffle", "shuffle_lf"):                 # отрезкам режима — случайная сторона
         rng = np.random.default_rng(seed)
         seg = np.r_[0, np.flatnonzero(reg[1:] != reg[:-1]) + 1, len(reg)]
         reg = reg.copy()
@@ -62,14 +65,19 @@ def run(args):
     for i in range(len(ts)):
         if mode in ("regime", "invert", "shuffle"):
             act = {1: bool(reg[i]), -1: not bool(reg[i])}
+        elif mode == "longflat":                          # лонг выше SMA100, иначе вне рынка (шорты — оператор)
+            act = {1: bool(reg[i]), -1: False}
+        elif mode == "shuffle_lf":                        # контроль для longflat: случайные отрезки лонга
+            act = {1: bool(reg[i]), -1: False}
         elif mode == "both":
             act = {1: True, -1: True}
         else:
             act = {1: mode == "long", -1: mode == "short"}
-        if prev is not None and act != prev:              # смена режима — выключенную сторону закрыть по рынку
+        switching = mode in ("regime", "invert", "shuffle", "longflat", "shuffle_lf")
+        if prev is not None and switching and bound[i]:   # граница отрезка — закрыть по рынку всё, что было
             flips += 1
             for d in (1, -1):
-                if prev[d] and not act[d]:
+                if prev[d]:
                     s = S[d]
                     px = o[i] * (1 - d * SLIP)
                     for e, q, _ in s["lots"]:
@@ -125,23 +133,27 @@ def main():
     print(f"окно {pd.to_datetime(ts[0], unit='s').date()} … {pd.to_datetime(ts[-1], unit='s').date()}, "
           f"доля времени выше SMA100 {data[5].mean():.0%}")
     jobs = []
-    for step, tgt in ((0.6, 1.4), (0.8, 1.65), (0.2, 0.21)):
-        for mode in ("regime", "both", "long", "short", "invert"):
+    for step, tgt in ((0.6, 1.4), (0.8, 1.65)):
+        for mode in ("regime", "longflat", "both", "long", "invert"):
             jobs.append((f"{step}/{tgt}", mode, 0, step, tgt))
-    jobs += [("0.6/1.4", "shuffle", s, 0.6, 1.4) for s in range(20)]
+    n_ctl = 12
+    jobs += [("0.6/1.4", "shuffle", s, 0.6, 1.4) for s in range(n_ctl)]
+    jobs += [("0.6/1.4", "shuffle_lf", s, 0.6, 1.4) for s in range(n_ctl)]
     with ProcessPoolExecutor(max_workers=3, initializer=init, initargs=(data,)) as ex:
         res = list(ex.map(run, jobs))
-    names = {"regime": "по режиму", "both": "всегда обе", "long": "всегда лонг", "short": "всегда шорт",
-             "invert": "режим наоборот"}
+    names = {"regime": "по режиму", "longflat": "только лонг/вне", "both": "всегда обе", "long": "всегда лонг",
+             "short": "всегда шорт", "invert": "режим наоборот"}
     print(f"{'сетка':>9} {'вариант':>15} | {'итог':>8} {'1-я пол':>8} {'2-я пол':>8} | {'просадка':>9} {'смен':>5} | стороны")
     for name, mode, seed, step, tgt, eq, mid, dd, flips, side in res:
-        if mode == "shuffle":
+        if mode.startswith("shuffle"):
             continue
         print(f"{name:>9} {names[mode]:>15} | {eq:>+8.0f} {mid:>+8.0f} {eq - mid:>+8.0f} | {dd:>+9.0f} {flips:>5} | {side}")
-    real = next(r[5] for r in res if r[1] == "regime" and r[0] == "0.6/1.4")
-    sh = np.array([r[5] for r in res if r[1] == "shuffle"])
-    print(f"контроль по отрезкам (0.6/1.4, 20 сидов): медиана {np.median(sh):+.0f}, 10–90% {np.quantile(sh, 0.1):+.0f}…"
-          f"{np.quantile(sh, 0.9):+.0f}; не хуже настоящего {int((sh >= real).sum())}/20")
+    for real_mode, ctl_mode, what in (("regime", "shuffle", "лонг/шорт"), ("longflat", "shuffle_lf", "только лонг")):
+        real = next(r[5] for r in res if r[1] == real_mode and r[0] == "0.6/1.4")
+        sh = np.array([r[5] for r in res if r[1] == ctl_mode])
+        print(f"контроль {what} (0.6/1.4, те же границы с закрытием, случайная сторона, {n_ctl} сидов): медиана "
+              f"{np.median(sh):+.0f}, 10–90% {np.quantile(sh, 0.1):+.0f}…{np.quantile(sh, 0.9):+.0f}; "
+              f"не хуже настоящего {int((sh >= real).sum())}/{n_ctl}")
 
 
 if __name__ == "__main__":

@@ -3,8 +3,7 @@
  "dry_run": false,
  "symbol": "BTCUSDT",
  "sides": [
-  "LONG",
-  "SHORT"
+  "LONG"
  ],
  "step_pct": 0.6,
  "target_pct": 1.4,
@@ -20,5 +19,9 @@
  "poll_sec": 10,
  "qty_step": 0.0001,
  "qty_max": 0.01,
- "_note": "сетка WEEX: dry_run=true — ордера НЕ отправляются; живой режим включает оператор командой /weex live, стоп — /weex stop"
+ "_note": "сетка WEEX: dry_run=true — ордера НЕ отправляются; живой режим включает оператор командой /weex live, стоп — /weex stop",
+ "release_sides": [
+  "SHORT"
+ ],
+ "regime_sma": 100
 }

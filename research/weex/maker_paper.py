@@ -27,7 +27,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "state" / "weex_book"
-MAKER, TAKER = 0.00016, 0.00048
+MAKER = next((float(a.split("=")[1]) for a in sys.argv if a.startswith("--maker=")), 0.00016)
+TAKER = next((float(a.split("=")[1]) for a in sys.argv if a.startswith("--taker=")), 0.00048)
 USD = 30.0
 HORIZ = (1, 5, 30, 60)
 
@@ -157,7 +158,7 @@ def simulate(ev, scheme: int, side: int, tick: float):
 
 
 def main():
-    syms = sys.argv[1:] or ["BTCUSDT", "ETHUSDT"]
+    syms = [a for a in sys.argv[1:] if not a.startswith("--")] or ["BTCUSDT", "ETHUSDT"]
     ticks = {"BTCUSDT": 0.1, "ETHUSDT": 0.01}
     for sym in syms:
         ev = load(sym)

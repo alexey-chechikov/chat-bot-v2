@@ -155,10 +155,40 @@ def new_side_state() -> dict:
             "strays": [], "fee_book": {}, "order_fills": {}}
 
 
+_REGIME_CACHE: dict[tuple, tuple] = {}
+
+
+def regime_up(symbol: str, sma_days: int = 100, now: float | None = None) -> bool | None:
+    """Режим SMA (research/weex/regime_grid.py, проверен 11.10 на 2 годах BTC/ETH и на движке GinArea): закрытие
+    последнего ЗАКРЫТОГО дня UTC выше SMA за sma_days закрытых дней → True (лонг), ниже → False; нет данных →
+    None (новых входов нет, ничего не закрываем). Дневки Binance spot, как в исследовании; кэш 30 мин; при сбое
+    прежнее решение действует до суток."""
+    import urllib.request
+    now = now or time.time()
+    key = (symbol, sma_days)
+    c = _REGIME_CACHE.get(key)
+    if c and now - c[0] < 1800:
+        return c[1]
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit={sma_days + 5}"
+        rows = json.loads(urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "bot7"}),
+                                                 timeout=15).read())
+        closed = [float(r[4]) for r in rows if int(r[6]) < now * 1000]
+        if len(closed) < sma_days:
+            raise ValueError(f"закрытых дней {len(closed)} < {sma_days}")
+        up = closed[-1] > sum(closed[-sma_days:]) / sma_days
+    except Exception:                                           # noqa: BLE001
+        logger.exception("weex_grid.regime_failed %s", symbol)
+        return c[1] if c and now - c[0] < 86400 else None
+    _REGIME_CACHE[key] = (now, up)
+    return up
+
+
 class Grid:
     def __init__(self, client, cfg: dict | None = None, state_path: Path = STATE,
-                 journal_path: Path = JOURNAL, sigma_fn=None, send_fn=None, now_fn=time.time):
+                 journal_path: Path = JOURNAL, sigma_fn=None, send_fn=None, now_fn=time.time, regime_fn=None):
         self.c = client
+        self.regime_fn = regime_fn or regime_up
         self.cfg = cfg or load_config()
         self.state_path = Path(state_path)
         self.journal_path = Path(journal_path)
@@ -650,13 +680,41 @@ class Grid:
         self._orphans()
         open_ids = set(self.open)
         self._day_roll(mid)
+        # сторона, переданная оператору (release_sides и её нет в sides): бот снимает свои ордера и забывает
+        # лоты; пока передача не завершена — сторону не сопровождаем (иначе тейки встали бы снова)
+        released = {x for x in (cfg.get("release_sides") or []) if x in DIR and x not in cfg["sides"]}
+        for side in released:
+            if self._side_busy(side):
+                self.release_side(side, mid)
+        # режим SMA (regime_sma > 0): лонг — только выше SMA, шорт — только ниже; сторона не по режиму
+        # закрывается по рынку; режим неизвестен — новых входов нет, ничего не закрываем
+        allowed = set(cfg["sides"])
+        closing: set[str] = set()
+        if int(cfg.get("regime_sma") or 0) > 0:
+            up = self.regime_fn(sym, int(cfg["regime_sma"]))
+            self.st["regime"] = up
+            if up is None:
+                allowed = set()
+            else:
+                allowed = {x for x in cfg["sides"] if (x == "LONG") == up}
+                for side in cfg["sides"]:
+                    st_ = self.st[side]
+                    if side not in allowed and (st_["lots"] or st_.get("entry") or st_.get("flatten")):
+                        closing.add(side)
+        for side in DIR:
+            if self.st[side].get("flatten"):
+                closing.add(side)
+        for side in closing - released:
+            self._flatten_side(side, bid, ask, mid)
         # обе стороны сопровождаются всегда, пока у стороны есть что-то на бирже/в учёте; новые входы —
         # только на сторонах из конфига (перепроверка GPT 10.10: после смены sides LONG→SHORT старый
         # вход LONG исполнялся без учёта и тейка)
         for side in ("LONG", "SHORT"):
             s = self.st[side]
+            if side in released or side in closing:
+                continue
             if side in cfg["sides"] or s.get("entry") or s["lots"] or s["strays"] or s.get("pending"):
-                self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]) and side in cfg["sides"])
+                self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]) and side in allowed)
         self._settle_fees()
         self._prune_fills()
         self._risk(mid)
@@ -921,6 +979,173 @@ class Grid:
         s["entry"] = self._place(side, "e", desired, False, bid, ask)
         self.save()
 
+    def _side_busy(self, side: str) -> bool:
+        s = self.st[side]
+        return bool(s["lots"] or s.get("entry") or s["strays"] or s.get("pending"))
+
+    def release_side(self, side: str, mid: float) -> bool:
+        """Передать сторону оператору (11.10: «шорт-сетку оставляю за собой, закрывать буду сам»): снять свои
+        ордера стороны (вход, тейки, сироты), учесть исполнения до снятия, убрать лоты из учёта бота. Позиция на
+        бирже остаётся — её ведёт оператор. False — что-то ещё не в конечном статусе, повторить на следующем
+        проходе (лоты не теряются)."""
+        s = self.st[side]
+        if s.get("pending") and not self._resolve_pending(side):
+            return False
+        self._drop_entry(side)
+        if s.get("entry"):
+            return False
+        for lot in list(s["lots"]):
+            o = lot.get("tp_order")
+            if not o:
+                continue
+            self._cancel(o)
+            try:
+                info = self.c.order_info(o["id"])
+            except Exception:                                   # noqa: BLE001
+                logger.exception("weex_grid.release_info_failed id=%s", o.get("id"))
+                return False
+            terminal = info.get("status") not in LIVE
+            self._take_tp_fill(side, lot, o, info, terminal=terminal)
+            if not terminal:
+                return False
+        if s["strays"]:
+            self._process_strays(side, mid)
+            if s["strays"]:
+                return False
+        lots = s["lots"]
+        if lots:
+            q = sum(float(l["qty"]) for l in lots)
+            avg = sum(float(l["qty"]) * l["entry"] for l in lots) / q
+            bag = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in lots)
+            self._journal({"side": side, "kind": "передано оператору", "qty": self._qty_str(q), "avg": avg,
+                           "mark": mid, "bag": bag, "lots": len(lots)})
+            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
+                         f"{len(lots)} лот(ов) {self._qty_str(q)} по средней {avg:,.1f} (мешок ${bag:+.2f}) "
+                         f"остаются на бирже, бот их больше не ведёт.")
+        s["lots"], s["ref"] = [], None
+        self.save()
+        return True
+
+    def _flatten_side(self, side: str, bid: float, ask: float, mid: float) -> None:
+        """Закрыть сторону по смене режима (как в research/weex/regime_grid.py): снять вход и тейки (исполненное до
+        снятия — в прибыль), затем ОДИН рыночный reduceOnly на объём лотов бота (ручную позицию оператора на той же
+        стороне не трогает). Намерение — на диск до отправки; потерянный ответ ищется по clientOrderId, повторной
+        отправки до выяснения нет; частичное исполнение — остаток закрывается следующим ордером."""
+        s, d = self.st[side], DIR[side]
+        if self.st["halted"] and int(s.get("flatten_rejects") or 0) >= 3:
+            return                                              # стоп после трёх отказов — ждём оператора
+        if s.get("pending") and not self._resolve_pending(side):
+            return
+        fl = s.get("flatten")
+        if fl is None:
+            self._drop_entry(side)
+            if s.get("entry"):
+                return
+            for lot in list(s["lots"]):
+                o = lot.get("tp_order")
+                if not o:
+                    continue
+                self._cancel(o)
+                try:
+                    info = self.c.order_info(o["id"])
+                except Exception:                               # noqa: BLE001
+                    logger.exception("weex_grid.flatten_info_failed id=%s", o.get("id"))
+                    return
+                terminal = info.get("status") not in LIVE
+                self._take_tp_fill(side, lot, o, info, terminal=terminal)
+                if not terminal:
+                    return
+            if s["strays"]:
+                self._process_strays(side, mid)
+                if s["strays"]:
+                    return
+            q = sum(float(l["qty"]) for l in s["lots"])
+            if q <= self._tiny():
+                s["ref"] = None
+                self.save()
+                return
+            cid = self._cid(side, "x")
+            srv = self.now() + float(getattr(self.c, "_offset_ms", 0) or 0) / 1000
+            s["flatten"] = {"cid": cid, "qty": self._qty_str(q), "t": self.now(), "srv": srv,
+                            "filled": 0.0, "filled_val": 0.0}
+            self.save()
+            try:
+                r = self.c.place_market(self.cfg["symbol"], CLOSE_SIDE[side], side, self._qty_str(q), cid,
+                                        reduce_only=True)
+            except Exception as exc:                            # noqa: BLE001 — исход неизвестен, найдём по cid
+                logger.warning("weex_grid.flatten_send_failed side=%s err=%s", side, exc)
+                return
+            if r and r.get("success") and r.get("orderId"):
+                s["flatten"]["id"] = str(r["orderId"])
+                s["flatten_rejects"] = 0
+                self._notify(f"↩️ Сетка WEEX {self.cfg['symbol']}: режим сменился — закрываю {side} {self._qty_str(q)} "
+                             f"по рынку (лоты бота; ручную позицию не трогаю).")
+            elif r and not r.get("success"):
+                # отказ (чаще всего позиции на бирже меньше лотов — часть закрыта вручную): привести учёт к позиции
+                # биржи; три отказа подряд — стоп сетки и сообщение, без повторов каждые 10 с
+                s["flatten"] = None
+                s["flatten_rejects"] = int(s.get("flatten_rejects") or 0) + 1
+                self._reconcile_side(side, mid)
+                if s["flatten_rejects"] >= 3 and s["lots"]:
+                    self.st["halted"] = True
+                    self.st["halt_reason"] = f"рыночное закрытие {side} по режиму отклонено 3 раза"
+                    self._notify(f"🛑 Сетка WEEX {self.cfg['symbol']}: биржа 3 раза отклонила закрытие {side} по режиму "
+                                 f"({r.get('errorCode') or r.get('msg') or r}). Сетка остановлена, позицию проверь руками.")
+                else:
+                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: биржа не приняла закрытие {side} по режиму — "
+                                 f"сверил учёт с позицией, повторю.")
+            self.save()
+            return
+        if not fl.get("id"):
+            o, complete = self._find_by_cid(fl["cid"], fl.get("srv") or fl["t"])
+            if o is None:
+                if self.now() - fl["t"] < PENDING_TTL or not complete:
+                    return
+                s["flatten"] = None                             # не дошёл — следующий проход отправит заново
+                self.save()
+                return
+            fl["id"] = str(o["orderId"])
+            self.save()
+        try:
+            info = self.c.order_info(fl["id"])
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.flatten_info_failed id=%s", fl.get("id"))
+            return
+        exq = float(info.get("executedQty") or 0)
+        dq = exq - float(fl.get("filled") or 0)
+        if dq > self._tiny():
+            avg = float(info.get("avgPrice") or 0) or mid
+            val = avg * exq
+            px = (val - float(fl.get("filled_val") or 0)) / dq
+            fl["filled"], fl["filled_val"] = exq, val
+            self._mark_fills(side, fl)
+            fee, _ = self._fee_delta(side, fl["id"])
+            rem, pnl = dq, 0.0
+            for lot in list(s["lots"]):                         # старые лоты первыми
+                take = min(float(lot["qty"]), rem)
+                pnl += d * take * (px - lot["entry"])
+                left = float(lot["qty"]) - take
+                if left <= self._tiny():
+                    s["lots"].remove(lot)
+                else:
+                    lot["qty"] = self._qty_str(left)
+                rem -= take
+                if rem <= self._tiny():
+                    break
+            s["realized"] += pnl
+            s["fees"] += fee
+            s["turnover"] += dq * px
+            self._journal({"side": side, "kind": "закрытие по режиму", "price": px, "qty": self._qty_str(dq),
+                           "fee": fee, "pnl": pnl, "order_id": fl["id"], "cum_qty": exq})
+        if info.get("status") in LIVE:
+            self.save()
+            return
+        s["flatten"] = None
+        if not s["lots"]:
+            s["ref"] = None
+            self._notify(f"✅ Сетка WEEX {self.cfg['symbol']}: {side} закрыт по режиму, новых входов до смены режима нет.")
+        self.save()
+
     def disable_entries(self) -> None:
         """Снять свои входные ордера (тейки остаются)."""
         for side in ("LONG", "SHORT"):
@@ -936,6 +1161,10 @@ class Grid:
         mode = ("ВЫКЛ" if not cfg["enabled"] else "ХОЛОСТОЙ (без ордеров)" if cfg["dry_run"] else "ЖИВАЯ")
         lines = [f"🕸 СЕТКА WEEX {cfg['symbol']} — {mode}" + (f" · СТОП: {self.st['halt_reason']}" if self.st["halted"] else ""),
                  f"шаг {cfg['step_pct']}% · цель {cfg['target_pct']}% · ордер {cfg['order_qty']} · цена {fmt_px(mid, tick)}"]
+        if int(cfg.get("regime_sma") or 0) > 0:
+            r = self.st.get("regime")
+            lines.append(f"режим SMA{int(cfg['regime_sma'])}: " + ("ЛОНГ (цена выше)" if r is True else "ШОРТ (цена ниже)"
+                         if r is False else "нет данных — новых входов нет"))
         for side in ("LONG", "SHORT"):
             s = self.st[side]
             if side not in cfg["sides"] and not (s.get("entry") or s["lots"] or s["strays"]):
@@ -1007,6 +1236,25 @@ class DryExchange:
         if o and o["status"] == "NEW":
             o["status"] = "CANCELED"
         return {"success": True, "orderId": oid}
+
+    def place_market(self, symbol, side, position_side, qty, cid, reduce_only=False):
+        """Рыночный ордер — сразу по лучшей встречной цене (комиссия тейкера 0.048%). reduceOnly — не больше
+        позиции стороны; позиции нет — отказ (как биржа)."""
+        bid, ask = self.book_fn()
+        px = ask if side == "BUY" else bid
+        if reduce_only:
+            pos = next((float(p["size"]) for p in self.futures_positions() if p["side"] == position_side), 0.0)
+            if pos <= 0:
+                return {"success": False, "errorCode": "REDUCE_ONLY_NO_POSITION", "orderId": None}
+            qty = f"{min(float(qty), pos):.4f}"
+        self.n += 1
+        oid = f"dry{self.n}"
+        self.orders[oid] = {"clientOrderId": cid, "side": side, "positionSide": position_side, "price": str(px),
+                            "origQty": qty, "status": "FILLED", "executedQty": qty, "avgPrice": str(px),
+                            "reduceOnly": reduce_only, "type": "MARKET"}
+        self.trades[oid] = [{"id": f"t{oid}", "orderId": oid, "commission": str(float(qty) * px * 0.00048),
+                             "maker": False, "price": str(px), "qty": qty, "time": int(self.now_fn() * 1000)}]
+        return {"success": True, "orderId": oid, "clientOrderId": cid}
 
     def user_trades(self, symbol, order_id=None, start_ms=None, end_ms=None):
         if order_id is not None:
