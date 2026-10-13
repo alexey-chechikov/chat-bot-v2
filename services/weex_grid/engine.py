@@ -150,10 +150,12 @@ def fmt_px(px: float, tick: float) -> str:
 
 def new_side_state() -> dict:
     # order_fills — долговечный курсор исполненного по номеру ордера, независимый от лота: при потере
-    # привязки тейка восстановление считает только то, что ещё не учтено (перепроверка GPT 10.10)
+    # привязки тейка восстановление считает только то, что ещё не учтено (перепроверка GPT 10.10).
+    # transfers / transferred_mtm — передачи стороны оператору: остаток и его MTM на момент передачи (13.10, дополнение
+    # GPT §3) — итог владения включает переданный мешок, передача не меняет заработанное
     return {"ref": None, "entry": None, "lots": [], "realized": 0.0, "fees": 0.0,
             "n_entries": 0, "n_tps": 0, "seq": 0, "turnover": 0.0, "pending": None,
-            "strays": [], "fee_book": {}, "order_fills": {}}
+            "strays": [], "fee_book": {}, "order_fills": {}, "transferred_mtm": 0.0, "transfers": []}
 
 
 _REGIME_CACHE: dict[tuple, tuple] = {}
@@ -210,6 +212,8 @@ class Grid:
         self.sigma_fn = sigma_fn
         self.send = send_fn
         self.now = now_fn
+        self._issues: list[tuple[str, str]] = []     # неясные детали ордеров текущего прохода (для метки живости)
+        self._phase = "init"
         self.st = self._load()
         self._room_used = 0.0                    # $ общего потолка, занятые новыми входами текущего прохода
         self._equity = None
@@ -234,10 +238,15 @@ class Grid:
         if st.get("symbol") and st["symbol"] != sym:
             raise StateCorrupt(f"учёт {self.state_path.name} от {st['symbol']}, а сетка {sym}")
         st["symbol"] = sym
+        # учёт с диска в формате до 13.10 не хранил переданный оператору мешок — восстановить из журнала (ниже).
+        # Свежий учёт (файла нет: первый запуск, холостой после рестарта) старые передачи журнала не наследует
+        migrate = [s for s in ("LONG", "SHORT") if st and isinstance(st.get(s), dict) and "transferred_mtm" not in st[s]]
         for s in ("LONG", "SHORT"):
             st.setdefault(s, new_side_state())
             for k, v in new_side_state().items():
                 st[s].setdefault(k, v)
+        if migrate:
+            self._migrate_transfers(st, migrate)
         st.setdefault("halted", False)
         st.setdefault("halt_reason", "")
         st.setdefault("day", None)
@@ -251,6 +260,39 @@ class Grid:
                 if o and o.get("fee_done") and str(o["id"]) not in sd["fee_book"]:
                     sd["fee_book"][str(o["id"])] = {"done": float(o["fee_done"]), "t": self.now()}
         return st
+
+    def _migrate_transfers(self, st: dict, sides: list[str]) -> None:
+        """Один раз для учёта до 13.10: передачи стороны из журнала («передано оператору», bag — MTM на момент
+        передачи) → transfers/transferred_mtm, чтобы итог сетки не оставался сдвинутым на мешок, переданный до
+        обновления. day_start_pnl сдвигается на ту же сумму — дневной результат от миграции не прыгает. Журнал не
+        читается — ключи убираются, миграция повторится при следующей загрузке."""
+        try:
+            lines = (self.journal_path.read_text(encoding="utf-8").splitlines()
+                     if self.journal_path.exists() else [])
+        except OSError:
+            logger.exception("weex_grid.transfer_migration_failed path=%s", self.journal_path)
+            for s in sides:
+                st[s].pop("transferred_mtm", None)
+                st[s].pop("transfers", None)
+            return
+        add = 0.0
+        for line in lines:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(r, dict) or r.get("kind") != "передано оператору" or r.get("side") not in sides:
+                continue
+            bag = float(r.get("bag") or 0)
+            st[r["side"]]["transfers"].append({"ts": r.get("ts"), "qty": r.get("qty"), "avg": r.get("avg"),
+                                               "mark": r.get("mark"), "mtm": bag, "lots": r.get("lots"),
+                                               "src": "журнал"})
+            st[r["side"]]["transferred_mtm"] += bag
+            add += bag
+        if add and st.get("day"):
+            st["day_start_pnl"] = float(st.get("day_start_pnl") or 0) + add
+        if add:
+            logger.info("weex_grid.transfer_migrated sides=%s mtm=%.4f", sides, add)
 
     def save(self) -> None:
         atomic_write(self.state_path, json.dumps(self.st, ensure_ascii=False, indent=1))
@@ -289,8 +331,9 @@ class Grid:
         s = self.st[side]
         try:
             trades = self.c.user_trades(self.cfg["symbol"], order_id) or []
-        except Exception:                                       # noqa: BLE001
+        except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.trades_failed")
+            self._issue(f"комиссия ордера {order_id} не прочитана ({type(exc).__name__}: {exc})")
             trades = []
         fee_all = sum(float(t.get("commission") or 0) for t in trades)
         makers = {bool(t.get("maker")) for t in trades}
@@ -348,8 +391,9 @@ class Grid:
         for sd, oid, rec in books[:FEE_BATCH]:
             try:
                 trades = self.c.user_trades(self.cfg["symbol"], oid) or []
-            except Exception:                                   # noqa: BLE001
+            except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.trades_failed")
+                self._issue(f"поздняя комиссия ордера {oid} не прочитана ({type(exc).__name__}: {exc})")
                 continue
             rec["checked"] = now
             fee_all = sum(float(t.get("commission") or 0) for t in trades)
@@ -374,8 +418,9 @@ class Grid:
                 usdt = next((b for b in bal if b.get("asset") == "USDT"), None)
                 self._equity = float(usdt["balance"]) + float(usdt.get("unrealizePnl") or 0) if usdt else None
                 self._equity_ts = self.now()
-            except Exception:                                   # noqa: BLE001
+            except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.balance_failed")
+                self._issue(f"баланс не прочитан ({type(exc).__name__}: {exc})")
                 self._equity = None                             # просроченный кэш не выдаём за известный баланс
         return self._equity
 
@@ -383,7 +428,11 @@ class Grid:
         return sum(DIR[s] * float(l["qty"]) * (mid - l["entry"]) for s in ("LONG", "SHORT") for l in self.st[s]["lots"])
 
     def bot_pnl(self, mid: float) -> float:
-        return (sum(self.st[s]["realized"] - self.st[s]["fees"] for s in ("LONG", "SHORT"))
+        """Итог владения: закрытое − комиссии + MTM переданного оператору мешка на момент передачи + мешок своих лотов.
+        Передача остатка не меняет итог ни в плюс, ни в минус (13.10, дополнение GPT §3: раньше удаление убыточного
+        мешка поднимало итог); дальнейшее движение переданной позиции — уже не бота. Тот же итог — в дневном стопе."""
+        return (sum(self.st[s]["realized"] - self.st[s]["fees"] + float(self.st[s].get("transferred_mtm") or 0)
+                    for s in ("LONG", "SHORT"))
                 + self.unrealized(mid))
 
     def _slots(self, side: str) -> int:
@@ -484,10 +533,12 @@ class Grid:
         except Exception as exc:                                # noqa: BLE001 — один ордер не валит проход
             # исход неизвестен: ордер мог дойти — pending остаётся до выяснения
             logger.warning("weex_grid.place_failed side=%s kind=%s price=%s err=%s", side, kind, price, exc)
+            self._issue(f"постановка {cid}: исход неизвестен ({type(exc).__name__}: {exc})")
             return None
         if not r or not r.get("success", False) or not r.get("orderId"):
             if r and r.get("success"):                          # «успех» без номера — исход неизвестен
                 logger.warning("weex_grid.place_no_id side=%s kind=%s resp=%s", side, kind, r)
+                self._issue(f"постановка {cid}: ответ без номера ордера")
                 return None
             s["pending"] = None                                 # явный отказ — исход известен
             if kind == "e":
@@ -527,8 +578,9 @@ class Grid:
         try:
             # намерение без серверного времени (учёт до 10.10) — окно шире: ±30 мин
             o, complete = self._find_by_cid(p["cid"], p.get("srv") or p["t"], 600.0 if p.get("srv") else 1800.0)
-        except Exception:                                       # noqa: BLE001
+        except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.history_failed")
+            self._issue(f"поиск ордера {p['cid']} не прочитан ({type(exc).__name__}: {exc})")
             return False
         if o is None:
             if self.now() - p["t"] < PENDING_TTL:
@@ -637,13 +689,14 @@ class Grid:
 
     def _process_strays(self, side: str, mid: float) -> None:
         """Лишние ордера стороны: исполнения входа → лоты; исполнения тейка → закрытие ближайшего
-        по цене лота (по факт. цене); конечный статус — забыть, живой — снять ещё раз."""
+        по цене лота (по факт. цене); подтверждённый конечный статус — забыть, живой — снять ещё раз. Неясная
+        деталь ({}, чужой id, нет/неизвестный статус) — ордер остаётся в учёте до подтверждения (13.10, разбор GPT
+        W2: пустой ответ стирал живой тейк бота, и сторону потом «передавали» с его живым тейком)."""
         s, d = self.st[side], DIR[side]
         for x in list(s["strays"]):
-            try:
-                info = self.c.order_info(x["id"])
-            except Exception:                                   # noqa: BLE001
-                logger.exception("weex_grid.stray_info_failed id=%s", x["id"])
+            kind, info = self._detail(x["id"], side, x)
+            if kind == "unknown":
+                self._cancel(x)                                 # цель — снять; исход проверим следующим проходом
                 continue
             if x["kind"] == "e":
                 self._take_entry_fill(side, x, info)
@@ -681,7 +734,7 @@ class Grid:
                         logger.warning("weex_grid.stray_tp_unallocated side=%s qty=%s", side, left)
                         self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: тейк {x['cid']} закрыл {left:g} {side} "
                                      f"сверх лотов учёта — расхождение, проверь позицию.")
-            if info.get("status") not in LIVE:
+            if kind == "terminal":
                 s["strays"].remove(x)
             else:
                 self._cancel(x)
@@ -695,27 +748,78 @@ class Grid:
 
     # ---------- один проход
     def tick(self) -> None:
+        """Один проход. Метки для мониторинга (13.10, разбор GPT Q1: mtime учёта освежался и проходом, упавшим
+        позже): last_tick_ok_ts — только в конце полностью успешного прохода, без исключения и без неясных деталей
+        ордеров; исключение → last_tick_error {ts, phase, err, fatal: true} в СОХРАНЁННЫЙ учёт (недосчитанный
+        проход на диск не пишется) и исключение дальше; неясная деталь ордера или сбой запроса, который проход
+        пережил (_issue: комиссия, поиск/постановка ордера, позиция, баланс), → last_tick_error с fatal: false,
+        успех не отмечается."""
+        self._issues = []
+        self._phase = "start"
+        try:
+            self._tick()
+            self._phase = "save"
+            if self._issues:
+                self.st["last_tick_error"] = {
+                    "ts": float(self.now()), "phase": self._issues[0][0], "fatal": False,
+                    "err": ("неясно: " + "; ".join(f"{p} {e}" for p, e in self._issues))[:400]}
+            else:
+                self.st["last_tick_ok_ts"] = float(self.now())
+            self.save()
+        except Exception as exc:
+            self._mark_tick_failed(exc)
+            raise
+
+    def _mark_tick_failed(self, exc: BaseException) -> None:
+        """Записать ошибку прохода в учёт на диске (последний целостный снимок), не сохраняя недосчитанный проход."""
+        rec = {"ts": float(self.now()), "phase": self._phase, "fatal": True,
+               "err": f"{type(exc).__name__}: {exc}"[:400]}
+        self.st["last_tick_error"] = rec
+        try:
+            if not self.state_path.exists():
+                return
+            disk = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if isinstance(disk, dict) and disk.get("symbol") in (None, self.cfg["symbol"]):
+                disk["last_tick_error"] = rec
+                atomic_write(self.state_path, json.dumps(disk, ensure_ascii=False, indent=1))
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.tick_error_mark_failed")
+
+    def _tick(self) -> None:
         cfg = self.cfg
         sym = cfg["symbol"]
+        self._phase = "book"
         bid, ask = self.c.book(sym)
         mid = (bid + ask) / 2
         self._room_used = 0.0
+        # список открытых неполон (предел страниц) → клиент бросает WeexIncomplete: проход прерывается до решений о
+        # сиротах и владении (13.10, разбор GPT)
+        self._phase = "open_orders"
         self.open = {str(o["orderId"]): o for o in self.c.open_orders(sym)
                      if str(o.get("clientOrderId", "")).startswith(PREFIX)}
+        self._phase = "orphans"
         self._orphans()
         open_ids = set(self.open)
+        self._phase = "day"
         self._day_roll(mid)
+        # передача, учтённая, но не дописанная в журнал (сбой между записью учёта и журнала) — дописать один раз
+        for side in DIR:
+            if self.st[side].get("handover_unjournaled"):
+                self._phase = f"release:{side}"
+                self._journal_handover(side)
         # сторона, переданная оператору (release_sides и её нет в sides): бот снимает свои ордера и забывает
         # лоты; пока передача не завершена — сторону не сопровождаем (иначе тейки встали бы снова)
         released = {x for x in (cfg.get("release_sides") or []) if x in DIR and x not in cfg["sides"]}
         for side in released:
             if self._side_busy(side):
+                self._phase = f"release:{side}"
                 self.release_side(side, mid)
         # режим SMA (regime_sma > 0): лонг — только выше SMA, шорт — только ниже; сторона не по режиму
         # закрывается по рынку; режим неизвестен — новых входов нет, ничего не закрываем
         allowed = set(cfg["sides"])
         closing: set[str] = set()
         if int(cfg.get("regime_sma") or 0) > 0:
+            self._phase = "regime"
             up = self.regime_fn(sym, int(cfg["regime_sma"]))
             self.st["regime"] = up
             if up is None:
@@ -730,6 +834,7 @@ class Grid:
             if self.st[side].get("flatten"):
                 closing.add(side)
         for side in closing - released:
+            self._phase = f"flatten:{side}"
             self._flatten_side(side, bid, ask, mid)
         # обе стороны сопровождаются всегда, пока у стороны есть что-то на бирже/в учёте; новые входы —
         # только на сторонах из конфига (перепроверка GPT 10.10: после смены sides LONG→SHORT старый
@@ -739,11 +844,13 @@ class Grid:
             if side in released or side in closing:
                 continue
             if side in cfg["sides"] or s.get("entry") or s["lots"] or s["strays"] or s.get("pending"):
+                self._phase = f"side:{side}"
                 self._side(side, bid, ask, mid, open_ids, enabled=bool(cfg["enabled"]) and side in allowed)
+        self._phase = "fees"
         self._settle_fees()
         self._prune_fills()
+        self._phase = "risk"
         self._risk(mid)
-        self.save()
 
     def _day_roll(self, mid: float) -> None:
         day = datetime.fromtimestamp(self.now(), timezone.utc).strftime("%Y-%m-%d")
@@ -835,7 +942,7 @@ class Grid:
         if not e:
             return False
         self._cancel(e)
-        kind, info = self._detail(e["id"])
+        kind, info = self._detail(e["id"], side, e)
         if kind == "unknown":                 # пустой/чужой/без статуса ответ — не конечный (разбор GPT L4)
             return False                      # оставим отслеживание — разберёмся на следующем проходе
         got = self._take_entry_fill(side, e, info)
@@ -854,8 +961,9 @@ class Grid:
         s, d = self.st[side], DIR[side]
         try:
             pos = self.c.futures_positions() or []
-        except Exception:                                       # noqa: BLE001
+        except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.positions_failed")
+            self._issue(f"позиция {side} не прочитана ({type(exc).__name__}: {exc})")
             return
         size = sum(float(p.get("size") or 0) for p in pos
                    if p.get("symbol") == self.cfg["symbol"] and p.get("side") == side)
@@ -898,16 +1006,20 @@ class Grid:
             if live and self._take_entry_fill(side, e, live):
                 self.save()
         elif e:
-            info = self.c.order_info(e["id"])
-            if info.get("status") not in LIVE:
+            # нет в списке открытых — деталь через единый классификатор (13.10, разбор GPT W1): забываем вход только
+            # на подтверждённом конечном статусе; неясный ответ — ссылка и курсор остаются, новый вход поверх не
+            # ставится (ниже вход ещё числится), повтор на следующем проходе
+            kind, info = self._detail(e["id"], side, e)
+            if kind == "terminal":
                 self._take_entry_fill(side, e, info)
                 s["entry"] = None
                 self.save()
-            elif self._take_entry_fill(side, e, info):
+            elif kind == "live" and self._take_entry_fill(side, e, info):
                 self.save()
         # 2) тейки
         # 2а) тейк на бирже не того объёма, что осталось у лота (биржа урезала reduceOnly) — снять;
-        # исполненное до снятия записывается, остаток получит новый тейк.
+        # исполненное до снятия записывается, остаток получит новый тейк — только после подтверждённого конца.
+        checked: dict[str, tuple[str, dict]] = {}          # детали этого прохода — не спрашивать дважды
         for lot in list(s["lots"]):
             o = lot.get("tp_order")
             live = self.open.get(o["id"]) if o else None
@@ -924,13 +1036,9 @@ class Grid:
                 logger.warning("weex_grid.tp_qty_mismatch side=%s lot=%s order=%s", side, lot["qty"], live.get("origQty"))
                 self._cancel(o)
                 open_ids.discard(o["id"])
-                try:
-                    info = self.c.order_info(o["id"])
-                except Exception:                               # noqa: BLE001
-                    logger.exception("weex_grid.info_after_cancel_failed id=%s", o["id"])
-                    continue                  # tp_order остаётся — разберёмся на следующем проходе
-                if info.get("status") in LIVE:
-                    continue                  # отмена ещё не прошла — ждём
+                kind, info = checked[o["id"]] = self._detail(o["id"], side, o)
+                if kind != "terminal":
+                    continue                  # live — отмена ещё не прошла; unknown — исход неясен: тейк остаётся
                 self._take_tp_fill(side, lot, o, info, terminal=True)
         for lot in list(s["lots"]):
             o = lot.get("tp_order")
@@ -940,12 +1048,16 @@ class Grid:
                     self._take_tp_fill(side, lot, o, live, terminal=False)   # частичное исполнение висящего тейка
                 continue
             if o:
-                info = self.c.order_info(o["id"])
-                if info.get("status") in LIVE:
-                    if self._take_tp_fill(side, lot, o, info, terminal=False):
-                        continue
+                # нет в списке открытых — деталь через единый классификатор (13.10, разбор GPT W1: пустой ответ или
+                # чужой id считались концом тейка, и рядом с живым ставился второй)
+                kind, info = checked.get(o["id"]) or self._detail(o["id"], side, o)
+                if kind == "unknown":
+                    continue                  # ссылка и курсор остаются, замены нет — повтор на следующем проходе
+                if kind == "live":
+                    self._take_tp_fill(side, lot, o, info, terminal=False)
                     continue                  # ещё живой, просто не попал в список
-                # конечный статус: исполненное — в прибыль, остаток лота — новым тейком
+                # подтверждённый конечный статус: исполненное — в прибыль (один раз, по курсору), остаток лота —
+                # новым тейком ровно на остаток
                 if self._take_tp_fill(side, lot, o, info, terminal=True):
                     continue
             if lot.get("tp_order") is None:
@@ -1006,23 +1118,70 @@ class Grid:
         s = self.st[side]
         return bool(s["lots"] or s.get("entry") or s["strays"] or s.get("pending") or s.get("flatten"))
 
-    def _detail(self, oid) -> tuple[str, dict]:
-        """Деталь ордера с проверкой: ('terminal'|'live'|'unknown', info). Конечным считается только явный статус
-        из TERMINAL у ответа с тем же orderId (12.10, разбор GPT L4: пустой/ошибочный ответ без статуса принимался
-        за конечный — ордер забывался, хотя стоял на бирже)."""
+    def _detail(self, oid, side: str | None = None, order: dict | None = None) -> tuple[str, dict]:
+        """ЕДИНЫЙ классификатор детали ордера для всех путей — вход, тейк, несовпавший тейк, сирота (stray), рыночное
+        закрытие, передача стороны: ('terminal'|'live'|'unknown', info).
+        terminal/live — только ответ с тем же orderId, явным известным статусом (TERMINAL/LIVE), тем же символом и
+        стороной позиции (если биржа их прислала) и накопленным исполнением не меньше уже учтённого курсором ордера
+        (order['filled']); у конечного executedQty обязателен, FILLED — с ненулевым исполнением.
+        Всё прочее — {} , ошибка запроса, чужой orderId, нет/неизвестный статус — 'unknown': ссылка и курсор
+        остаются, замена не ставится, владение не снимается, повтор на следующем проходе (12.10 L4; 13.10 W1/W2:
+        обычные ветки обходили проверку и ставили второй тейк рядом с живым)."""
         try:
             info = self.c.order_info(oid) or {}
-        except Exception:                                       # noqa: BLE001
+        except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.order_info_failed id=%s", oid)
-            return "unknown", {}
+            return self._unknown(oid, f"ошибка запроса ({type(exc).__name__})"), {}
+        if not isinstance(info, dict):
+            return self._unknown(oid, "ответ не объект"), {}
+        why = self._detail_problem(oid, info, side, order)
+        if why:
+            return self._unknown(oid, why), info
+        return ("terminal" if str(info.get("status")).upper() in TERMINAL else "live"), info
+
+    def _detail_problem(self, oid, info: dict, side: str | None, order: dict | None) -> str:
+        """Почему ответ детали нельзя считать сведением о НАШЕМ ордере; '' — ответ годен."""
         if str(info.get("orderId")) != str(oid):
-            return "unknown", info
-        st = str(info.get("status") or "")
-        if st in TERMINAL:
-            return "terminal", info
-        if st in LIVE:
-            return "live", info
-        return "unknown", info
+            return f"orderId ответа {info.get('orderId')!r}"
+        sym = info.get("symbol")
+        if sym and str(sym).upper() != str(self.cfg["symbol"]).upper():
+            return f"символ {sym}"
+        ps = str(info.get("positionSide") or "").upper()
+        if side and ps in DIR and ps != side:
+            return f"сторона {ps} вместо {side}"
+        st = str(info.get("status") or "").upper()
+        if st not in TERMINAL and st not in LIVE:
+            return f"статус {info.get('status')!r}"
+        raw = info.get("executedQty")
+        if raw is None or raw == "":
+            return "конечный статус без executedQty" if st in TERMINAL else ""
+        try:
+            exq = float(raw)
+        except (TypeError, ValueError):
+            return f"executedQty {raw!r}"
+        if not math.isfinite(exq) or exq < 0:
+            return f"executedQty {raw!r}"
+        done = float((order or {}).get("filled") or 0)
+        if exq < done - self._tiny():
+            return f"исполнено {exq:g} меньше уже учтённого {done:g}"
+        # FILLED без единого исполнения — противоречие (учесть нечего, а замена задвоила бы выход). FILLED с
+        # частичным executedQty НЕ отбрасывается: так биржа может закрыть урезанный reduceOnly, а остаток штатно
+        # закрывается следующим ордером после конечного статуса прежнего (test_partial_market_rest_closed_next)
+        if st == "FILLED" and exq <= self._tiny():
+            return "FILLED без исполнения"
+        return ""
+
+    def _unknown(self, oid, why: str) -> str:
+        """Неясная деталь: в журнал службы и в метку прохода (успех прохода не отмечается)."""
+        logger.warning("weex_grid.order_detail_unknown id=%s phase=%s why=%s", oid, self._phase, why)
+        self._issue(f"{oid}: {why}")
+        return "unknown"
+
+    def _issue(self, what: str) -> None:
+        """Сбой, который проход переживает (деталь неясна, запрос к бирже не прочитан, исход постановки неизвестен):
+        проход не считается полностью успешным — last_tick_ok_ts не освежается, причина — в last_tick_error.
+        Снятие ордера сюда не пишется: его исход проверяется деталью."""
+        self._issues.append((self._phase, what))
 
     def _cancel_tps(self, side: str) -> bool:
         """Снять тейки стороны, исполненное до снятия — в прибыль. True — все тейки в подтверждённом конечном
@@ -1034,7 +1193,7 @@ class Grid:
             if not o:
                 continue
             self._cancel(o)
-            kind, info = self._detail(o["id"])
+            kind, info = self._detail(o["id"], side, o)
             if kind == "unknown":
                 ok = False
                 continue
@@ -1048,7 +1207,12 @@ class Grid:
         ордера стороны (вход, тейки, сироты), учесть исполнения до снятия, довести уже отправленное рыночное
         закрытие (12.10, разбор GPT L3), и только потом убрать лоты из учёта бота. Позиция на бирже остаётся —
         её ведёт оператор. False — что-то ещё не в подтверждённом конечном статусе, повторить на следующем проходе
-        (лоты не теряются, сообщение «передано» не отправляется)."""
+        (лоты не теряются, сообщение «передано» не отправляется): неясный вход/тейк/stray/pending/рыночное закрытие
+        передачу не завершает (13.10, разбор GPT W2).
+        Передача фиксируется один раз (13.10, дополнение GPT §3): время, остаток, средняя, марк и переданный MTM — в
+        учёт стороны (transfers, transferred_mtm) и в журнал; итог сетки включает MTM на момент передачи, поэтому
+        передача мешка — ни прибыль, ни убыток. Событие пишется и при нуле лотов — граница передачи для мониторинга.
+        Учёт — на диск ДО журнала; сбой между ними дописывает журнал на следующем проходе (handover_unjournaled)."""
         s = self.st[side]
         if s.get("pending") and not self._resolve_pending(side):
             return False
@@ -1067,18 +1231,36 @@ class Grid:
             if s["strays"]:
                 return False
         lots = s["lots"]
-        if lots:
-            q = sum(float(l["qty"]) for l in lots)
-            avg = sum(float(l["qty"]) * l["entry"] for l in lots) / q
-            bag = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in lots)
-            self._journal({"side": side, "kind": "передано оператору", "qty": self._qty_str(q), "avg": avg,
-                           "mark": mid, "bag": bag, "lots": len(lots)})
-            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
-                         f"{len(lots)} лот(ов) {self._qty_str(q)} по средней {avg:,.1f} (мешок ${bag:+.2f}) "
-                         f"остаются на бирже, бот их больше не ведёт.")
+        q = sum(float(l["qty"]) for l in lots)
+        avg = sum(float(l["qty"]) * l["entry"] for l in lots) / q if q > self._tiny() else None
+        bag = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in lots)
+        rec = {"ts": datetime.fromtimestamp(self.now(), timezone.utc).isoformat(timespec="seconds"),
+               "qty": self._qty_str(q), "avg": avg, "mark": mid, "mtm": bag, "lots": len(lots)}
+        s["transfers"] = list(s.get("transfers") or []) + [rec]
+        s["transferred_mtm"] = float(s.get("transferred_mtm") or 0) + bag
         s["lots"], s["ref"] = [], None
-        self.save()
+        s["handover_unjournaled"] = rec
+        self.save()                                             # учёт передачи — на диск до журнала (L8)
+        self._journal_handover(side)
+        if lots:
+            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
+                         f"{len(lots)} лот(ов) {self._qty_str(q)} по средней {avg:,.1f} (мешок ${bag:+.2f}, входит в "
+                         f"итог сетки) остаются на бирже, бот их больше не ведёт.")
+        else:
+            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
+                         f"лотов бота на стороне нет.")
         return True
+
+    def _journal_handover(self, side: str) -> None:
+        """Записать в журнал передачу, уже сохранённую в учёте (один раз; ts — момент передачи)."""
+        s = self.st[side]
+        rec = s.get("handover_unjournaled")
+        if not rec:
+            return
+        self._journal({"ts": rec["ts"], "side": side, "kind": "передано оператору", "qty": rec["qty"],
+                       "avg": rec["avg"], "mark": rec["mark"], "bag": rec["mtm"], "lots": rec["lots"]})
+        s.pop("handover_unjournaled", None)
+        self.save()
 
     def _find_market(self, side: str, fl: dict) -> dict | None:
         """Потерянный ответ рыночного закрытия: история ордеров по clientOrderId, затем сделки окна ±10 мин →
@@ -1091,8 +1273,9 @@ class Grid:
         try:
             trades = self.c.user_trades(self.cfg["symbol"], start_ms=int((srv - 600) * 1000),
                                         end_ms=int((srv + 600) * 1000)) or []
-        except Exception:                                       # noqa: BLE001
+        except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.flatten_trades_failed")
+            self._issue(f"сделки окна закрытия {fl['cid']} не прочитаны ({type(exc).__name__}: {exc})")
             return None
         known = self._referenced("LONG") | self._referenced("SHORT")
         seen = set()
@@ -1144,6 +1327,7 @@ class Grid:
                                     reduce_only=True)
         except Exception as exc:                                # noqa: BLE001 — исход неизвестен, найдём по cid
             logger.warning("weex_grid.flatten_send_failed side=%s err=%s", side, exc)
+            self._issue(f"рыночное закрытие {cid}: исход неизвестен ({type(exc).__name__}: {exc})")
             return
         if r and r.get("success") and r.get("orderId"):
             s["flatten"]["id"] = str(r["orderId"])
@@ -1186,7 +1370,7 @@ class Grid:
                 return
             fl["id"] = str(o.get("orderId"))
             self.save()
-        kind, info = self._detail(fl["id"])
+        kind, info = self._detail(fl["id"], side, fl)
         if kind == "unknown":
             return
         exq = float(info.get("executedQty") or 0)
@@ -1247,10 +1431,24 @@ class Grid:
             r = self.st.get("regime")
             lines.append(f"режим SMA{int(cfg['regime_sma'])}: " + ("ЛОНГ (цена выше)" if r is True else "ШОРТ (цена ниже)"
                          if r is False else "нет данных — новых входов нет"))
+        tm_all = 0.0
         for side in ("LONG", "SHORT"):
             s = self.st[side]
+            tm = float(s.get("transferred_mtm") or 0)
+            tm_all += tm
             if side not in cfg["sides"] and not (s.get("entry") or s["lots"] or s["strays"]):
-                continue                      # сторона снята из конфига — показываем, пока у неё есть остатки
+                # сторона снята из конфига/передана: её история владения остаётся в итоге и видна (13.10, дополнение
+                # GPT §3: старые realised/fees не должны прятаться за общей строкой итога)
+                tr = s.get("transfers") or []
+                name = "ЛОНГ" if side == "LONG" else "ШОРТ"
+                hist = f"закрыто ${s['realized']:+.2f}, комиссии ${s['fees']:.3f}"
+                if tr:
+                    when = str(tr[-1].get("ts") or "")[:16].replace("T", " ")
+                    lines.append(f"🤝 {name} передан оператору {when}: мешок при передаче ${tm:+.2f}, {hist} — в итоге "
+                                 f"сетки; дальше позиция не бота")
+                elif s["realized"] or s["fees"]:
+                    lines.append(f"⏹ {name} снят из конфига: {hist} — в итоге сетки")
+                continue
             q = sum(float(l["qty"]) for l in s["lots"])
             un = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in s["lots"])
             ent = f"вход {fmt_px(s['entry']['price'], tick)}" if s.get("entry") else ("вход нет: " + s.get("blocked", "") if s.get("blocked") else "вход нет")
@@ -1258,7 +1456,9 @@ class Grid:
                          f"закрыто ${s['realized']:+.2f}, комиссии ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}")
         tot = self.bot_pnl(mid)
         turn = sum(self.st[s]["turnover"] for s in ("LONG", "SHORT"))
-        lines.append(f"итог сетки с мешком ${tot:+.2f} · оборот ${turn:,.0f}")
+        lines.append(f"итог сетки с мешком ${tot:+.2f}"
+                     + (f" (в т.ч. мешок, переданный оператору, ${tm_all:+.2f} — по цене передачи)" if tm_all else "")
+                     + f" · оборот ${turn:,.0f}")
         return "\n".join(lines)
 
 
