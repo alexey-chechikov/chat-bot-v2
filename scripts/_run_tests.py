@@ -41,6 +41,7 @@ TEST_DIRS = [
     "tests/services/weex_trend/",
     "tests/services/signal_journal/",
     "tests/services/weex_book/",
+    "tests/research_weex/",
 ]
 
 def main():

@@ -1,135 +1,172 @@
 """Сверка прибыли сетки по сделкам биржи (только чтение).
 
 ВСЕ сделки символа с момента запуска сетки (окна по времени, окно с 100 сделками делится пополам —
-не только последние 100), разделение на сетку (clientOrderId b7g…) и ручные; по каждой стороне:
+не только последние 100), разделение на сетку и ручные; по каждой стороне:
 деньги по исполнениям + остаток по текущей цене против учёта бота, отдельно ДО и ПОСЛЕ комиссий.
 Не сверяет фандинг и полный капитал счёта (там ручные позиции) — это отдельная задача.
 
     .venv/bin/python3 research/weex/pnl_reconcile.py [BTC|ETH|XAU]     (по умолчанию BTC)
 
-ИТОГ и код выхода — только по сторонам бота (cfg.sides). Сторона из release_sides (передана оператору) в ИТОГ не
-входит: учёт её забыл, расхождение ожидаемо; по ней проверяется одно — ни одной сделки b7g после «передано
-оператору» (ревью скилов 12.10: раньше ИТОГ был «расхождение» всегда, настоящее по LONG терялось)."""
+Какие стороны (разбор GPT 13.10 §3 Q3): все, которыми бот КОГДА-ЛИБО владел — из cfg.sides, из журнала и из учёта
+(realized/fees/счётчики/остатки), плюс переданные и любая сторона со сделками бота на бирже, а не только текущие
+cfg.sides: сторона, убранная из sides и опустевшая, сверяется со своей старой историей. Передача оператору («передано оператору»: qty, mark, bag) — изъятие остатка по цене
+передачи: биржа = деньги сделок бота + переданный объём по mark + остаток по текущей цене; бот = закрыто + мешок при
+передаче + мешок сейчас. Сторона из release_sides (и не из sides) сверяется по сделкам ДО конца секунды записи
+передачи; сделки бота после — ПРОБЛЕМА. Записи передачи нет, а сделки бота на стороне есть — граница неизвестна.
+
+Владелец сделки — research/weex/weex_monitor_common.order_owner: clientOrderId b7g… — сетка; поля нет/null — владелец
+не установлен (если номера нет в реестре бота: журнал + учёт). История null/не список — не прочитано.
+Код выхода: 0 — совпадает; 1 — расхождение/сделки бота после передачи; 2 — не прочитано/не подтверждено (владелец
+части сделок неизвестен, выборка неполна, границы передачи нет) — при этом расхождение денег тоже печатается."""
 import json
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 from services.weex_api.client import WeexClient  # noqa: E402
 from services.weex_grid import engine as eg  # noqa: E402
+from research.weex import weex_monitor_common as mc  # noqa: E402
 
-ARGS = [a.upper() for a in sys.argv[1:]]
-if ARGS and ARGS[0] not in eg.GRIDS:
-    print(f"сетка «{sys.argv[1]}» неизвестна — есть {', '.join(eg.GRIDS)}")
-    sys.exit(2)
-NAME = ARGS[0] if ARGS else "BTC"
-CFG_PATH, STATE_PATH, JOURNAL_PATH = eg.grid_files(NAME)
-cfg = json.loads(CFG_PATH.read_text())
-SYM = cfg["symbol"]
-if not STATE_PATH.exists() or not JOURNAL_PATH.exists():
-    print(f"{NAME}: живого учёта/журнала нет (сетка холостая) — сверять нечего")
-    sys.exit(2)
-journal = [json.loads(x) for x in JOURNAL_PATH.read_text(encoding="utf-8").splitlines() if x.strip()]
-if not journal:
-    print(f"{NAME}: живой журнал пуст — сверять нечего")
-    sys.exit(2)
-st = json.loads(STATE_PATH.read_text())
-RELEASED = [s for s in cfg.get("release_sides") or [] if s not in cfg.get("sides", [])]
-# стороны бота: из sides + не переданные, которые движок ещё ведёт (лоты/вход/strays/закрытие после смены sides)
-SIDES = [s for s in ("LONG", "SHORT") if s not in RELEASED and (s in cfg.get("sides", []) or any(
-    st.get(s, {}).get(k) for k in ("entry", "lots", "strays", "pending", "flatten")))]
-
-c = WeexClient()
-c.sync_time()
-bid, ask = c.book(SYM)
-mid = (bid + ask) / 2
-first = journal[0]["ts"]
-handed = {}
-for r in journal:
-    if r.get("kind") == "передано оператору":
-        handed.setdefault(r["side"], []).append(r["ts"])
-start = int((datetime.fromisoformat(first).timestamp() - 3600) * 1000)
-end = int(time.time() * 1000) + 60_000
+LEFTOVER_KEYS = ("entry", "lots", "strays", "pending", "flatten")
+ACTIVITY_KEYS = ("realized", "fees", "n_entries", "n_tps", "turnover", "order_fills")
 
 
-INCOMPLETE = []
+def ever_owned(side: str, cfg: dict, st: dict, journal: list[dict]) -> bool:
+    sd = st.get(side) or {}
+    return (side in (cfg.get("sides") or []) or any(r.get("side") == side for r in journal)
+            or any(sd.get(k) for k in LEFTOVER_KEYS + ACTIVITY_KEYS))
 
 
-def fetch(a: int, b: int) -> list[dict]:
-    """Окно с 100 сделками делится пополам до 1 с; переполненное секундное окно — неполная выборка
-    (перепроверка GPT 10.10: деление останавливалось на 60 с и молча теряло сделки)."""
-    rows = c.user_trades(SYM, start_ms=a, end_ms=b) or []
-    if len(rows) < 100:
-        return rows
-    if b - a <= 1000:
-        INCOMPLETE.append((a, b))
-        return rows
-    m = (a + b) // 2
-    return fetch(a, m) + fetch(m + 1, b)
+def main() -> None:
+    args = [a.upper() for a in sys.argv[1:]]
+    if args and args[0] not in eg.GRIDS:
+        print(f"сетка «{sys.argv[1]}» неизвестна — есть {', '.join(eg.GRIDS)}")
+        sys.exit(2)
+    name = args[0] if args else "BTC"
+    cfg_path, state_path, journal_path = eg.grid_files(name)
+    cfg = json.loads(cfg_path.read_text())
+    sym = cfg["symbol"]
+    if not state_path.exists() or not journal_path.exists():
+        print(f"{name}: живого учёта/журнала нет (сетка холостая) — сверять нечего")
+        sys.exit(2)
+    journal, n_bad = mc.read_journal(journal_path)
+    if n_bad:
+        print(f"{name}: в журнале битых строк {n_bad} — сверка недостоверна")
+        sys.exit(2)
+    if not journal:
+        print(f"{name}: живой журнал пуст — сверять нечего")
+        sys.exit(2)
+    st = json.loads(state_path.read_text())
+    sides_cfg = cfg.get("sides") or []
+    released = [s for s in cfg.get("release_sides") or [] if s in eg.DIR and s not in sides_cfg]
+
+    c = WeexClient()
+    c.sync_time()
+    bid, ask = c.book(sym)
+    mid = (bid + ask) / 2
+    first = journal[0].get("ts")
+    start = mc.epoch_ms(first)
+    if start is None:
+        print(f"{name}: у первой записи журнала нет времени — сверка недостоверна")
+        sys.exit(2)
+    try:
+        trades, incomplete = mc.fetch_trades(c, sym, start - 3_600_000, extra=("commission",))
+    except mc.ReadError as e:
+        print(f"{name} {sym}: история сделок НЕ ПРОЧИТАНА — {e}")
+        print("ИТОГ: НЕ ПРОЧИТАНО — сверка не выполнена")
+        sys.exit(2)
+    registry = mc.own_order_ids(st, journal)
+    cache: dict = {}
+    owner = {str(t["orderId"]): mc.order_owner(c, t["orderId"], eg.PREFIX, registry, cache) for t in trades}
+    unread = [oid for oid, w in owner.items() if w is None]
+    grid = [t for t in trades if owner[str(t["orderId"])] == mc.BOT]
+    manual = [t for t in trades if owner[str(t["orderId"])] == mc.MANUAL]
+    print(f"{name} {sym}: цена {mid:,.4f}; сделок с {str(first)[:16]}: {len(trades)} (сетки {len(grid)}, ручных "
+          f"{len(manual)}" + (f", владелец не установлен у {len(unread)} ордеров — нет clientOrderId/детали"
+                              if unread else "") + ")")
+    for t in manual:
+        print("  ручная:", t["side"], t["positionSide"], t["price"], t["qty"])
+    # стороны бота: когда-либо владел по журналу/учёту/sides, переданные, и любая сторона со сделками бота на бирже
+    # (журнал и учёт сторону не знают — записи потеряны/учёт сброшен; сделки бота всё равно должны сойтись с учётом)
+    owned = [s for s in ("LONG", "SHORT") if ever_owned(s, cfg, st, journal) or s in released
+             or any(t["positionSide"] == s for t in grid)]
+    if not owned:
+        print("сторон бота нет — сверять нечего")
+        sys.exit(2)
+
+    money_ok, hard, unknown = True, False, bool(unread or incomplete)
+    for side in owned:
+        d = eg.DIR[side]
+        recs = [r for r in journal if r.get("side") == side and r.get("kind") == mc.HANDOVER]
+        is_released = side in released
+        all_ts = [t for t in grid if t["positionSide"] == side]
+        bound = None
+        if is_released and recs:
+            t0 = mc.epoch_ms(recs[-1].get("ts"))
+            bound = None if t0 is None else t0 + 1000          # конец секунды записи передачи
+            if t0 is None:
+                print(f"{side}: у записи передачи нет времени — граница неизвестна")
+                unknown = True
+        ts = [t for t in all_ts if bound is None or int(t["time"]) < bound]
+        after = [t for t in all_ts if bound is not None and int(t["time"]) >= bound]
+        try:
+            q_h = sum(float(r["qty"]) for r in recs)
+            transfer = sum(d * float(r["qty"]) * float(r["mark"]) for r in recs)
+            bag_h = sum(float(r["bag"]) for r in recs)
+        except (KeyError, TypeError, ValueError):
+            print(f"{side}: запись передачи без qty/mark/bag — деньги до границы не сверить")
+            unknown = True
+            q_h = transfer = bag_h = 0.0
+        cash = sum((1 if t["side"] == "SELL" else -1) * float(t["price"]) * float(t["qty"]) for t in ts)
+        net = sum((1 if t["side"] == "BUY" else -1) * float(t["qty"]) for t in ts)
+        fee = sum(float(t["commission"]) for t in ts)
+        exch = cash + (net - d * q_h) * mid + transfer
+        s = st.get(side) or eg.new_side_state()
+        lots = s.get("lots") or []
+        bag = sum(d * float(l["qty"]) * (mid - l["entry"]) for l in lots)
+        held = sum(float(l["qty"]) for l in lots)
+        realized, fees_bot = float(s.get("realized") or 0), float(s.get("fees") or 0)
+        bot = realized + bag_h + bag
+        diff, fdiff, qdiff = bot - exch, fees_bot - fee, held - (d * net - q_h)
+        side_ok = abs(diff) < 0.01 and abs(fdiff) < 0.01 and abs(qdiff) < 1e-9
+        money_ok &= side_ok
+        scope = " до передачи" if bound is not None else ""
+        tag = ("" if side in sides_cfg else (" (передана оператору)" if is_released else " (не в sides — история)"))
+        print(f"{side}{tag}: биржа{scope} — сделок {len(ts)}, остаток {abs(d * net - q_h):.4f}"
+              + (f", передано {q_h:g} по {transfer / (d * q_h):,.4f}" if q_h else "")
+              + f", до комиссий ${exch:+.4f}, комиссии ${fee:.4f}, после ${exch - fee:+.4f}")
+        print(f"{side}: бот   — остаток {held:.4f}, закрыто ${realized:+.4f}"
+              + (f" + мешок при передаче ${bag_h:+.4f}" if recs else "")
+              + f" + мешок ${bag:+.4f} = ${bot:+.4f}, комиссии ${fees_bot:.4f}, после ${bot - fees_bot:+.4f}")
+        print(f"{side}: расхождение — деньги ${diff:+.4f}, комиссии ${fdiff:+.4f}, объём {qdiff:+.4f}")
+        if is_released:
+            if not recs:
+                if all_ts:
+                    print(f"{side}: в release_sides, записи «передано оператору» нет — граница передачи неизвестна; "
+                          f"сделок бота на стороне {len(all_ts)} → результат после передачи неизвестен")
+                    unknown = True
+                else:
+                    print(f"{side}: в release_sides, записи «передано оператору» нет, сделок бота нет — ок")
+            else:
+                bad = bool(after) or len(recs) > 1
+                hard |= bad
+                print(f"{side}: передано оператору {str(recs[-1].get('ts'))[:16]} (записей {len(recs)}); сделок бота "
+                      f"на стороне после передачи {len(after)} → {'ПРОБЛЕМА' if bad else 'ок'}")
+    if incomplete:
+        print(f"ВЫБОРКА НЕПОЛНА: {len(incomplete)} секундных окон со 100 сделками — сверка недостоверна")
+    if hard or (not money_ok and not unknown):
+        print("ИТОГ: ЕСТЬ РАСХОЖДЕНИЕ" + ("" if money_ok else " (деньги/комиссии/объём)")
+              + (" и сделки бота после передачи" if hard else ""))
+        sys.exit(1)
+    if unknown:
+        print("ИТОГ: НЕ ВСЁ ПРОЧИТАНО — сверка не подтверждена" + ("" if money_ok else "; расхождение денег есть, "
+                                                                     "но владелец части сделок/граница неизвестны"))
+        sys.exit(2)
+    print(f"ИТОГ: совпадает по {'+'.join(owned)} (деньги и комиссии ±$0.01, объём точно)")
+    sys.exit(0)
 
 
-trades, a = [], start
-while a < end:
-    b = min(a + 6 * 86_400_000, end)
-    trades += fetch(a, b)
-    a = b + 1
-trades = list({str(t["id"]): t for t in trades}.values())
-cid_of, UNREAD = {}, []
-for t in trades:
-    oid = str(t["orderId"])
-    if oid not in cid_of:
-        info = c.order_info(oid) or {}
-        # ответ без совпавшего orderId (пустой/ошибка) — владелец не установлен (раунд 2 ревью: иначе сделка бота
-        # молча становилась «ручной» и пропадала из сверки)
-        cid_of[oid] = str(info.get("clientOrderId", "")) if str(info.get("orderId")) == oid else None
-        if cid_of[oid] is None:
-            UNREAD.append(oid)
-grid = [t for t in trades if (cid_of[str(t["orderId"])] or "").startswith(eg.PREFIX)]
-manual = [t for t in trades if cid_of[str(t["orderId"])] is not None and not cid_of[str(t["orderId"])].startswith(eg.PREFIX)]
-print(f"{NAME} {SYM}: цена {mid:,.4f}; сделок с {first[:16]}: {len(trades)} (сетки {len(grid)}, ручных {len(manual)}"
-      + (f", владелец не прочитан у {len(UNREAD)} ордеров" if UNREAD else "") + ")")
-for t in manual:
-    print("  ручная:", t["side"], t["positionSide"], t["price"], t["qty"])
-
-ok = not UNREAD
-if not SIDES and not RELEASED:
-    print("сторон бота нет — сверять нечего")
-    sys.exit(2)
-for side in SIDES:
-    d = 1 if side == "LONG" else -1
-    ts = [t for t in grid if t["positionSide"] == side]
-    cash = sum((1 if t["side"] == "SELL" else -1) * float(t["price"]) * float(t["qty"]) for t in ts)
-    net = sum((1 if t["side"] == "BUY" else -1) * float(t["qty"]) for t in ts)
-    fee = sum(float(t["commission"]) for t in ts)
-    exch = cash + net * mid
-    s = st[side]
-    bag = sum(d * float(l["qty"]) * (mid - l["entry"]) for l in s["lots"])
-    held = sum(float(l["qty"]) for l in s["lots"])
-    bot = s["realized"] + bag
-    diff, fdiff, qdiff = bot - exch, s["fees"] - fee, held - abs(net)
-    ok &= abs(diff) < 0.01 and abs(fdiff) < 0.01 and abs(qdiff) < 1e-9
-    print(f"{side}: биржа — сделок {len(ts)}, остаток {abs(net):.4f}, до комиссий ${exch:+.4f}, комиссии ${fee:.4f}, "
-          f"после ${exch - fee:+.4f}")
-    print(f"{side}: бот   — остаток {held:.4f}, закрыто ${s['realized']:+.4f} + мешок ${bag:+.4f} = ${bot:+.4f}, "
-          f"комиссии ${s['fees']:.4f}, после ${bot - s['fees']:+.4f}")
-    print(f"{side}: расхождение — деньги ${diff:+.4f}, комиссии ${fdiff:+.4f}, объём {qdiff:+.4f}")
-for side in RELEASED:
-    times = handed.get(side, [])
-    if not times:
-        n = len([t for t in grid if t["positionSide"] == side])
-        print(f"{side}: в release_sides, записи «передано оператору» нет (передача без лотов записи не оставляет); "
-              f"сделок бота на стороне за весь журнал {n} — {'проверить, когда' if n else 'ок'}")
-        ok &= n == 0
-        continue
-    t0 = int(datetime.fromisoformat(times[0]).timestamp() * 1000)
-    after = [t for t in grid if t["positionSide"] == side and int(t["time"]) > t0]
-    print(f"{side}: передано оператору {times[0][:16]} (записей {len(times)}); сделок бота на стороне после передачи "
-          f"{len(after)} → {'ПРОБЛЕМА' if after or len(times) > 1 else 'ок'}; деньги не сверяются (учёт сторону забыл)")
-    ok &= not after and len(times) == 1
-if INCOMPLETE:
-    print(f"ВЫБОРКА НЕПОЛНА: {len(INCOMPLETE)} секундных окон со 100 сделками — сверка недостоверна")
-print("ИТОГ:", f"совпадает по {'+'.join(SIDES)} (деньги и комиссии ±$0.01, объём точно)" if ok and not INCOMPLETE
-      else "ЕСТЬ РАСХОЖДЕНИЕ/НЕПОЛНО")
-sys.exit(0 if ok and not INCOMPLETE else 1)          # ненулевой код — для автоматической проверки
+if __name__ == "__main__":
+    main()

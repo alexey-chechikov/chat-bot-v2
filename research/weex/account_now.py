@@ -1,18 +1,28 @@
-"""Только чтение: счёт WEEX, жив ли цикл сеток, сохранность переданной оператору стороны (ревью скилов 12.10).
+"""Только чтение: счёт WEEX, жив ли цикл сеток, сохранность переданной оператору стороны (ревью скилов 12.10,
+разбор GPT 13.10 §3 Q1 — ложные «ок»).
 
 card_now.py баланса не показывает. Здесь:
   1) депозит и все позиции (включая ручные) — средняя = openValue/size, фандинг — cumFundingFee (поля сверены по
      сырому ответу /capi/v3/account/position/allPosition 12.10); ответ не списком/не словарём → «НЕ ПРОЧИТАНО», код 2;
   2) жив ли цикл — для каждой сетки, которую цикл ведёт живьём: не dry_run (в том числе после /weex stop, enabled=false
-     — тейки и закрытие по режиму продолжаются) или холостой с живыми остатками в учёте. Учёт пишется каждый проход
-     (~10 с); после ошибки прохода пауза до 60 с — поэтому до 60 с «жив», 60–180 с «пауза? перепроверить», старше
-     180 с — ПРОБЛЕМА. Флаг halted в учёте (стоп сетки, например после 3 отказов закрытия) — ПРОБЛЕМА;
-  3) режим SMA: вчерашнее закрытие против SMA и порог СЕГОДНЯШНЕГО дневного закрытия UTC, который меняет режим;
-  4) сторона из release_sides: объём на бирже, ордера и algo-ордера бота на ней (0), СДЕЛКИ бота (b7g по
-     clientOrderId, ответ order_info сверяется по orderId) на ней после «передано оператору» (0) — по бирже, а не по
-     журналу бота; записей передачи — не больше одной (передача без лотов записи не оставляет — предупреждение).
+     — тейки и закрытие по режиму продолжаются) или холостой с живыми остатками в учёте. Судим по УСПЕШНОМУ проходу:
+     ключ учёта last_tick_ok_ts (движок пишет после полного прохода) — до 60 с «жив», 60–180 с «перепроверить»
+     (код 2), старше — ПРОБЛЕМА; last_tick_error новее успеха — ПРОБЛЕМА. mtime файла учёта успехом не считается:
+     _orphans сохраняет учёт до сопровождения сторон, падающие проходы тоже освежают файл. Ключа нет (старый
+     движок) — «успешность прохода не подтверждена», код 2 (свежий файл) или ПРОБЛЕМА (файл старше 180 с).
+     Флаг halted в учёте — ПРОБЛЕМА;
+  3) режим SMA — той же проверкой, что engine.regime_up (вчерашний день UTC, последовательные дни, конечные цены > 0);
+     режим неизвестен (дневки устарели/с пропуском/битые/не прочитаны) — ПРОБЛЕМА: у движка нет новых входов и нет
+     закрытия по режиму. Плюс порог СЕГОДНЯШНЕГО дневного закрытия UTC, который меняет режим;
+  4) сторона из release_sides (и не из sides — иначе движок её не передаёт): объём на бирже, ордера и algo-ордера бота
+     на ней (0), СДЕЛКИ бота на ней после «передано оператору» (0) — по бирже, а не по журналу бота. Владелец сделки и
+     открытого ордера — research/weex/weex_monitor_common (нет/пустой clientOrderId и номера нет в реестре бота —
+     неизвестен, код 2); история null/не список — «не прочитано», код 2; журнала нет — начала истории нет, код 2;
+     сделка бота в секунду записи передачи считается «до» только если её ордер учтён журналом до передачи. Записей
+     передачи — не больше одной; записи нет, а сделки бота на стороне есть — результат неизвестен (код 2): границы
+     передачи нет.
 
-    .venv/bin/python3 research/weex/account_now.py      (код 1 — проблема, 2 — не прочитано)
+    .venv/bin/python3 research/weex/account_now.py      (код 1 — проблема, 2 — не прочитано/не подтверждено)
 """
 import json
 import sys
@@ -24,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from services.weex_api.client import WeexClient  # noqa: E402
 from services.weex_grid import engine as eg  # noqa: E402
+from research.weex import weex_monitor_common as mc  # noqa: E402
 
 FRESH_SEC, STALE_SEC = 60, 180
 LEFTOVER_KEYS = ("entry", "lots", "strays", "pending", "flatten")
@@ -40,58 +51,153 @@ def rows_or_exit(x, what: str) -> list:
     sys.exit(2)
 
 
-def trades_since(c: WeexClient, sym: str, start: int) -> tuple[list, bool]:
-    """Сделки символа с start: окна ≤6 суток, окно со 100 сделками делится пополам; переполненное секундное окно —
-    неполная выборка (второй элемент True)."""
-    end = int(time.time() * 1000) + 60_000
-    incomplete = []
+def liveness(st: dict | None, st_path: Path, now: float) -> tuple[str, str]:
+    """('ok'|'check'|'bad', текст) — по успешному проходу, не по mtime файла учёта."""
+    if st is None or not st_path.exists():
+        return "bad", "ПРОБЛЕМА: учёта нет — сетка не ходит"
+    file_age = now - st_path.stat().st_mtime
+    ok_ts = mc.epoch(st.get("last_tick_ok_ts"))
+    err = st.get("last_tick_error")
+    err_ts = mc.epoch(err)
+    why = ""
+    if isinstance(err, dict):                    # движок: {ts, phase, err, fatal}; fatal false — неясная деталь ордера
+        why = " ".join(str(err.get(k)) for k in ("phase", "err", "error", "msg") if err.get(k))
+        if err.get("fatal") is False:
+            why = f"(проход без исключения, но неясно) {why}".strip()
+    why = f": {why}" if why else ""
+    if ok_ts is None:
+        if err_ts is not None:
+            return "bad", f"ПРОБЛЕМА: успешного прохода не записано, ошибка прохода {now - err_ts:.0f} с назад{why}"
+        if file_age > STALE_SEC:
+            return "bad", f"ПРОБЛЕМА: сетка не ходит — учёт не обновлялся {file_age:.0f} с"
+        return "check", (f"успешность прохода не подтверждена (старый движок: нет last_tick_ok_ts; учёт обновлён "
+                         f"{file_age:.0f} с назад, но его пишет и падающий проход)")
+    age = now - ok_ts
+    if err_ts is not None and err_ts > ok_ts:
+        return "bad", (f"ПРОБЛЕМА: последний проход с ошибкой ({now - err_ts:.0f} с назад{why}); последний успешный "
+                       f"{age:.0f} с назад")
+    if age < -30:
+        return "check", f"время успешного прохода в будущем ({-age:.0f} с) — часы? перепроверить"
+    if age > STALE_SEC:
+        return "bad", f"ПРОБЛЕМА: успешного прохода нет {age:.0f} с (файл учёта обновлён {file_age:.0f} с назад)"
+    if age > FRESH_SEC:
+        return "check", f"последний успешный проход {age:.0f} с назад — пауза после ошибки? перепроверить через минуту"
+    return "ok", f"цикл жив: последний успешный проход {age:.0f} с назад"
 
-    def fetch(a: int, b: int) -> list:
-        r = c.user_trades(sym, start_ms=a, end_ms=b) or []
-        if len(r) < 100:
-            return r
-        if b - a <= 1000:
-            incomplete.append(a)
-            return r
-        m = (a + b) // 2
-        return fetch(a, m) + fetch(m + 1, b)
 
-    out, a = [], start
-    while a < end:
-        b = min(a + 6 * 86_400_000, end)
-        out += fetch(a, b)
-        a = b + 1
-    return list({str(t["id"]): t for t in out}.values()), bool(incomplete)
+def regime_line(sym: str, n: int, c) -> tuple[str, str]:
+    """('ok'|'check'|'bad', текст). Решение — engine.regime_up (та же проверка дневок, что у живого движка); здесь
+    только порог: close > (сумма прошлых n−1 закрытий)/(n−1) ⇔ close > SMA{n}, включающей этот close."""
+    now = time.time()
+    seen: list = []
 
+    def fetch(symbol, limit):
+        rows = eg._fetch_daily(symbol, limit)
+        seen.append(rows)
+        return rows
 
-def sma_distance(sym: str, n: int, c: WeexClient) -> str:
-    """engine.regime_up: режим дня d+1 = close(d) > SMA{n}(d). Порог сегодняшнего закрытия:
-    close > (сумма прошлых n−1 закрытий)/(n−1) ⇔ close > SMA{n}, включающей этот close."""
+    eg._REGIME_CACHE.pop((sym, n), None)              # проверить сейчас, а не взять решение из кэша процесса
+    up = eg.regime_up(sym, n, now=now, fetch=fetch)
+    if up is None or not seen:
+        return "bad", (f"SMA{n}: ПРОБЛЕМА — режим неизвестен (дневки не прочитаны, не вчерашние, с пропуском дня или "
+                       f"битые) → у движка нет новых входов и нет закрытия по режиму")
+    bars = {int(r[0]) // 86_400_000: r for r in seen[-1] if int(r[6]) < now * 1000}
+    closes = [float(bars[d][4]) for d in sorted(bars)[-n:]]
+    sma = sum(closes) / n
+    thr = sum(closes[-(n - 1):]) / (n - 1)
+    what = (f"лонги закроются по рынку, если сегодняшний день UTC закроется НИЖЕ {thr:,.2f}" if up else
+            f"лонги снова разрешатся, если сегодняшний день UTC закроется ВЫШЕ {thr:,.2f}")
+    head = (f"режим {'ЛОНГ' if up else 'ВНЕ РЫНКА (ниже SMA)'}: SMA{n} {sma:,.2f}, вчерашнее закрытие "
+            f"{closes[-1]:,.2f} ({closes[-1] / sma - 1:+.1%})")
     try:
-        now_ms = time.time() * 1000
-        rows = [r for r in eg._fetch_daily(sym, n + 5) if int(r[6]) < now_ms]
-        closes = [float(r[4]) for r in rows][-n:]
-        if len(closes) < n:
-            return f"SMA{n}: мало данных"
-        sma = sum(closes) / n
-        thr = sum(closes[-(n - 1):]) / (n - 1)
         bid, ask = c.book(sym)
         mid = (bid + ask) / 2
-        up = closes[-1] > sma
-        what = (f"лонги закроются по рынку, если сегодняшний день UTC закроется НИЖЕ {thr:,.2f}" if up else
-                f"лонги снова разрешатся, если сегодняшний день UTC закроется ВЫШЕ {thr:,.2f}")
-        return (f"режим {'ЛОНГ' if up else 'ВНЕ РЫНКА (ниже SMA)'}: SMA{n} {sma:,.2f}, вчерашнее закрытие "
-                f"{closes[-1]:,.2f} ({closes[-1] / sma - 1:+.1%}); цена {mid:,.2f}; {what} ({thr / mid - 1:+.1%} от цены)")
     except Exception as e:                                       # noqa: BLE001
-        return f"SMA{n}: не прочитано ({e})"
+        return "check", f"{head}; {what}; цена не прочитана ({e})"
+    return "ok", f"{head}; цена {mid:,.2f}; {what} ({thr / mid - 1:+.1%} от цены)"
 
 
-def owner(c: WeexClient, oid: str, cache: dict) -> str | None:
-    """clientOrderId ордера; ответ без совпавшего orderId (пустой/ошибка) → None = «не прочитан»."""
-    if oid not in cache:
-        info = c.order_info(oid) or {}
-        cache[oid] = str(info.get("clientOrderId", "")) if str(info.get("orderId")) == oid else None
-    return cache[oid]
+def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path: Path, c,
+                   size_of: dict) -> tuple[bool, bool]:
+    """(проблема, не прочитано) по сторонам, переданным оператору."""
+    sides = cfg.get("sides") or []
+    released = [s for s in (cfg.get("release_sides") or []) if s in eg.DIR and s not in sides]
+    if not released:
+        return False, False
+    problem = unread = False
+    journal, n_bad = mc.read_journal(journal_path)
+    if n_bad:
+        print(f"{name} {sym}: журнал — битых строк {n_bad}, проверка передачи недостоверна")
+        unread = True
+    registry = mc.own_order_ids(st, journal)
+    handed = {s: [r for r in journal if r.get("side") == s and r.get("kind") == mc.HANDOVER] for s in released}
+    first_ts = journal[0].get("ts") if journal else None
+    # открытые ордера переданной стороны: владелец по clientOrderId, без него — по реестру бота, иначе неизвестен
+    on_side = [o for o in c.open_orders(sym) if o.get("positionSide") in released]
+    who_open = [(o, mc.cid_owner(o.get("clientOrderId"), o.get("orderId"), eg.PREFIX, registry)) for o in on_side]
+    mine = [o for o, w in who_open if w == mc.BOT]
+    open_unk = [o for o, w in who_open if w is None]
+    algo = [a for a in (c.open_algo_orders(sym) or []) if str(a.get("clientAlgoId", "")).startswith("b7")
+            and a.get("positionSide") in released]
+    starts = [mc.epoch_ms(r.get("ts")) for v in handed.values() for r in v] + [mc.epoch_ms(first_ts)]
+    starts = [x for x in starts if x is not None]
+    fills, incomplete, read_err = [], [], None
+    if starts:
+        try:
+            fills, incomplete = mc.fetch_trades(c, sym, min(starts))
+        except mc.ReadError as e:
+            read_err = str(e)
+    else:                                         # нет ни журнала, ни записи передачи — начала истории нет
+        read_err = "журнала бота нет — начала истории нет, сделки бота на стороне не проверены"
+    cache: dict = {}
+    for s in released:
+        recs = handed[s]
+        t0 = mc.epoch_ms(recs[0].get("ts")) if recs else None
+        booked_before = {str(r["order_id"]) for r in journal if r.get("order_id") not in (None, "") and t0 is not None
+                         and (mc.epoch_ms(r.get("ts")) or 0) <= t0}
+        bot_after, last_bot, n_unread = [], None, 0
+        for t in fills:
+            if t.get("positionSide") != s:
+                continue
+            who = mc.order_owner(c, t["orderId"], eg.PREFIX, registry, cache)
+            if who is None:
+                n_unread += 1
+                continue
+            if who != mc.BOT:
+                continue
+            tt = int(t["time"])
+            last_bot = max(last_bot or 0, tt)
+            if t0 is not None and (tt >= t0 + 1000 or (tt >= t0 and str(t["orderId"]) not in booked_before)):
+                bot_after.append(t)
+        n_ord = len([o for o in mine if o.get("positionSide") == s])
+        n_ord_unk = len([o for o in open_unk if o.get("positionSide") == s])
+        n_algo = len([a for a in algo if a.get("positionSide") == s])
+        bad = bool(len(recs) > 1 or n_ord or n_algo or bot_after)
+        no_boundary = not recs and last_bot is not None
+        side_unread = bool(n_unread or n_ord_unk or incomplete or read_err or no_boundary)
+        problem |= bad
+        unread |= side_unread
+        when = str(recs[0].get("ts", "?"))[:16] if recs else "записи нет (передана без лотов?)"
+        if bad:
+            verdict = "ПРОБЛЕМА"
+        elif no_boundary:
+            verdict = "результат неизвестен: записи передачи нет, а сделки бота на стороне есть — границы нет"
+        elif side_unread:
+            verdict = "не прочитано — перепроверить"
+        else:
+            verdict = "бот сторону не трогал"
+        print(f"{name} {sym} {s} передан оператору {when} (записей {len(recs)}): позиция на бирже "
+              f"{size_of.get((sym, s), 0):g} — сверить с прошлым значением (память project_portfolio_now); "
+              f"ордеров бота {n_ord}, algo бота {n_algo}, сделок бота после передачи "
+              f"{len(bot_after) if recs else 'н/д'}"
+              + (f"; последняя сделка бота на стороне {datetime.fromtimestamp(last_bot / 1000):%m-%d %H:%M}"
+                 if last_bot and not recs else "")
+              + (f"; владелец не установлен у {n_unread} сделок (нет clientOrderId/детали)" if n_unread else "")
+              + (f"; открытых ордеров без владельца {n_ord_unk} (нет clientOrderId)" if n_ord_unk else "")
+              + (f"; история сделок НЕ ПРОЧИТАНА — {read_err}" if read_err else "")
+              + ("; ВЫБОРКА СДЕЛОК НЕПОЛНА" if incomplete else "")
+              + f" → {verdict}")
+    return problem, unread
 
 
 def main() -> None:
@@ -120,75 +226,21 @@ def main() -> None:
         if not led_live:
             continue
         if int(cfg.get("regime_sma") or 0) > 0:
-            print(f"{name} {sym}: {sma_distance(sym, int(cfg['regime_sma']), c)}")
-        age = time.time() - st_path.stat().st_mtime if st_path.exists() else None
+            level, text = regime_line(sym, int(cfg["regime_sma"]), c)
+            problem |= level == "bad"
+            unread |= level == "check"
+            print(f"{name} {sym}: {text}")
         mode = f"enabled={cfg.get('enabled')} dry_run={cfg.get('dry_run')}"
-        if age is None or age > STALE_SEC:
-            verdict, bad = "ПРОБЛЕМА: сетка не ходит", True
-        elif age > FRESH_SEC:
-            verdict, bad = "пауза (после ошибки прохода до 60 с) — перепроверить через минуту", False
-        else:
-            verdict, bad = "цикл жив", False
+        level, verdict = liveness(st, st_path, time.time())
         if st and st.get("halted"):
-            verdict, bad = f"ПРОБЛЕМА: сетка остановлена (halted) — {st.get('halt_reason')}", True
-        problem |= bad
-        print(f"{name} {sym}: ведётся живьём ({mode}), учёт обновлён "
-              f"{'никогда' if age is None else f'{age:.0f} с назад'} → {verdict}")
-        released = cfg.get("release_sides") or []
-        if not released:
-            continue
-        handed: dict[str, list] = {}
-        jp = Path(journal)
-        first_ts = None
-        if jp.exists():
-            for line in jp.read_text(encoding="utf-8").splitlines():
-                try:
-                    r = json.loads(line)
-                except ValueError:
-                    continue
-                first_ts = first_ts or r.get("ts")
-                if r.get("side") in released and r.get("kind") == "передано оператору":
-                    handed.setdefault(r["side"], []).append(r["ts"])
-        mine = [o for o in c.open_orders(sym) if str(o.get("clientOrderId", "")).startswith(eg.PREFIX)
-                and o.get("positionSide") in released]
-        algo = [a for a in (c.open_algo_orders(sym) or []) if str(a.get("clientAlgoId", "")).startswith("b7")
-                and a.get("positionSide") in released]
-        since = min([v[0] for v in handed.values()] + ([first_ts] if first_ts else []), default=None)
-        fills, incomplete = (trades_since(c, sym, int(datetime.fromisoformat(since).timestamp() * 1000))
-                             if since else ([], False))
-        cache: dict = {}
-        for s in released:
-            times = handed.get(s, [])
-            t0 = int(datetime.fromisoformat(times[0]).timestamp() * 1000) if times else None
-            bot_after, last_bot, n_unread = [], None, 0
-            for t in fills:
-                if t.get("positionSide") != s:
-                    continue
-                cid = owner(c, str(t["orderId"]), cache)
-                if cid is None:
-                    n_unread += 1
-                    continue
-                if not cid.startswith(eg.PREFIX):
-                    continue
-                last_bot = max(last_bot or 0, int(t["time"]))
-                if t0 is not None and int(t["time"]) > t0:
-                    bot_after.append(t)
-            n_ord = len([o for o in mine if o.get("positionSide") == s])
-            n_algo = len([a for a in algo if a.get("positionSide") == s])
-            bad = len(times) > 1 or n_ord or n_algo or bot_after
-            unread |= bool(n_unread or incomplete)
-            problem |= bool(bad)
-            when = times[0][:16] if times else "записи нет (передана без лотов?)"
-            print(f"{name} {sym} {s} передан оператору {when} (записей {len(times)}): позиция на бирже "
-                  f"{size_of.get((sym, s), 0):g} — сверить с прошлым значением (память project_portfolio_now); "
-                  f"ордеров бота {n_ord}, algo бота {n_algo}, сделок бота после передачи "
-                  f"{len(bot_after) if times else 'н/д'}"
-                  + ("" if times else f"; последняя сделка бота на стороне "
-                     f"{datetime.fromtimestamp(last_bot / 1000):%m-%d %H:%M}" if last_bot else "")
-                  + (f"; не прочитано ордеров {n_unread}" if n_unread else "")
-                  + ("; ВЫБОРКА СДЕЛОК НЕПОЛНА" if incomplete else "")
-                  + f" → {'ПРОБЛЕМА' if bad else ('не прочитано — перепроверить' if n_unread or incomplete else 'бот сторону не трогал')}")
-    print("ИТОГ:", "ЕСТЬ ПРОБЛЕМА" if problem else ("НЕ ВСЁ ПРОЧИТАНО" if unread else "ок"))
+            level, verdict = "bad", f"ПРОБЛЕМА: сетка остановлена (halted) — {st.get('halt_reason')}"
+        problem |= level == "bad"
+        unread |= level == "check"
+        print(f"{name} {sym}: ведётся живьём ({mode}) → {verdict}")
+        p, u = check_released(name, sym, cfg, st, Path(journal), c, size_of)
+        problem |= p
+        unread |= u
+    print("ИТОГ:", "ЕСТЬ ПРОБЛЕМА" if problem else ("НЕ ВСЁ ПРОЧИТАНО — перепроверить" if unread else "ок"))
     sys.exit(1 if problem else (2 if unread else 0))
 
 
