@@ -188,7 +188,8 @@ def clear_slot(bt, bot: int) -> int:
 
 
 def run_one(bt, bot: int, gs: float, target: float, a: datetime, b: datetime,
-            path: Path) -> dict:
+            path: Path, extra: dict | None = None) -> dict:
+    """extra — поля, дописываемые в запись (ginarea_regime_check: точные концы, хеши конфига и данных)."""
     t0 = time.time()
     test = bt.run_test(bot, a, b, poll_interval=20.0, timeout=3600.0)
     s = test.stat
@@ -208,6 +209,7 @@ def run_one(bt, bot: int, gs: float, target: float, a: datetime, b: datetime,
            "volume": s.tradeVolume if s else None,
            "position": s.position if s else None,
            "seconds": round(time.time() - t0)}
+    rec.update(extra or {})
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec

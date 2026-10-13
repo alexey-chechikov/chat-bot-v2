@@ -39,28 +39,48 @@ N_CTL = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--ct
 MAKER, TAKER, SLIP = 0.00016, 0.00048, 0.0002
 
 
+DAY_MS, DAY_MINUTES = 86_400_000, 1440                    # крипта 24/7: полный UTC-день = 1440 разных минут
+
+
 def load():
+    """Минутки → (ts, o, h, l, c, режим по минутам) с первого дня, перед которым 100 ПОЛНЫХ дней подряд.
+    Ревью GPT 13.10 §6: файл со 101 днём по одной минуте проходил «100 дней прогрева». Теперь: метки — строго
+    возрастающая минутная сетка без дублей; закрытие дня — только у полного дня (1440 минут, последняя — 23:59);
+    неполный или пропущенный день — NaN, SMA100 через него — NaN (режим неизвестен), не «закрытие» последней минуты;
+    сдвиг на день d+1 — по календарю, не по строке."""
     raw = SRC.read_bytes()
     d = pd.read_csv(io.BytesIO(raw))
-    first, last = int(d["ts"].iloc[0]), int(d["ts"].iloc[-1])
+    ms = d["ts"].to_numpy(dtype=np.int64)
+    first, last = int(ms[0]), int(ms[-1])
     gaps = (last - first) // 60_000 + 1 - len(d)
     print(f"данные {SRC.name}: строк {len(d)}, {pd.to_datetime(first, unit='ms')} … {pd.to_datetime(last, unit='ms')} UTC, "
           f"пропусков минут {gaps}, sha256 {hashlib.sha256(raw).hexdigest()[:16]}…", file=sys.stderr)
-    ts = (d["ts"].to_numpy() // 1000).astype(np.int64)
+    if (ms % 60_000).any() or (np.diff(ms) <= 0).any():
+        sys.exit("метки не на минутной сетке или не строго возрастают (дубли) — отказ")
+    ts = (ms // 1000).astype(np.int64)
     o, h, l, c = (d[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
-    day = pd.to_datetime(ts, unit="s", utc=True).floor("D")
-    dc = pd.Series(c, index=day).groupby(level=0).last()
-    sma = dc.rolling(100).mean()
-    up_d = (dc > sma).where(sma.notna())                 # решение на закрытии дня d
-    reg_next = up_d.shift(1)                              # действует в день d+1
-    reg = reg_next.reindex(day).to_numpy()                # по минутам: True лонг / False шорт / nan нет данных
+    if not (np.isfinite(np.c_[o, h, l, c]).all() and (l > 0).all() and (h >= l).all()):
+        sys.exit("битые OHLC (не числа, ≤0 или high<low) — отказ")
+    dayi = ms // DAY_MS                                   # номер UTC-дня каждой минуты
+    days, first_i, cnt = np.unique(dayi, return_index=True, return_counts=True)
+    full = cnt == DAY_MINUTES
+    dc = pd.Series(np.nan, index=np.arange(days[0], days[-1] + 1))   # все календарные дни подряд
+    dc.loc[days[full]] = c[(first_i + cnt - 1)[full]]      # закрытие минуты 23:59 полного дня
+    sma = dc.rolling(100).mean()                          # NaN, если среди 100 дней есть неполный/пропущенный
+    up_d = (dc > sma).where(sma.notna() & dc.notna())     # решение на закрытии дня d
+    reg = up_d.shift(1).reindex(dayi).to_numpy()          # действует в календарный день d+1; nan — неизвестен
     valid = ~pd.isna(reg)
     if not valid.any():
-        sys.exit("нет 100 полных дней прогрева SMA100 — отказ")
+        sys.exit(f"нет 100 полных дней прогрева SMA100 подряд (полных дней {int(full.sum())} из {len(days)}) — отказ")
     start = int(np.argmax(valid))
     if not valid[start:].all():
-        sys.exit("режим с пропусками после прогрева (дыры в днях) — отказ")
+        sys.exit("режим с пропусками после прогрева (неполные/пропущенные дни) — отказ")
     return ts[start:], o[start:], h[start:], l[start:], c[start:], reg[start:].astype(bool)
+
+
+def cut_label(ts) -> str:
+    """Срез половин: минута len//2; капитал 1-й половины — по закрытию минуты перед ней, до её операций."""
+    return f"{pd.to_datetime(int(ts[len(ts) // 2]), unit='s')} UTC"
 
 
 def run(args):
@@ -85,6 +105,11 @@ def run(args):
     eq_mid, peak, dd, flips = None, 0.0, 0.0, 0
     prev = None
     for i in range(len(ts)):
+        if i == mid_i:
+            # капитал 1-й половины — по закрытию минуты перед срезом, ДО всех операций минуты среза, включая закрытие
+            # по смене режима на её open (аддендум GPT 13.10, B1: гэп/PnL/комиссия закрытия попадали в 1-ю половину)
+            pc = c[i - 1] if i > 0 else o[i]
+            eq_mid = sum(s["real"] - s["fee"] + sum(d * x[1] * (pc - x[0]) for x in s["lots"]) for d, s in S.items())
         if mode in ("regime", "invert", "shuffle"):
             act = {1: bool(reg[i]), -1: not bool(reg[i])}
         elif mode == "longflat":                          # лонг выше SMA100, иначе вне рынка (шорты — оператор)
@@ -107,9 +132,6 @@ def run(args):
                         s["fee"] += q * px * TAKER
                     s["lots"], s["ref"] = [], None
         prev = act
-        if i == mid_i:
-            pc = c[i - 1]
-            eq_mid = sum(s["real"] - s["fee"] + sum(d * x[1] * (pc - x[0]) for x in s["lots"]) for d, s in S.items())
         for p in pts[i]:
             for d, s in S.items():
                 if s["lots"]:
@@ -153,7 +175,7 @@ def main():
     data = load()
     ts = data[0]
     print(f"окно {pd.to_datetime(ts[0], unit='s').date()} … {pd.to_datetime(ts[-1], unit='s').date()}, "
-          f"доля времени выше SMA100 {data[5].mean():.0%}")
+          f"доля времени выше SMA100 {data[5].mean():.0%}; срез половин {cut_label(ts)}")
     jobs = []
     for step, tgt in ((0.6, 1.4), (0.8, 1.65)):
         for mode in ("regime", "longflat", "both", "long", "invert"):

@@ -71,12 +71,21 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
     pts = path4(o, h, l, c)
     st = {s: Side(1 if s == "LONG" else -1) for s in sides}
     g, t = step / 100, target / 100
+    # месяц — по UTC-метке КАЖДОЙ минуты (аддендум GPT 13.10, B2: проверка раз в 1440 строк приписывала начало
+    # нового месяца прошлому при старте не в полночь и пропусках минут)
+    month = np.asarray(ts, dtype=np.int64).astype("datetime64[s]").astype("datetime64[M]")
     months = []
     cur_m = None
+    last_eq = 0.0
     worst = 0.0
     eq_cut = None
     peak, max_dd = 0.0, 0.0
     for i in range(len(ts)):
+        if cur_m is None:
+            cur_m = month[i]
+        elif month[i] != cur_m:
+            months.append((str(cur_m), last_eq))           # капитал по закрытию предыдущей минуты — до нового бара
+            cur_m = month[i]
         if cut_ts is not None and eq_cut is None and ts[i] >= cut_ts:
             # капитал на ГРАНИЦЕ — до первой сделки второй части, по закрытию последней минуты первой
             # (10.10, разбор GPT: брался после обработки минуты среза и только на часовых точках)
@@ -123,17 +132,12 @@ def run(sym_data, sides=("LONG", "SHORT"), step=0.2, target=0.21, order_usd=100.
         px = c[i]
         bag = sum(s.d * x[1] * (px - x[0]) for s in st.values() for x in s.lots)
         eq = sum(s.realized - s.fees for s in st.values()) + bag
-        if i % 1440 == 0 or i == len(ts) - 1:
-            m = datetime.fromtimestamp(int(ts[i]), timezone.utc).strftime("%Y-%m")
-            if m != cur_m:
-                if cur_m is not None:
-                    months.append((cur_m, last_eq))
-                cur_m = m
         last_eq = eq
         worst = min(worst, bag)
         peak = max(peak, eq)
         max_dd = min(max_dd, eq - peak)
-    months.append((cur_m, last_eq))
+    if cur_m is not None:
+        months.append((str(cur_m), last_eq))
     px = c[-1]
     res = {
         "тейков": sum(s.tps for s in st.values()),

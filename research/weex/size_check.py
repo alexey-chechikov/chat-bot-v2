@@ -39,7 +39,7 @@ def main():
     jobs = [(name, "longflat", 0, st, tg, q, cap) for name, st, tg, q, cap in cells_from_argv(sys.argv[1:])]
     with ProcessPoolExecutor(max_workers=4, initializer=rg.init, initargs=(data,)) as ex:
         res = list(ex.map(rg.run, jobs))
-    print(f"{rg.SYM}: только лонг по SMA100, {rg.SRC.name}")
+    print(f"{rg.SYM}: только лонг по SMA100, {rg.SRC.name}; срез половин {rg.cut_label(data[0])}")
     print(f"{'настройка':>30} | {'итог':>7} {'1-я пол':>8} {'2-я пол':>8} | {'худшая просадка':>15}")
     for name, mode, seed, step, tgt, eq, mid, dd, flips, side in res:
         print(f"{name:>30} | {eq:>+7.0f} {mid:>+8.0f} {eq - mid:>+8.0f} | {dd:>+15.0f}")
