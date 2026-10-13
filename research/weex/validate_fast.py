@@ -15,12 +15,16 @@ ts, o, h, l, c = fg.load("BTCUSDT")
 n = DAYS * 1440
 ts, o, h, l, c = ts[-n:], o[-n:], h[-n:], l[-n:], c[-n:]
 ks = [[int(t) * 1000, str(a), str(b), str(x), str(y)] for t, a, b, x, y in zip(ts, o, h, l, c)]
+# стороны/режим/передача — закреплены: живой конфиг с 11.10 = только LONG, SMA100, SHORT передан, и движок применял
+# СЕГОДНЯШНИЙ режим к историческим минутам — сверка с fast_grid (обе стороны, без режима) была бессмысленной
+# (ревью скилов 12.10). Режимное закрытие эта сверка не проверяет — для regime_grid нужна своя.
 cfg = {**eg.load_config(), "enabled": True, "dry_run": True, "order_qty": "0.0012", "max_notional_usd": 4000.0,
-       "max_lots_per_side": 50, "step_pct": 0.2, "target_pct": 0.21}
+       "max_lots_per_side": 50, "step_pct": 0.2, "target_pct": 0.21,
+       "sides": ["LONG", "SHORT"], "regime_sma": 0, "release_sides": []}
 eng = rc.run(eg.Grid, ks, cfg)
 fast = fg.run((ts, o, h, l, c), ("LONG", "SHORT"), 0.2, 0.21, order_qty=0.0012, cap_usd=4000.0,
               max_orders=50)                    # объём фиксирован в BTC — как у движка (10.10, замечание GPT)
 print(f"{DAYS} сут BTC {c[0]:,.0f} → {c[-1]:,.0f}")
 for k in ("тейков", "оборот", "закрыто", "комиссии", "мешок", "итог", "худший мешок"):
     a, b = eng[k], fast[k]
-    print(f"{k:>13}: движок {a:>10,.2f}  быстрый {b:>10,.2f}  ({(b / a - 1) * 100 if a else 0:+.1f}%)")
+    print(f"{k:>13}: движок {a:>10,.2f}  быстрый {b:>10,.2f}  ({f'{(b / a - 1) * 100:+.1f}%' if a else 'н/д: у движка 0'})")

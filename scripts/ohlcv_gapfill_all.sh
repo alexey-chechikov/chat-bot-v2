@@ -8,8 +8,11 @@ PY="$ROOT/.venv/bin/python"
 SCRIPT="$ROOT/scripts/ohlcv_ingest.py"
 SYMBOLS=("BTCUSDT" "ETHUSDT" "XRPUSDT")
 
-# Target = now (UTC), formatted ISO-8601 with Z.
-TARGET_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# Target = open of a minute closed >= 60 s ago (UTC). ohlcv_ingest keeps bars with open <= target; target "now"
+# kept the still-forming minute of every run (launchd StartInterval drifts, so any minute of the hour), truncated
+# forever — the next run starts at last_ts+60s. 12.10.2026 review: now-2min floored to the minute (now-1min left
+# only ~1 s after the bar close when the run started at :00 s; Binance/mac clock skew could still cut it).
+TARGET_END="$(date -u -v-2M +%Y-%m-%dT%H:%M:00Z)"
 
 cd "$ROOT"
 

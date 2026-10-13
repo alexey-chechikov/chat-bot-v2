@@ -8,8 +8,13 @@ current_profit включает мешок по цене конца отрезк
 Сетка: шаг 0.6, цель 1.4, 50 ордеров, 0.001 BTC, выход по каждому ордеру (obap выкл), без множителя объёма.
 Бот — шорт-клон 4568400511 (разрешён к тестам 01.10); параметры возвращаются в конце.
 
-    tools/ginarea_regime_check.py            # прогон
-    tools/ginarea_regime_check.py --restore  # вернуть параметры бота
+    .venv/bin/python3 tools/ginarea_regime_check.py            # прогон 0.6/1.4
+    .venv/bin/python3 tools/ginarea_regime_check.py --gs=0.4 --tog=1.4 --spec="gs=0.4,maxOp=50,..." --out=state/x.jsonl
+    .venv/bin/python3 tools/ginarea_regime_check.py --restore  # вернуть параметры бота
+
+Пропуск уже посчитанного — по ключу (from, to, side, gs, target) (ревью скилов 12.10: был (from, side) — смена шага
+молча брала старые результаты, текущий отрезок не продлевался). SPEC (maxOp, объём) в записи нет — при его смене
+нужен новый --out.
 """
 from __future__ import annotations
 
@@ -25,10 +30,16 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 import ginarea_target_sweep as gts  # noqa: E402
 
-BOT = 4568400511
-OUT = ROOT / "state" / "ginarea_regime_check.jsonl"
-GS, TOG = 0.6, 1.4
-SPEC = "gs=0.6,maxOp=50,q.minQ=0.001,q.maxQ=null,q.qr=null,obap=0"
+def _opt(name: str, default: str) -> str:
+    return next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith(f"--{name}=")), default)
+
+
+BOT = 4568400511                                          # BTC-клон: отрезки и бот — только BTC (ETH — target_sweep)
+OUT = ROOT / _opt("out", "state/ginarea_regime_check.jsonl")
+GS, TOG = float(_opt("gs", "0.6")), float(_opt("tog", "1.4"))
+SPEC = _opt("spec", f"gs={GS},maxOp=50,q.minQ=0.001,q.maxQ=null,q.qr=null,obap=0")
+if not SPEC.strip():                                      # пустой --spec = базовые параметры клона (maxOp 400, qr…)
+    sys.exit("--spec пустой — не передавать или задать полностью")
 
 
 def segments():
@@ -61,13 +72,13 @@ def main() -> None:
         for ln in OUT.read_text(encoding="utf-8").splitlines():
             r = json.loads(ln)
             if r.get("current_profit") is not None:
-                done.add((r["from"], r["side"]))
+                done.add((r["from"], r["to"], r["side"], float(r["gs"]), float(r["target"])))
     work = gts.apply_set(base, SPEC)
     try:
         for long_regime, a, b in segments():
             for mode in ("режим", "наоборот"):
                 side = 1 if (long_regime == (mode == "режим")) else 2
-                if (a.date().isoformat(), side) in done:
+                if (a.date().isoformat(), b.date().isoformat(), side, GS, TOG) in done:
                     continue
                 from services.ginarea_api.models import DefaultGridParams, Side
                 d = work.to_dict()

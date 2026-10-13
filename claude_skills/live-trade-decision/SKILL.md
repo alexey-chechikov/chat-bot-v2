@@ -1,6 +1,6 @@
 ---
 name: live-trade-decision
-description: Help the bot7 operator decide whether to manually execute a live trading signal (Range Hunter, cascade-followup, or other Phase-D setups) based on recent live performance vs backtest baselines. Use whenever the user asks "стоит ли открывать", "брать ли этот сигнал", "should I take this trade", "какая рекомендация по signal X", or pastes a TG-card from the bot and wants a sanity-check before placing manual orders on BitMEX. Also use when the user explicitly mentions Phase D, manual execution, semi-manual strategy, or decision support.
+description: УСТАРЕЛО — не вызывать (эпоха BitMEX/GinArea, боты остановлены 07.10.2026). Статус ботов и счёта — weex-bots-check; решения и споры — deep-trading-analysis.
 ---
 
 # Live Trade Decision Support

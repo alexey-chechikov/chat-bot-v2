@@ -11,6 +11,8 @@ fast_grid (правило GinArea: шаг от крайнего открытог
 Итог — полный капитал (закрыто − комиссии + мешок), половины — непрерывно, просадка — по закрытиям минут."""
 from __future__ import annotations
 
+import hashlib
+import io
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -23,13 +25,27 @@ import fast_grid as fg  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SYM = next((a for a in sys.argv[1:] if a.endswith("USDT")), "BTCUSDT")
-SRC = ROOT / "backtests" / "frozen" / f"{SYM}_1m_2y.csv"
-QTY = {"BTCUSDT": 0.0012, "ETHUSDT": 0.04, "PAXGUSDT": 0.025}[SYM]   # ≈ $100 на ордер
+# --src=<копия снимка>: frozen дописывается каждый час — прогон по протоколу идёт на копии (ревью скилов 12.10)
+SRC = Path(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--src=")),
+                ROOT / "backtests" / "frozen" / f"{SYM}_1m_2y.csv"))
+QTY_ALL = {"BTCUSDT": 0.0012, "ETHUSDT": 0.04, "PAXGUSDT": 0.025, "XRPUSDT": 70.0}   # ≈ $100 на ордер
+if SYM not in QTY_ALL:
+    sys.exit(f"{SYM}: нет объёма по умолчанию — добавить в QTY_ALL")
+_other = [s for s in QTY_ALL if s != SYM and s in SRC.name]
+if _other:                                               # раунд 2 ревью: --src ETH без символа гонял BTC-ячейки
+    sys.exit(f"--src {SRC.name} похож на {_other[0]}, а символ прогона {SYM} — укажи символ явно")
+QTY = QTY_ALL[SYM]
+N_CTL = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--ctl=")), "12"))
 MAKER, TAKER, SLIP = 0.00016, 0.00048, 0.0002
 
 
 def load():
-    d = pd.read_csv(SRC)
+    raw = SRC.read_bytes()
+    d = pd.read_csv(io.BytesIO(raw))
+    first, last = int(d["ts"].iloc[0]), int(d["ts"].iloc[-1])
+    gaps = (last - first) // 60_000 + 1 - len(d)
+    print(f"данные {SRC.name}: строк {len(d)}, {pd.to_datetime(first, unit='ms')} … {pd.to_datetime(last, unit='ms')} UTC, "
+          f"пропусков минут {gaps}, sha256 {hashlib.sha256(raw).hexdigest()[:16]}…", file=sys.stderr)
     ts = (d["ts"].to_numpy() // 1000).astype(np.int64)
     o, h, l, c = (d[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
     day = pd.to_datetime(ts, unit="s", utc=True).floor("D")
@@ -38,12 +54,17 @@ def load():
     up_d = (dc > sma).where(sma.notna())                 # решение на закрытии дня d
     reg_next = up_d.shift(1)                              # действует в день d+1
     reg = reg_next.reindex(day).to_numpy()                # по минутам: True лонг / False шорт / nan нет данных
-    start = np.argmax(~pd.isna(reg))
+    valid = ~pd.isna(reg)
+    if not valid.any():
+        sys.exit("нет 100 полных дней прогрева SMA100 — отказ")
+    start = int(np.argmax(valid))
+    if not valid[start:].all():
+        sys.exit("режим с пропусками после прогрева (дыры в днях) — отказ")
     return ts[start:], o[start:], h[start:], l[start:], c[start:], reg[start:].astype(bool)
 
 
 def run(args):
-    name, mode, seed, step, tgt = args
+    name, mode, seed, step, tgt, *extra = args              # extra: объём ордера, потолок на сторону
     ts, o, h, l, c, reg = DATA
     # границы отрезков ИСХОДНОГО режима: на каждой — обязательное закрытие (11.10, разбор GPT: в контроле
     # соседние одинаковые случайные стороны сливались — меньше закрытий, другая механика выхода)
@@ -57,7 +78,8 @@ def run(args):
     elif mode == "invert":
         reg = ~reg
     pts = fg.path4(o, h, l, c)
-    g, t, qty, cap = step / 100, tgt / 100, QTY, 6000.0
+    g, t = step / 100, tgt / 100
+    qty, cap = (extra[0], extra[1]) if extra else (QTY, 6000.0)
     S = {d: {"lots": [], "ref": None, "real": 0.0, "fee": 0.0} for d in (1, -1)}
     mid_i = len(ts) // 2
     eq_mid, peak, dd, flips = None, 0.0, 0.0, 0
@@ -136,7 +158,7 @@ def main():
     for step, tgt in ((0.6, 1.4), (0.8, 1.65)):
         for mode in ("regime", "longflat", "both", "long", "invert"):
             jobs.append((f"{step}/{tgt}", mode, 0, step, tgt))
-    n_ctl = 12
+    n_ctl = N_CTL                                          # --ctl=999 для решения (часы счёта); 12 — только ориентир
     jobs += [("0.6/1.4", "shuffle", s, 0.6, 1.4) for s in range(n_ctl)]
     jobs += [("0.6/1.4", "shuffle_lf", s, 0.6, 1.4) for s in range(n_ctl)]
     with ProcessPoolExecutor(max_workers=3, initializer=init, initargs=(data,)) as ex:
@@ -153,7 +175,9 @@ def main():
         sh = np.array([r[5] for r in res if r[1] == ctl_mode])
         print(f"контроль {what} (0.6/1.4, те же границы с закрытием, случайная сторона, {n_ctl} сидов): медиана "
               f"{np.median(sh):+.0f}, 10–90% {np.quantile(sh, 0.1):+.0f}…{np.quantile(sh, 0.9):+.0f}; "
-              f"не хуже настоящего {int((sh >= real).sum())}/{n_ctl}")
+              f"не хуже настоящего {int((sh >= real).sum())}/{n_ctl}; ранг (k+1)/(n+1) = "
+              f"{(int((sh >= real).sum()) + 1) / (n_ctl + 1):.3f}"
+              + ("" if n_ctl >= 999 else " — меньше 999 повторов: не контроль, выводов не делать"))
 
 
 if __name__ == "__main__":

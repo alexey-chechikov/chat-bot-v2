@@ -1,6 +1,6 @@
 ---
 name: range-hunter-status
-description: Quick status check for the Range Hunter semi-manual trading strategy in bot7. Reports current statistics from state/range_hunter_signals.jsonl — pair_win%, empirical fill rate, decision latency, total PnL, pending decisions. Use this whenever the user asks about Range Hunter performance, "how is range hunter doing", "проверь range hunter", "какие результаты по range_hunter", "сколько сигналов", "сколько fills", or after a fresh restart to verify the strategy is collecting data. Also use when the user mentions empirical_fill_rate, pair_win, decision_latency, or anything else from the Range Hunter journal.
+description: УСТАРЕЛО — не вызывать (эпоха BitMEX/GinArea, боты остановлены 07.10.2026). Статус ботов и счёта — weex-bots-check; решения и споры — deep-trading-analysis.
 ---
 
 # Range Hunter Status

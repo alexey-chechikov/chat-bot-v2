@@ -128,7 +128,8 @@ def find_conflicts(repo: Path, local_files: list[str], other_branches: list[dict
 def recommend(local: dict, branches: list[dict], conflicts: list[dict]) -> list[str]:
     rec = []
     if local["uncommitted_files"]:
-        rec.append(f"[!] {len(local['uncommitted_files'])} uncommitted files locally - commit or stash before merging anything")
+        rec.append(f"[!] {len(local['uncommitted_files'])} uncommitted files locally - do not merge over them; "
+                   f"commit by name only when the operator asks (git stash is forbidden in bot7, CLAUDE.md)")
     if conflicts:
         for c in conflicts:
             rec.append(f"[!] Conflict potential: {c['branch']} touches files you have modified ({len(c['overlapping_files'])} files)")
