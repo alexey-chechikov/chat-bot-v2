@@ -19,6 +19,7 @@ from market_collector.config import (
     LIQ_HEARTBEAT_PATH,
     LIQUIDATIONS_CSV,
     LIQ_SYMBOLS,
+    MARKET_LIVE_DIR,
     OKX_INST_MAP,
     OKX_WS_URL,
     WS_RECONNECT_BASE_SEC,
@@ -80,6 +81,32 @@ def _write_liq(symbol: str, row: dict) -> None:
                 writer.writeheader()
             writer.writerow(row)
             fh.flush()
+
+
+# 13.10 (ТЗ docs/ATLAS_TRADINGVIEW_DATA_RESEARCH_SPEC_2026-10-13.md §3–4, P0): рядом с CSV — сырой журнал JSONL по
+# дням: время биржи и время приёма, сторона ликвидированной позиции, единицы объёма, основа цены, спецификация
+# контракта и исходное сообщение. CSV (его читают службы) не меняется.
+OKX_SPEC_VERSION = "okx /api/v5/public/instruments 2026-10-13: ctVal BTC 0.01, ETH 0.1, XRP 100 (linear)"
+RAW_DIR = MARKET_LIVE_DIR / "liq_raw"
+
+
+def raw_record(exchange: str, symbol: str, side: str, raw: dict, *, exchange_ts_ms, qty, qty_unit: str,
+               price, price_basis: str, extra: dict | None = None) -> dict:
+    return {"recv_ms": int(time.time() * 1000), "exchange": exchange, "symbol": symbol, "side_liquidated": side,
+            "exchange_ts_ms": int(exchange_ts_ms) if exchange_ts_ms not in (None, "") else None,
+            "qty": qty, "qty_unit": qty_unit, "price": price, "price_basis": price_basis, **(extra or {}), "raw": raw}
+
+
+def _write_raw(rec: dict) -> None:
+    """Сырой журнал не должен ломать основной поток — ошибки только в лог."""
+    try:
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        day = datetime.now(timezone.utc).strftime("%Y%m%d")
+        with _lock:
+            with (RAW_DIR / f"{rec['exchange']}_{day}.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.warning("liq_raw.write_failed", exc_info=True)
 
 
 def _run_bybit_ws(stop_event: threading.Event) -> None:
@@ -151,6 +178,9 @@ def _run_bybit_ws(stop_event: threading.Event) -> None:
                                 "qty": qty,
                                 "price": price,
                             })
+                            _write_raw(raw_record("bybit", symbol, side, liq, exchange_ts_ms=liq.get("T"),
+                                                  qty=qty, qty_unit="base", price=price,
+                                                  price_basis="bankruptcy"))
                 except Exception:
                     logger.warning("bybit_ws.parse_error", exc_info=True)
                     continue  # parse-ошибка не должна закрывать соединение
@@ -210,6 +240,9 @@ def _run_binance_ws(stop_event: threading.Event) -> None:
                         "qty": order.get("q", ""),
                         "price": order.get("p", ""),
                     })
+                    _write_raw(raw_record("binance", symbol, side, order, exchange_ts_ms=order.get("T"),
+                                          qty=order.get("q", ""), qty_unit="base", price=order.get("p", ""),
+                                          price_basis="order_price_p (ap = средняя исполнения)"))
                 except Exception:
                     logger.warning("binance_ws.parse_error", exc_info=True)
                     continue
@@ -318,6 +351,10 @@ def _run_okx_ws(stop_event: threading.Event) -> None:
                                 "qty": qty_out,
                                 "price": d.get("bkPx", ""),
                             })
+                            _write_raw(raw_record("okx", symbol, side, d, exchange_ts_ms=d.get("ts"),
+                                                  qty=qty_out, qty_unit="base (sz × ctVal)",
+                                                  price=d.get("bkPx", ""), price_basis="bankruptcy",
+                                                  extra={"ctVal": contract_size, "spec": OKX_SPEC_VERSION}))
                         except Exception:
                             logger.warning("okx_ws.parse_error", exc_info=True)
                             continue

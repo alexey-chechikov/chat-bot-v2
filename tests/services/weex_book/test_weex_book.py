@@ -72,3 +72,19 @@ def test_gap_triggers_resubscribe(tmp_path):
     ws = run_session(tmp_path, [snap(), chg(10, 11), chg(20, 21)])
     rc_time = [m for m in ws.sent if m.get("method") in ("UNSUBSCRIBE", "SUBSCRIBE")]
     assert rc_time[-2]["method"] == "UNSUBSCRIBE" and rc_time[-1]["params"] == ["BTCUSDT@depth15"]
+
+
+def test_v2_depth_trades_events_written(tmp_path):
+    """P0 13.10: все уровни и номера обновлений в depth, ID сделки и исходное m в trades2, разрыв — в events."""
+    t = {"T": E0 + 100, "t": "id9", "p": "100.1", "q": "0.01", "m": True}
+    many = [(f"{100 - i / 10:.1f}", "1") for i in range(15)]
+    run_session(tmp_path, [snap(b=many), chg(10, 11, a=[("100.2", "4")]),
+                           {"e": "trade", "E": E0 + 200, "s": "BTCUSDT", "d": [t]}, chg(20, 21)])
+    dep = rows(tmp_path, "depth")
+    assert dep[0][0] == "snapshot" and len(json.loads(dep[0][7])) == 15 and dep[0][6] == "1"
+    assert dep[1][:3] == ["delta", "10", "11"] and dep[1][6] == "1" and dep[1][4]
+    assert dep[2][:3] == ["delta", "20", "21"] and dep[2][6] == "0"      # разрыв не применён
+    tr2 = rows(tmp_path, "trades2")
+    assert tr2[0][0] == "id9" and tr2[0][7] == "True" and tr2[0][3]       # ID сделки, m как пришло, recv_ms
+    ev = [r[2] for r in rows(tmp_path, "events")]
+    assert ev[:2] == ["connect", "snapshot"] and "gap" in ev and "resync" in ev
