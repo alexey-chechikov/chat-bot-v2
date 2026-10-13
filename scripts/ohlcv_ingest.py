@@ -13,6 +13,11 @@ Output:
     Appends rows to existing backtests/frozen/{SYMBOL}_1m_2y.csv
     Updates backtests/frozen/{SYMBOL}_1h_2y.csv (resample from 1m)
     Appends entry to docs/STATE/ohlcv_ingest_log.jsonl
+
+Lock (GPT review 13.10, Q4): every 1m append and every 1h resample runs under the shared inter-process lock
+<frozen_dir>/.ingest.lock (fcntl.flock LOCK_EX) — the same lock research/weex/repair_frozen_1m.py holds over
+read -> verify -> replace. Under the lock the CSV path is reopened and its last ts re-read, so an append never lands
+in a file that repair has just replaced, and rows already present are not appended twice.
 """
 from __future__ import annotations
 
@@ -24,8 +29,14 @@ import logging
 import sys
 import time
 import urllib.request
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows: no inter-process lock (repair_frozen_1m refuses to run there)
+    fcntl = None
 
 # encoding_safety: stdout UTF-8 for Windows terminal
 if hasattr(sys.stdout, "buffer") and sys.stdout.encoding and \
@@ -44,6 +55,24 @@ _INTERVAL_MS: dict[str, int] = {"1s": 1_000, "1m": 60_000}
 _SLEEP_BETWEEN_BATCHES = 0.12   # ~8 req/s, well under 1200/min Binance limit
 
 log = logging.getLogger(__name__)
+
+LOCK_NAME = ".ingest.lock"   # shared with research/weex/repair_frozen_1m.py — keep the names in sync
+
+
+@contextmanager
+def _frozen_lock(folder: Path):
+    """Exclusive inter-process lock of the frozen dir (same file as repair_frozen_1m.frozen_lock)."""
+    if fcntl is None:
+        log.warning("fcntl unavailable — appending without the shared lock (do not run repair concurrently)")
+        yield
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / LOCK_NAME, "a+b") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def _utc_now_ms() -> int:
@@ -303,7 +332,13 @@ def fill_gap(
     all_rows = deduped
 
     if all_rows:
-        _append_rows_to_csv(csv_path, all_rows)
+        with _frozen_lock(frozen_dir):
+            # reopen under the lock: repair may have replaced the file, another writer may have appended
+            cur_last = _read_csv_last_ts(csv_path)
+            if cur_last is not None:
+                all_rows = [r for r in all_rows if r[0] > cur_last]
+            if all_rows:
+                _append_rows_to_csv(csv_path, all_rows)
         log.info("Wrote %d rows to %s", len(all_rows), csv_path)
     else:
         log.warning("No rows returned for %s %s", symbol, interval)
@@ -317,9 +352,14 @@ def fill_gap(
 
 
 def fill_1h_from_1m(symbol: str, frozen_dir: Path, dry_run: bool = False) -> dict:
-    """Resample 1m CSV → 1h, append missing hours to 1h CSV.
+    """Resample 1m CSV → 1h, append missing hours to 1h CSV (under the shared frozen lock).
     Creates 1h file from scratch if it doesn't exist yet.
     """
+    with (nullcontext() if dry_run else _frozen_lock(frozen_dir)):
+        return _fill_1h_from_1m(symbol, frozen_dir, dry_run)
+
+
+def _fill_1h_from_1m(symbol: str, frozen_dir: Path, dry_run: bool) -> dict:
     csv_1m = frozen_dir / f"{symbol}_1m_2y.csv"
     csv_1h = frozen_dir / f"{symbol}_1h_2y.csv"
     if not csv_1m.exists():
