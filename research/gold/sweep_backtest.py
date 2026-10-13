@@ -3,43 +3,67 @@
 Правила — docs/GOLD_LIQUIDITY_SWEEP_PROTOCOL_2026-10-13.md (опубликован ДО прогона, коммит d983d5b); ТЗ —
 docs/GOLD_LIQUIDITY_SWEEP_SPEC_2026-10-13.md. Здесь только реализация; ни один параметр не подбирался по результату.
 
+Поправки реализации и учёта после разбора GPT 13.10 (docs/WEEX_GPT_GOLD_AND_BOTS_REVIEW_2026-10-13.md §4–6) —
+параметры протокола не менялись, каждая поправка названа отклонением в отчёте:
+  П1 профиль LVN — только выбранные полные дни строго до дня сигнала (без хвоста до конца файла и без пропущенных
+     неполных дней между ними);
+  П2 полнота дня XAU — покрытие минутами (≥ 720 строк = 12 ч) и хотя бы одна сделка; минута без объёма — это данные;
+  П3 фандинг XAU: −qty × mark × rate в каждый момент начисления Binance, пока позиция открыта (вход < T ≤ выход);
+  П4 выход на конце данных — рыночный (тейкер + проскальзывание); конец периода не отрезает последние 4 свечи — сигнал
+     пропускается (и считается) только если его подтверждение/вход не помещаются в данные;
+  П5 шаг цены PAXG по дате (1.00 до 2025-05-16 05:06 UTC, 0.01 после): стоп = low − 2 тика, цель округляется вверх;
+  П6 отмена по ТЗ «до входа» — чувствительность (`Market.cancel_rule = "spec"`), основной прогон — по протоколу;
+     выходы по времени позже 4 ч + 5 мин из-за дыр в данных помечаются;
+  П7 обе нормировки R на одном ledger: бюджетный R = PnL / R$, ценовой R = ход / (вход − стоп); «до расходов» — тот же
+     ledger без комиссий, проскальзывания и фандинга (отдельной симуляции с другим qty больше нет);
+  П9 разница B−A с 95% ДИ парным бутстрапом по общим ISO-неделям.
+
     .venv/bin/python3 research/gold/sweep_backtest.py PAXG|XAU [--s1] [--out=путь.json]
+        [--data-root=/Users/alexeychechikov/code/bot7] [--funding=путь.csv]
 
 PAXG — PAXGUSDT спот Binance (backtests/frozen/PAXGUSDT_1m_2y.csv), XAU — XAUUSDT TradFi-перпетуал Binance
-(backtests/frozen/XAUUSDT_PERP_1m.csv, research/gold/fetch_xau_perp_1m.py). --s1 — чувствительность «только пн–пт».
-Печатает сводку по версиям A/B/E, расходным режимам и капиталам; --out — полный список сделок и метрики в JSON.
+(backtests/frozen/XAUUSDT_PERP_1m.csv, research/gold/fetch_xau_perp_1m.py) + история фандинга
+(backtests/frozen/XAUUSDT_PERP_funding.csv, research/gold/fetch_xau_funding.py). --s1 — чувствительность «только пн–пт».
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import io
 import json
 import math
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
-MIN, BAR, DAY = 60_000, 900_000, 86_400_000
+ROOT = Path("/Users/alexeychechikov/code/bot7")                # корень данных по умолчанию (--data-root)
+MIN, BAR, HOUR, DAY = 60_000, 900_000, 3_600_000, 86_400_000
+PAXG_TICK_CUT = int(datetime(2025, 5, 16, 5, 6, tzinfo=timezone.utc).timestamp() * 1000)
 
 INST = {
-    "PAXG": dict(file="backtests/frozen/PAXGUSDT_1m_2y.csv", tick=0.01, step=0.0001, min_qty=0.0001, min_notional=5.0,
-                 taker=0.0010, maker=0.0010, lev=1.0, full_day_minutes=1),
-    "XAU": dict(file="backtests/frozen/XAUUSDT_PERP_1m.csv", tick=0.01, step=0.001, min_qty=0.001, min_notional=5.0,
-                taker=0.0005, maker=0.0002, lev=20.0, full_day_minutes=720),
+    "PAXG": dict(file="backtests/frozen/PAXGUSDT_1m_2y.csv", tick=0.01, tick_before=(PAXG_TICK_CUT, 1.0),
+                 step=0.0001, min_qty=0.0001, min_notional=5.0, taker=0.0010, maker=0.0010, lev=1.0,
+                 min_rows=1, funding_file=None),
+    "XAU": dict(file="backtests/frozen/XAUUSDT_PERP_1m.csv", tick=0.01, tick_before=None,
+                step=0.001, min_qty=0.001, min_notional=5.0, taker=0.0005, maker=0.0002, lev=20.0,
+                min_rows=720, funding_file="backtests/frozen/XAUUSDT_PERP_funding.csv"),
 }
 SLIP = 0.0002
-RISK, DAY_LIMIT, RR, MAX_HOLD = 0.0025, 0.0075, 2.0, 4 * 3_600_000
+RISK, DAY_LIMIT, RR, MAX_HOLD = 0.0025, 0.0075, 2.0, 4 * HOUR
+LATE_EXIT = MAX_HOLD + 5 * MIN
 CAPITALS = (1000.0, 3000.0, 5000.0)
-COSTS = {"gross": (False, 0.0), "net": (True, SLIP), "net_2slip": (True, 2 * SLIP)}
+COSTS = {"net": (True, SLIP), "net_2slip": (True, 2 * SLIP)}
+N_BOOT = 9999
+EXITS = ("цель", "стоп", "время", "конец данных")
 # LVN (протокол п.4)
 LVN_WINDOW, BIN_PCT, VA_LO, VA_HI, LVN_FRAC, LVN_DIST = 2, 0.0005, 0.05, 0.95, 0.25, 0.0015
 
 
-def load(inst: str):
-    p = ROOT / INST[inst]["file"]
+def load(inst: str, root: Path | str | None = None):
+    p = Path(root if root is not None else ROOT) / INST[inst]["file"]
     raw = p.read_bytes()
     d = pd.read_csv(io.BytesIO(raw))
     info = {"file": INST[inst]["file"], "rows": len(d), "first": int(d.ts.iloc[0]), "last": int(d.ts.iloc[-1]),
@@ -50,9 +74,25 @@ def load(inst: str):
     return a, info
 
 
+def load_funding(path: Path | str):
+    """История фандинга (fetch_xau_funding.py): fundingTime (мс), fundingRate, markPrice (может быть пустым)."""
+    raw = Path(path).read_bytes()
+    d = pd.read_csv(io.BytesIO(raw))
+    t = d.fundingTime.to_numpy(dtype=np.int64)
+    gaps = np.diff(t) if len(t) > 1 else np.array([], dtype=np.int64)
+    info = {"file": str(path), "rows": len(d), "sha256": hashlib.sha256(raw).hexdigest(),
+            "first": int(t[0]), "last": int(t[-1]), "intervals_h": {f"{k:g}": int(v) for k, v in
+                                                                 pd.Series(np.round(gaps / HOUR, 2)).value_counts().items()},
+            "mark_missing": int(pd.to_numeric(d.markPrice, errors="coerce").isna().sum())}
+    return {"t": t, "rate": d.fundingRate.to_numpy(dtype=float),
+            "mark": pd.to_numeric(d.markPrice, errors="coerce").to_numpy(dtype=float)}, info
+
+
 class Market:
-    def __init__(self, a: dict, inst: str, s1: bool):
-        self.a, self.cfg, self.s1 = a, INST[inst], s1
+    def __init__(self, a: dict, inst: str, s1: bool, funding: dict | None = None):
+        self.a, self.inst, self.cfg, self.s1 = a, inst, INST[inst], s1
+        self.funding = funding                                    # {"t", "rate", "mark"} или None (спот)
+        self.cancel_rule = "protocol"                             # "spec" — чувствительность: отмена до ВХОДА
         ts = a["ts"]
         # 15m свечи: только полные (15 минут)
         bid = ts // BAR
@@ -65,29 +105,61 @@ class Market:
         self.b_c = a["close"][self.b_end - 1]
         self.b_h = np.maximum.reduceat(a["high"], starts)[full]
         self.b_l = np.minimum.reduceat(a["low"], starts)[full]
-        # дни: минимум, «торговые минуты», полнота
+        self.bar_day = (self.b_id * BAR) // DAY
+        # дни: покрытие минутами (данные) отдельно от сделок (активность) — П2
         did = ts // DAY
         dstarts = np.flatnonzero(np.r_[True, did[1:] != did[:-1]])
+        dends = np.r_[dstarts[1:], len(ts)]
         self.days = did[dstarts]
+        days = self.days.tolist()
         dlow = np.minimum.reduceat(a["low"], dstarts)
+        rows = dends - dstarts
         traded = np.add.reduceat((a["volume"] > 0).astype(int), dstarts)
-        self.day_first_min = dict(zip(self.days.tolist(), dstarts.tolist()))
-        self.day_close = dict(zip(self.days.tolist(), a["close"][np.r_[dstarts[1:], len(ts)] - 1].tolist()))
-        complete = traded >= self.cfg["full_day_minutes"]
+        self.day_first_min = dict(zip(days, dstarts.tolist()))
+        self.day_bounds = dict(zip(days, zip(dstarts.tolist(), dends.tolist())))
+        self.day_close = dict(zip(days, a["close"][dends - 1].tolist()))
+        complete = (rows >= self.cfg["min_rows"]) & (traded >= 1)
         self.level = {}
         prev = None
-        for d, lo, ok in zip(self.days.tolist(), dlow.tolist(), complete.tolist()):
+        for d, lo, ok in zip(days, dlow.tolist(), complete.tolist()):
             wd = (d + 3) % 7                                         # 0 = понедельник
             if prev is not None:
                 self.level[d] = prev
             if ok and (not s1 or wd < 5):
                 prev = lo
-        self.complete_days = [d for d, ok in zip(self.days.tolist(), complete.tolist()) if ok]
+        self.complete_days = [d for d, ok in zip(days, complete.tolist()) if ok]
         # VWAP: накопленные Σ typ·v и Σ v
         typ = (a["high"] + a["low"] + a["close"]) / 3
         self.cum_tv = np.cumsum(typ * a["volume"])
         self.cum_v = np.cumsum(a["volume"])
         self._lvn_cache: dict = {}
+        # кандидаты в сигнальные свечи: low < L < close (петля прыгает между ними — то же, что шаг по 1 свече)
+        lv = np.array([self.level.get(int(d), np.nan) for d in self.bar_day], dtype=float)
+        cond = (self.b_l < lv) & (lv < self.b_c)
+        if s1:
+            cond &= ((self.bar_day + 3) % 7) < 5
+        self.cand = np.flatnonzero(cond)
+        self._fund_src, self._fund = None, None
+
+    def tick_at(self, t_ms: int) -> float:
+        tb = self.cfg.get("tick_before")
+        return tb[1] if tb and t_ms < tb[0] else self.cfg["tick"]
+
+    def funding_arrays(self):
+        """(моменты начисления, округлённые до минуты; ставки; mark — из истории, иначе close последней минуты до T)."""
+        f = self.funding
+        if f is None:
+            return None
+        if self._fund_src is not f:
+            t = (np.asarray(f["t"], dtype=np.int64) + MIN // 2) // MIN * MIN
+            mark = np.asarray(f["mark"], dtype=float).copy()
+            miss = ~np.isfinite(mark)
+            if miss.any():
+                idx = np.searchsorted(self.a["ts"], t[miss], side="left") - 1
+                mark[miss] = np.where(idx >= 0, self.a["close"][np.clip(idx, 0, None)], np.nan)
+            self._fund = (t, np.asarray(f["rate"], dtype=float), mark)
+            self._fund_src = f
+        return self._fund
 
     def vwap_at(self, min_idx_incl: int) -> float | None:
         d = int(self.a["ts"][min_idx_incl] // DAY)
@@ -98,19 +170,20 @@ class Market:
 
     # ---------- LVN (протокол п.4) ----------
     def lvn(self, day: int, window: int = LVN_WINDOW):
-        """Зоны LVN и корзины зоны стоимости по профилю предыдущих `window` полных дней. Возвращает
-        (edges, lvn_mask, va_mask) — границы корзин и маски; None — данных нет."""
-        key = (day, window)
+        """Зоны LVN и корзины зоны стоимости по профилю `window` выбранных полных дней СТРОГО до дня сигнала — только их
+        минуты (П1). Возвращает (edges, lvn_mask, va_mask) — границы корзин и маски; None — данных нет."""
+        key = (int(day), int(window))
         if key in self._lvn_cache:
             return self._lvn_cache[key]
-        prev = [d for d in self.complete_days if d < day][-window:]
+        pos = bisect.bisect_left(self.complete_days, int(day))
+        prev = self.complete_days[max(0, pos - window):pos]
         if len(prev) < window:
             self._lvn_cache[key] = None
             return None
-        s = self.day_first_min[prev[0]]
-        e = self.day_first_min.get(prev[-1] + 1)
-        e = e if e is not None else len(self.a["ts"])
-        lo, hi, v = self.a["low"][s:e], self.a["high"][s:e], self.a["volume"][s:e]
+        sl = [self.day_bounds[d] for d in prev]
+        lo = np.concatenate([self.a["low"][s:e] for s, e in sl])
+        hi = np.concatenate([self.a["high"][s:e] for s, e in sl])
+        v = np.concatenate([self.a["volume"][s:e] for s, e in sl])
         width = self.day_close[prev[-1]] * BIN_PCT
         base = math.floor(lo.min() / width) * width
         nb = int(math.ceil((hi.max() - base) / width)) + 1
@@ -141,31 +214,40 @@ class Market:
         return bool(np.any((level >= lo_e - dist) & (level <= hi_e + dist)))
 
 
-def simulate(m: Market, version: str, capital: float, costs: str, lvn_window: int = LVN_WINDOW):
+def simulate(m, version: str, capital: float, costs: str, lvn_window: int = LVN_WINDOW, funding: bool = True):
+    """Событийная петля версии A/B/E. `m` — Market или обёртка с тем же интерфейсом (контроли LVN).
+    funding=False — учёт без фандинга (только для сравнения с прежней публикацией)."""
     a, cfg = m.a, m.cfg
     use_fee, slip = COSTS[costs]
     taker, maker = (cfg["taker"], cfg["maker"]) if use_fee else (0.0, 0.0)
-    tick = cfg["tick"]
+    fund = m.funding_arrays() if funding else None
+    if funding and fund is None and cfg.get("funding_file"):
+        raise ValueError(f"{m.inst}: нет истории фандинга — перпетуал без фандинга не считается (funding=False явно)")
+    spec_cancel = getattr(m, "cancel_rule", "protocol") == "spec"
     eq = capital
-    trades, skipped_min, capped = [], 0, 0
+    trades, skipped_min, capped, censored, spec_cancelled = [], 0, 0, 0, 0
     day_pnl: dict = {}
     day_start_eq: dict = {}
     nb = len(m.b_id)
-    b = 0
+    cand = m.cand
     ts = a["ts"]
-    while b < nb - 4:
-        day = int(m.b_id[b] * BAR // DAY)
-        L = m.level.get(day)
-        wd = (day + 3) % 7
-        if L is None or (m.s1 and wd >= 5) or not (m.b_l[b] < L < m.b_c[b]):
-            b += 1
-            continue
+    n_min = len(ts)
+    b = 0
+    while True:
+        ci = int(np.searchsorted(cand, b))
+        if ci >= len(cand):
+            break
+        b = int(cand[ci])
+        day = int(m.bar_day[b])
+        L = m.level[day]
         sig_low, sig_high = m.b_l[b], m.b_h[b]
-        conf = None
-        k_end = b
+        conf, k_end, cut = None, b, False
         for k in range(1, 4):
             j = b + k
-            if m.b_id[j] != m.b_id[b] + k:                         # дыра в свечах — отмена
+            if j >= nb:                                              # данные кончились до решения — П4
+                cut = True
+                break
+            if m.b_id[j] != m.b_id[b] + k:                           # дыра в свечах — отмена
                 k_end = j
                 break
             k_end = j
@@ -174,7 +256,16 @@ def simulate(m: Market, version: str, capital: float, costs: str, lvn_window: in
             if m.b_c[j] > sig_high:
                 conf = j
                 break
-        if conf is None or conf + 1 >= nb or m.b_id[conf + 1] != m.b_id[conf] + 1:
+        if cut:
+            censored += 1                                            # дальше сделок быть не может (см. отчёт)
+            break
+        if conf is None:
+            b = k_end + 1
+            continue
+        if conf + 1 >= nb:                                           # вход не помещается в данные — П4
+            censored += 1
+            break
+        if m.b_id[conf + 1] != m.b_id[conf] + 1:
             b = k_end + 1
             continue
         # фильтры версий
@@ -189,14 +280,21 @@ def simulate(m: Market, version: str, capital: float, costs: str, lvn_window: in
             b = conf + 1
             continue
         # вход
-        mi = m.b_start[conf + 1]
+        mi = int(m.b_start[conf + 1])
         entry_day = int(ts[mi] // DAY)
         day_start_eq.setdefault(entry_day, eq)
         if day_pnl.get(entry_day, 0.0) <= -DAY_LIMIT * day_start_eq[entry_day]:
             b = conf + 1
             continue
-        stop = sig_low - 2 * tick
-        plan_entry = a["open"][mi] * (1 + slip)
+        raw_entry = float(a["open"][mi])
+        below = bool(raw_entry < sig_low)                            # ТЗ отменило бы: минимум обновлён до входа — П6
+        if spec_cancel and below:
+            spec_cancelled += 1
+            b = conf + 2                                             # свеча, отменившая сигнал, сама им не становится
+            continue
+        tick = m.tick_at(int(ts[mi]))                                # шаг цены по дате — П5
+        stop = round(sig_low - 2 * tick, 8)
+        plan_entry = raw_entry * (1 + slip)
         r_usd = RISK * eq
         unit = (plan_entry - stop) + plan_entry * taker + stop * (taker + slip)
         if unit <= 0:
@@ -212,46 +310,130 @@ def simulate(m: Market, version: str, capital: float, costs: str, lvn_window: in
             continue
         capped += was_capped
         entry = plan_entry
-        target = entry + RR * (entry - stop)
+        target = round(math.ceil(round((entry + RR * (entry - stop)) / tick, 9)) * tick, 8)   # вверх до шага — П5
         fee = entry * qty * taker
-        slip_cost = a["open"][mi] * slip * qty
-        exit_px, why, same_min, j = None, None, False, mi
-        while j < len(ts):
-            if ts[j] >= ts[mi] + MAX_HOLD:
-                exit_px, why = a["open"][j] * (1 - slip), "время"
+        slip_cost = raw_entry * slip * qty
+        exit_px = exit_raw = why = None
+        same_min, j = False, mi
+        deadline = ts[mi] + MAX_HOLD
+        while j < n_min:
+            if ts[j] >= deadline:
+                exit_raw, why = float(a["open"][j]), "время"
+                exit_px = exit_raw * (1 - slip)
                 fee += exit_px * qty * taker
-                slip_cost += a["open"][j] * slip * qty
+                slip_cost += exit_raw * slip * qty
                 break
             hit_stop = a["low"][j] <= stop
-            hit_tp = a["high"][j] >= target + tick
+            hit_tp = a["high"][j] >= target + m.tick_at(int(ts[j]))
             if hit_stop:
-                raw = min(stop, a["open"][j])
-                exit_px, why, same_min = raw * (1 - slip), "стоп", hit_tp
+                exit_raw, why, same_min = float(min(stop, a["open"][j])), "стоп", bool(hit_tp)
+                exit_px = exit_raw * (1 - slip)
                 fee += exit_px * qty * taker
-                slip_cost += raw * slip * qty
+                slip_cost += exit_raw * slip * qty
                 break
             if hit_tp:
-                exit_px, why = target, "цель"
+                exit_raw = exit_px = target
+                why = "цель"
                 fee += exit_px * qty * maker
                 break
             j += 1
-        if exit_px is None:                                          # конец данных
-            j = len(ts) - 1
-            exit_px, why = a["close"][j], "конец данных"
-        pnl = (exit_px - entry) * qty - fee
+        if exit_px is None:                                          # конец данных: рыночная ликвидация — П4
+            j = n_min - 1
+            exit_raw, why = float(a["close"][j]), "конец данных"
+            exit_px = exit_raw * (1 - slip)
+            fee += exit_px * qty * taker
+            slip_cost += exit_raw * slip * qty
+            exit_t = int(ts[j]) + MIN - 1                            # по close последней минуты
+        else:
+            exit_t = int(ts[j])                                      # внутри минуты выхода, не раньше её open
+        fund_usd, n_f = 0.0, 0                                       # фандинг: вход < T ≤ выход — П3
+        if fund is not None:
+            ft, fr, fm = fund
+            i0 = int(np.searchsorted(ft, int(ts[mi]), side="right"))
+            i1 = int(np.searchsorted(ft, exit_t, side="right"))
+            if i1 > i0:
+                fund_usd = float(-qty * np.sum(fm[i0:i1] * fr[i0:i1]))
+                n_f = i1 - i0
+                if not math.isfinite(fund_usd):
+                    raise ValueError(f"нет mark price для фандинга у {pd.Timestamp(int(ft[i0]), unit='ms')}")
+        pnl = (exit_px - entry) * qty - fee + fund_usd
         eq += pnl
         xd = int(ts[j] // DAY)
         day_start_eq.setdefault(xd, eq - pnl)
         day_pnl[xd] = day_pnl.get(xd, 0.0) + pnl
+        d_px = entry - stop                                          # ≤ 0 — вход ниже стопа: ценовой R не определён
         trades.append({"sig_ts": int(m.b_id[b] * BAR), "entry_ts": int(ts[mi]), "exit_ts": int(ts[j]), "level": L,
-                       "sig_low": sig_low, "sig_high": sig_high, "entry": entry, "stop": stop, "target": target,
-                       "exit": exit_px, "why": why, "same_minute": same_min, "qty": qty, "r_usd": r_usd,
-                       "pnl": pnl, "R": pnl / r_usd, "fee": fee, "slip": slip_cost, "eq": eq,
-                       "notional": (entry + exit_px) * qty, "capped": bool(was_capped)})
+                       "sig_low": sig_low, "sig_high": sig_high, "entry": entry, "entry_raw": raw_entry, "stop": stop,
+                       "target": target, "tick": tick, "exit": exit_px, "exit_raw": exit_raw, "why": why,
+                       "same_minute": same_min, "qty": qty, "r_usd": r_usd, "pnl": pnl, "R": pnl / r_usd,
+                       "R_gross": (exit_raw - raw_entry) * qty / r_usd,
+                       "pR": pnl / (qty * d_px) if d_px > 0 else float("nan"),
+                       "pR_gross": (exit_raw - raw_entry) / d_px if d_px > 0 else float("nan"), "fee": fee, "slip": slip_cost,
+                       "funding": fund_usd, "n_funding": n_f, "eq": eq, "notional": (entry + exit_px) * qty,
+                       "capped": bool(was_capped), "entry_below_sig_low": below,
+                       "late_time_exit": bool(why == "время" and int(ts[j]) - int(ts[mi]) > LATE_EXIT)})
         # новые сигналы — со свечи, начавшейся не раньше выхода
         nxt = np.searchsorted(m.b_id, -(-int(ts[j]) // BAR))
         b = max(int(nxt), conf + 1)
-    return {"trades": trades, "skipped_min": skipped_min, "capped": capped, "end_eq": eq}
+    return {"trades": trades, "skipped_min": skipped_min, "capped": capped, "end_eq": eq, "censored": censored,
+            "spec_cancelled": spec_cancelled}
+
+
+def _iso_week(t_ms: int) -> tuple:
+    return tuple(pd.Timestamp(t_ms, unit="ms").isocalendar()[:2])
+
+
+def week_ci(tr: list, key: str = "R", n_boot: int | None = None, seed: int = 7) -> list:
+    """95% ДИ среднего по сделкам: бутстрап блоками ISO-недель (среднее склейки = Σсумм / Σчисел)."""
+    wk = [_iso_week(t["entry_ts"]) for t in tr]
+    keys = sorted(set(wk))
+    pos = {k: i for i, k in enumerate(keys)}
+    sums, cnt = np.zeros(len(keys)), np.zeros(len(keys))
+    for w, t in zip(wk, tr):
+        sums[pos[w]] += t[key]
+        cnt[pos[w]] += 1
+    rng = np.random.default_rng(seed)
+    pick = rng.integers(0, len(keys), size=(n_boot or N_BOOT, len(keys)))
+    means = sums[pick].sum(1) / cnt[pick].sum(1)
+    lo, hi = np.percentile(means, [2.5, 97.5])
+    return [float(lo), float(hi)]
+
+
+def paired_week_diff(tr_a: list, tr_b: list, key: str = "R", n_boot: int | None = None, seed: int = 13) -> dict:
+    """B−A: разница средних по сделкам; 95% ДИ — парный бутстрап по ОБЩИМ календарным ISO-неделям (П9)."""
+    wa, wb = [_iso_week(t["entry_ts"]) for t in tr_a], [_iso_week(t["entry_ts"]) for t in tr_b]
+    keys = sorted(set(wa) | set(wb))
+    if not tr_a or not tr_b:
+        return {"diff": None, "ci": [None, None], "weeks": len(keys), "n_a": len(tr_a), "n_b": len(tr_b)}
+    pos = {k: i for i, k in enumerate(keys)}
+    sa, na, sb_, nb_ = (np.zeros(len(keys)) for _ in range(4))
+    for w, t in zip(wa, tr_a):
+        sa[pos[w]] += t[key]
+        na[pos[w]] += 1
+    for w, t in zip(wb, tr_b):
+        sb_[pos[w]] += t[key]
+        nb_[pos[w]] += 1
+    rng = np.random.default_rng(seed)
+    pick = rng.integers(0, len(keys), size=(n_boot or N_BOOT, len(keys)))
+    SA, NA, SB, NB = sa[pick].sum(1), na[pick].sum(1), sb_[pick].sum(1), nb_[pick].sum(1)
+    ok = (NA > 0) & (NB > 0)
+    diffs = SB[ok] / NB[ok] - SA[ok] / NA[ok]
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    return {"diff": float(sb_.sum() / nb_.sum() - sa.sum() / na.sum()), "ci": [float(lo), float(hi)],
+            "weeks": len(keys), "n_a": len(tr_a), "n_b": len(tr_b), "boot_used": int(ok.sum())}
+
+
+def _part(tr: list) -> dict:
+    if not tr:
+        return {"n": 0, "exp_R": None, "exp_pR_gross": None, "funding_crossings": 0, "funding_usd": 0.0,
+                "funding_R": 0.0}
+    priced = [t["pR_gross"] for t in tr if math.isfinite(t["pR_gross"])]
+    return {"n": len(tr), "exp_R": float(np.mean([t["R"] for t in tr])),
+            "exp_pR_gross": float(np.mean(priced)) if priced else None,
+            "sum_R": float(np.sum([t["R"] for t in tr])),
+            "funding_crossings": int(sum(t["n_funding"] for t in tr)),
+            "funding_usd": float(sum(t["funding"] for t in tr)),
+            "funding_R": float(sum(t["funding"] / t["r_usd"] for t in tr))}
 
 
 def stats(tr: list, capital: float, split_ts: int, rng_seed: int = 7) -> dict:
@@ -267,38 +449,38 @@ def stats(tr: list, capital: float, split_ts: int, rng_seed: int = 7) -> dict:
         streak = streak + 1 if x < 0 else 0
         best = max(best, streak)
     wins, losses = pnl[pnl > 0], pnl[pnl <= 0]
-    # ДИ ожидания R: бутстрап блоками по ISO-неделям
-    wk = np.array([pd.Timestamp(t["entry_ts"], unit="ms").isocalendar()[:2] for t in tr], dtype=object)
-    keys = sorted(set(map(tuple, wk)))
-    groups = [R[[tuple(w) == k for w in wk]] for k in keys]
-    rng = np.random.default_rng(rng_seed)
-    boots = []
-    for _ in range(9999):
-        pick = rng.integers(0, len(groups), len(groups))
-        allr = np.concatenate([groups[i] for i in pick])
-        boots.append(allr.mean())
-    lo, hi = np.percentile(boots, [2.5, 97.5])
     hold = [t for t in tr if t["entry_ts"] >= split_ts]
     dev = [t for t in tr if t["entry_ts"] < split_ts]
     q = {}
     for t in tr:
         k = pd.Timestamp(t["entry_ts"], unit="ms")
-        key = f"{k.year}Q{(k.month - 1) // 3 + 1}"
-        q.setdefault(key, []).append(t["R"])
+        q.setdefault(f"{k.year}Q{(k.month - 1) // 3 + 1}", []).append(t["R"])
+    late = [t for t in tr if t["late_time_exit"]]
+    priced = [t for t in tr if math.isfinite(t["pR_gross"])]
     return {
         "n": len(tr), "turnover": float(sum(t["notional"] for t in tr)), "wr": float((pnl > 0).mean()),
         "avg_win_R": float(R[pnl > 0].mean()) if (pnl > 0).any() else 0.0,
         "avg_loss_R": float(R[pnl <= 0].mean()) if (pnl <= 0).any() else 0.0,
-        "exp_R": float(R.mean()), "exp_usd": float(pnl.mean()), "ci_R": [float(lo), float(hi)],
+        "exp_R": float(R.mean()), "exp_usd": float(pnl.mean()), "ci_R": week_ci(tr, "R", seed=rng_seed),
+        "exp_R_gross": float(np.mean([t["R_gross"] for t in tr])),
+        "exp_pR": float(np.mean([t["pR"] for t in priced])) if priced else None,
+        "exp_pR_gross": float(np.mean([t["pR_gross"] for t in priced])) if priced else None,
+        "ci_pR_gross": week_ci(priced, "pR_gross", seed=rng_seed) if priced else [None, None],
+        "entry_below_stop": len(tr) - len(priced),
+        "n_weeks": len({_iso_week(t["entry_ts"]) for t in tr}),
         "fees": float(sum(t["fee"] for t in tr)), "slip": float(sum(t["slip"] for t in tr)),
         "pf": float(wins.sum() / -losses.sum()) if losses.sum() < 0 else float("inf"),
         "max_dd": dd, "max_loss_streak": best, "end_eq": float(eq[-1]),
-        "dev": {"n": len(dev), "exp_R": float(np.mean([t["R"] for t in dev])) if dev else None},
-        "holdout": {"n": len(hold), "exp_R": float(np.mean([t["R"] for t in hold])) if hold else None,
-                    "sum_R": float(np.sum([t["R"] for t in hold])) if hold else 0.0},
+        "dev": _part(dev), "holdout": _part(hold), "all": _part(tr),
+        "funding": {"crossings": int(sum(t["n_funding"] for t in tr)),
+                    "trades": int(sum(1 for t in tr if t["n_funding"])),
+                    "usd": float(sum(t["funding"] for t in tr)),
+                    "R": float(sum(t["funding"] / t["r_usd"] for t in tr))},
         "by_quarter": {k: {"n": len(v), "sum_R": round(float(np.sum(v)), 2)} for k, v in sorted(q.items())},
-        "exits": {w: sum(1 for t in tr if t["why"] == w) for w in ("цель", "стоп", "время", "конец данных")},
+        "exits": {w: sum(1 for t in tr if t["why"] == w) for w in EXITS},
         "same_minute": sum(1 for t in tr if t["same_minute"]),
+        "late_time_exits": len(late), "late_time_exits_R": float(sum(t["R"] for t in late)),
+        "entry_below_sig_low": sum(1 for t in tr if t["entry_below_sig_low"]),
         "median_stop_pct": float(np.median([(t["entry"] - t["stop"]) / t["entry"] for t in tr])),
     }
 
@@ -315,39 +497,86 @@ def status(net: dict, net2: dict) -> str:
     return "Кандидат на малый тест исполнения"
 
 
+def _short(st: dict, extra: dict | None = None) -> dict:
+    if not st.get("n"):
+        return {"n": 0, **(extra or {})}
+    return {"n": st["n"], "exp_R": st["exp_R"], "ci_R": st["ci_R"], "holdout_exp_R": st["holdout"]["exp_R"],
+            "holdout_n": st["holdout"]["n"], "end_eq": st["end_eq"], **(extra or {})}
+
+
+def _arg(name: str, default=None):
+    return next((x.split("=", 1)[1] for x in sys.argv[1:] if x.startswith(f"--{name}=")), default)
+
+
 def main() -> None:
     inst = next((x for x in sys.argv[1:] if x in INST), "PAXG")
     s1 = "--s1" in sys.argv
-    out = next((x.split("=", 1)[1] for x in sys.argv[1:] if x.startswith("--out=")), None)
-    a, info = load(inst)
-    m = Market(a, inst, s1)
+    out = _arg("out")
+    root = Path(_arg("data-root", str(ROOT)))
+    a, info = load(inst, root)
+    funding, finfo = None, None
+    if INST[inst]["funding_file"]:
+        fpath = Path(_arg("funding", str(root / INST[inst]["funding_file"])))
+        if not fpath.exists():
+            sys.exit(f"{inst}: нет истории фандинга {fpath} — research/gold/fetch_xau_funding.py")
+        funding, finfo = load_funding(fpath)
+        if finfo["first"] > info["first"] + 8 * HOUR or finfo["last"] < info["last"] - 8 * HOUR:
+            sys.exit(f"{inst}: история фандинга {finfo['first']}…{finfo['last']} не покрывает минутки")
+    m = Market(a, inst, s1, funding=funding)
     split_ts = int(info["first"] + 0.7 * (info["last"] - info["first"]))
     print(f"{inst}{' S1 пн–пт' if s1 else ''}: {info['file']} строк {info['rows']}, "
           f"{pd.Timestamp(info['first'], unit='ms')} … {pd.Timestamp(info['last'], unit='ms')} UTC, "
           f"пропусков минут {info['missing_minutes']}, sha256 {info['sha256'][:16]}…; "
           f"контрольная часть с {pd.Timestamp(split_ts, unit='ms'):%Y-%m-%d}")
-    res = {"info": info, "split_ts": split_ts, "s1": s1, "versions": {}}
+    if finfo:
+        print(f"фандинг: {finfo['rows']} начислений, интервалы ч {finfo['intervals_h']}, sha256 {finfo['sha256'][:16]}…")
+    res = {"info": info, "funding_info": finfo, "split_ts": split_ts, "s1": s1, "versions": {}}
     for ver in ("A", "B", "E"):
-        res["versions"][ver] = {}
+        vv = res["versions"][ver] = {}
         for cap in CAPITALS:
             for cost in COSTS:
                 r = simulate(m, ver, cap, cost)
-                st = stats(r["trades"], cap, split_ts)
-                res["versions"][ver][f"{int(cap)}_{cost}"] = {"stats": st, "skipped_min": r["skipped_min"],
-                                                             "capped": r["capped"], "trades": r["trades"]}
-        n3 = res["versions"][ver]
-        net, net2, gross = n3["3000_net"]["stats"], n3["3000_net_2slip"]["stats"], n3["3000_gross"]["stats"]
-        st_ = status(net, net2)
-        res["versions"][ver]["status"] = st_
+                vv[f"{int(cap)}_{cost}"] = {"stats": stats(r["trades"], cap, split_ts), "skipped_min": r["skipped_min"],
+                                            "capped": r["capped"], "censored": r["censored"], "trades": r["trades"]}
+        net, net2 = vv["3000_net"]["stats"], vv["3000_net_2slip"]["stats"]
+        vv["status"] = status(net, net2)
+        sens = {}
+        m.cancel_rule = "spec"
+        try:
+            r = simulate(m, ver, 3000.0, "net")
+            r2 = simulate(m, ver, 3000.0, "net_2slip")
+        finally:
+            m.cancel_rule = "protocol"
+        st, st2 = stats(r["trades"], 3000.0, split_ts), stats(r2["trades"], 3000.0, split_ts)
+        sens["spec_cancel"] = _short(st, {"cancelled": r["spec_cancelled"], "status": status(st, st2)})
+        if funding is not None:
+            r = simulate(m, ver, 3000.0, "net", funding=False)
+            r2 = simulate(m, ver, 3000.0, "net_2slip", funding=False)
+            st, st2 = stats(r["trades"], 3000.0, split_ts), stats(r2["trades"], 3000.0, split_ts)
+            sens["no_funding"] = _short(st, {"status": status(st, st2)})
+        vv["sens"] = sens
         if net.get("n"):
-            print(f"{ver}: n {net['n']}, WR {net['wr']:.0%}, ожидание R: до расходов {gross['exp_R']:+.3f}, "
-                  f"после {net['exp_R']:+.3f} [ДИ {net['ci_R'][0]:+.3f}…{net['ci_R'][1]:+.3f}], ×2 проск. "
-                  f"{net2['exp_R']:+.3f}; разработка {net['dev']['exp_R']:+.3f} (n {net['dev']['n']}), контроль "
-                  f"{(net['holdout']['exp_R'] or 0):+.3f} (n {net['holdout']['n']}); PF {net['pf']:.2f}, "
-                  f"DD {net['max_dd']:.1%}, серия {net['max_loss_streak']}, выходы {net['exits']}, "
-                  f"стоп+цель в минуте {net['same_minute']}, медиана стопа {net['median_stop_pct']:.3%} → {st_}")
+            f = net["funding"]
+            print(f"{ver}: n {net['n']}, WR {net['wr']:.0%}, бюджетный R: после {net['exp_R']:+.3f} "
+                  f"[ДИ {net['ci_R'][0]:+.3f}…{net['ci_R'][1]:+.3f}], до расходов (тот же ledger) {net['exp_R_gross']:+.3f}, "
+                  f"×2 проск. {net2['exp_R']:+.3f}; ценовой R: до {net['exp_pR_gross']:+.3f} "
+                  f"[ДИ {net['ci_pR_gross'][0]:+.3f}…{net['ci_pR_gross'][1]:+.3f}], после {net['exp_pR']:+.3f}; "
+                  f"разработка {net['dev']['exp_R']:+.3f} (n {net['dev']['n']}), контроль "
+                  f"{(net['holdout']['exp_R'] if net['holdout']['n'] else float('nan')):+.3f} (n {net['holdout']['n']}); "
+                  f"недель {net['n_weeks']}; выходы {net['exits']}; фандинг: пересечений {f['crossings']}, "
+                  f"${f['usd']:+.2f} ({f['R']:+.2f}R); вход ниже low сигнальной {net['entry_below_sig_low']}, "
+                  f"по ТЗ: n {sens['spec_cancel']['n']}, отменено {sens['spec_cancel']['cancelled']}; поздних выходов "
+                  f"{net['late_time_exits']}; обрезано концом {vv['3000_net']['censored']} → {vv['status']}")
         else:
-            print(f"{ver}: сделок нет → {st_}")
+            print(f"{ver}: сделок нет → {vv['status']}")
+    ta, tb = res["versions"]["A"]["3000_net"]["trades"], res["versions"]["B"]["3000_net"]["trades"]
+    pa, pb = ([t for t in x if math.isfinite(t["pR_gross"])] for x in (ta, tb))
+    res["b_minus_a"] = {"net_R": paired_week_diff(ta, tb, "R"), "gross_pR": paired_week_diff(pa, pb, "pR_gross")}
+    d = res["b_minus_a"]["net_R"]
+    if d["diff"] is not None:
+        g = res["b_minus_a"]["gross_pR"]
+        print(f"B−A (общие ISO-недели {d['weeks']}): бюджетный R после {d['diff']:+.3f} "
+              f"[ДИ {d['ci'][0]:+.3f}…{d['ci'][1]:+.3f}], ценовой R до {g['diff']:+.3f} [ДИ {g['ci'][0]:+.3f}…{g['ci'][1]:+.3f}]")
     if out:
         Path(out).write_text(json.dumps(res, ensure_ascii=False, default=float), encoding="utf-8")
 
