@@ -375,13 +375,13 @@ class _OneOrder:
 
 
 @pytest.mark.parametrize("name,detail,kind,fill", [
-    ("live_tp", real_order(804234146900000011, "NEW", "0", "SELL", True), "live", 0.0),
-    ("filled_tp", real_order(804234146900000012, "FILLED", "0.0012", "SELL", True), "terminal", .0012),
-    ("filled_entry", real_order(804234146900000013, "FILLED", "0.0036", "BUY", False, orig="0.0036"), "terminal",
+    ("live_tp", real_order(900000000000000011, "NEW", "0", "SELL", True), "live", 0.0),
+    ("filled_tp", real_order(900000000000000012, "FILLED", "0.0012", "SELL", True), "terminal", .0012),
+    ("filled_entry", real_order(900000000000000013, "FILLED", "0.0036", "BUY", False, orig="0.0036"), "terminal",
      .0036),
-    ("cancelled_entry", real_order(804234146900000014, "CANCELED", "0", "BUY", False), "terminal", 0.0),
-    ("cancelled_entry_part", real_order(804234146900000015, "CANCELED", "0.0004", "BUY", False), "terminal", .0004),
-    ("eth_filled_entry", real_order(804234146900000016, "FILLED", "0.020", "BUY", False, symbol="ETHUSDT",
+    ("cancelled_entry", real_order(900000000000000014, "CANCELED", "0", "BUY", False), "terminal", 0.0),
+    ("cancelled_entry_part", real_order(900000000000000015, "CANCELED", "0.0004", "BUY", False), "terminal", .0004),
+    ("eth_filled_entry", real_order(900000000000000016, "FILLED", "0.020", "BUY", False, symbol="ETHUSDT",
                                     orig="0.020", price="4100.00"), "terminal", .02),
 ])
 def test_real_weex_detail_shape_is_classified(tmp_path, name, detail, kind, fill):
@@ -398,7 +398,7 @@ def test_real_weex_detail_shape_is_classified(tmp_path, name, detail, kind, fill
 class RealShapeExchange(eg.DryExchange):
     """Имитатор, отвечающий в форме реального WEEX: orderId — ЧИСЛО (учёт хранит строку), executedQty — строка и у
     CANCELED, полный набор ключей GET /capi/v3/order."""
-    BASE = 804234146900000000
+    BASE = 900000000000000000
 
     def _renumber(self, r):
         if r.get("success") and r.get("orderId"):
@@ -448,7 +448,7 @@ def test_real_weex_shape_through_ticks(tmp_path):
     s = t.g.st["LONG"]
     lot = s["lots"][0]
     tp_id = lot["tp_order"]["id"]
-    assert isinstance(tp_id, str) and tp_id.startswith("8042341469") and s["entry"]["id"].startswith("8042341469")
+    assert isinstance(tp_id, str) and tp_id.startswith("9000000000") and s["entry"]["id"].startswith("9000000000")
     entries = [r for r in _journal(tmp_path) if r["kind"] == "вход"]
     assert len(entries) == 1 and float(entries[0]["qty"]) == pytest.approx(.0012)
     # живой тейк пропал из одного ответа списка: деталь NEW (orderId числом) → живой, второго тейка нет
@@ -475,3 +475,41 @@ def test_real_weex_shape_through_ticks(tmp_path):
     assert t.ex.orders[e_id]["status"] == "CANCELED" and s["entry"] is None
     assert [float(l["qty"]) for l in s["lots"]] == [pytest.approx(.0004)]
     assert not t.g.st.get("unknown_orders") and disk(tmp_path)["last_tick_ok_ts"] == ts_eq(t.clock["t"])
+
+
+# ---------- проверка 14.10 к a3b0af6: мигающая деталь при закрытии по режиму не обходит часовой лимит (ESC-FLAP)
+def test_flapping_detail_during_regime_close_does_not_spam(tmp_path):
+    t = live_grid(tmp_path)
+    tp_id = t.g.st["LONG"]["lots"][0]["tp_order"]["id"]
+    real_open, real_info, real_cancel = t.ex.open_orders, t.ex.order_info, t.ex.cancel
+    t.ex.open_orders = lambda sym: [o for o in real_open(sym) if str(o["orderId"]) != tp_id]
+    n = {"i": 0}
+
+    def info(x):                                       # 31 раз пусто, на 32-й годный ответ (NEW)
+        if str(x) == tp_id:
+            n["i"] += 1
+            return real_info(x) if n["i"] % 32 == 0 else {}
+        return real_info(x)
+    t.ex.order_info = info
+    t.ex.cancel = lambda x: {"success": False} if str(x) == tp_id else real_cancel(x)
+    t.regime["up"] = False
+    t.sends.clear()
+    run(t, 2 * 3600)
+    assert 1 <= len(t.sends) <= 3                       # было 22 за 2 ч
+    assert BLOCK_CLOSE in t.sends[0]
+
+
+# ---------- проверка 14.10 (TEST-GAP-M2): неясно → деталь подтвердила «живой», но в списке открытых его нет — без тревоги
+def test_unknown_then_confirmed_live_but_unlisted_clears_without_message(tmp_path):
+    t = live_grid(tmp_path)
+    tp_id = t.g.st["LONG"]["lots"][0]["tp_order"]["id"]
+    live_detail = dict(t.ex.order_info(tp_id))
+    restore = hide(t.ex, tp_id, {})
+    run(t, 20)
+    assert tp_id in disk(tmp_path)["unknown_orders"]
+    restore()
+    hide(t.ex, tp_id, live_detail)                     # списком не виден, деталь — NEW
+    t.sends.clear()
+    run(t, 8 * 60)
+    assert t.sends == [] and not disk(tmp_path).get("unknown_orders")
+    assert live_tps(t.ex) == [tp_id]

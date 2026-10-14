@@ -811,7 +811,9 @@ class Grid:
             refs = self._referenced(side) if side in DIR else set()
             if oid not in refs or (oid in self._listed and oid not in self._unknown_now):
                 book.pop(oid, None)
-        if not book:
+        # флаги сбрасываются только после часового интервала: «мигающая» деталь (неясно ≥5 мин → годный ответ → снова
+        # неясно) иначе обходила бы часовой лимит через «новую» блокировку (проверка 14.10, ESC-FLAP: 22 сообщения/2 ч)
+        if not book and now - float(self.st.get("unknown_alert_ts") or 0) >= UNKNOWN_ALERT_EVERY:
             self.st.pop("unknown_alert_flags", None)
         old = [(oid, r) for oid, r in book.items() if now - float(r.get("since") or now) >= UNKNOWN_ALERT_AFTER]
         if old:
