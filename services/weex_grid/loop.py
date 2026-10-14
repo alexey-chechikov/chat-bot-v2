@@ -200,10 +200,13 @@ def card(name: str | None = None) -> str:
     for n in ([name] if name else eg.GRIDS):
         try:
             cfg = grid_config(n)
-            st_path, _ = run_files(n, bool(cfg["dry_run"]))
+            # журнал — той же сетки и режима (14.10, ревью L3-1: с подставным путём миграция передач из журнала не
+            # видела записей, и карточка до первого прохода показывала итог без переданного мешка). Карточка журнал
+            # только читает
+            st_path, jr_path = run_files(n, bool(cfg["dry_run"]))
             sym = cfg["symbol"]
             client = eg.DryExchange(lambda: real.book(sym), symbol=sym) if cfg["dry_run"] else real
-            g = eg.Grid(client, cfg, state_path=st_path, journal_path=eg.JOURNAL.with_name("_unused.jsonl"))
+            g = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path)
             out.append(g.card())
         except eg.GridHalt as exc:
             out.append(f"🛑 СЕТКА WEEX {n} — ОСТАНОВЛЕНА: {exc}")

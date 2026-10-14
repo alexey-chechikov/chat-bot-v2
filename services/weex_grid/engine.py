@@ -72,6 +72,14 @@ FEE_WINDOW = 3600.0      # с: сколько ждать появления ко
 FEE_POLL = 60.0          # с: как часто досверять комиссии
 FEE_BATCH = 5            # курсоров комиссий за одну досверку (по кругу, давно не проверявшиеся первыми)
 ORDER_FILLS_KEEP = 7 * 86400.0   # с: сколько хранить курсор исполнения завершённого ордера
+# Эскалация неясного (14.10, ревью F1/L2-1: ордер с нечитаемой деталью замораживал тейк/вход/закрытие по режиму навсегда
+# без единого сообщения): ордер бота с неясной деталью дольше UNKNOWN_ALERT_AFTER — сообщение, повтор не чаще
+# UNKNOWN_ALERT_EVERY (сразу — если он начал держать закрытие по режиму или передачу стороны); прочие проглоченные
+# сбои дольше ISSUE_ALERT_AFTER без чистого прохода — сообщение не чаще ISSUE_ALERT_EVERY
+UNKNOWN_ALERT_AFTER = 300.0
+UNKNOWN_ALERT_EVERY = 3600.0
+ISSUE_ALERT_AFTER = 600.0
+ISSUE_ALERT_EVERY = 1800.0
 
 
 class GridHalt(RuntimeError):
@@ -213,6 +221,11 @@ class Grid:
         self.send = send_fn
         self.now = now_fn
         self._issues: list[tuple[str, str]] = []     # неясные детали ордеров текущего прохода (для метки живости)
+        self._other_issues: list[tuple[str, str]] = []   # те же, кроме неясных ордеров из unknown_orders (своя эскалация)
+        self._unknown_now: set[str] = set()          # ордера, чья деталь неясна в ЭТОМ проходе
+        self._listed: set[str] = set()               # свои ордера в списке открытых этого прохода (= живые)
+        self._closing: set[str] = set()              # стороны, которые этот проход закрывает по режиму
+        self._released: set[str] = set()             # стороны, передаваемые оператору
         self._phase = "init"
         self.st = self._load()
         self._room_used = 0.0                    # $ общего потолка, занятые новыми входами текущего прохода
@@ -265,10 +278,20 @@ class Grid:
         """Один раз для учёта до 13.10: передачи стороны из журнала («передано оператору», bag — MTM на момент
         передачи) → transfers/transferred_mtm, чтобы итог сетки не оставался сдвинутым на мешок, переданный до
         обновления. day_start_pnl сдвигается на ту же сумму — дневной результат от миграции не прыгает. Журнал не
-        читается — ключи убираются, миграция повторится при следующей загрузке."""
+        читается — ключи убираются, миграция повторится при следующей загрузке. Журнала нет, а у стороны есть история
+        (закрыто/комиссии ≠ 0) — миграция тоже не отмечается выполненной (14.10, ревью L3-1: карточка с чужим путём
+        журнала показывала итог без переданного мешка; сохранённый такой учёт не мигрировал бы уже никогда)."""
+        if not self.journal_path.exists():
+            hist = [s for s in sides if float(st[s].get("realized") or 0) or float(st[s].get("fees") or 0)]
+            for s in hist:
+                st[s].pop("transferred_mtm", None)
+                st[s].pop("transfers", None)
+            if hist:
+                logger.warning("weex_grid.transfer_migration_deferred sides=%s journal=%s — журнала нет", hist,
+                               self.journal_path)
+            return
         try:
-            lines = (self.journal_path.read_text(encoding="utf-8").splitlines()
-                     if self.journal_path.exists() else [])
+            lines = self.journal_path.read_text(encoding="utf-8").splitlines()
         except OSError:
             logger.exception("weex_grid.transfer_migration_failed path=%s", self.journal_path)
             for s in sides:
@@ -753,12 +776,15 @@ class Grid:
         ордеров; исключение → last_tick_error {ts, phase, err, fatal: true} в СОХРАНЁННЫЙ учёт (недосчитанный
         проход на диск не пишется) и исключение дальше; неясная деталь ордера или сбой запроса, который проход
         пережил (_issue: комиссия, поиск/постановка ордера, позиция, баланс), → last_tick_error с fatal: false,
-        успех не отмечается."""
+        успех не отмечается. Затянувшееся неясное поднимается сообщением (_escalations) — после сохранения учёта."""
         self._issues = []
+        self._other_issues = []
+        self._unknown_now = set()
         self._phase = "start"
         try:
             self._tick()
             self._phase = "save"
+            msgs = self._escalations()
             if self._issues:
                 self.st["last_tick_error"] = {
                     "ts": float(self.now()), "phase": self._issues[0][0], "fatal": False,
@@ -769,6 +795,69 @@ class Grid:
         except Exception as exc:
             self._mark_tick_failed(exc)
             raise
+        for m in msgs:                        # метки сообщений уже на диске — сбой отправки не размножит их
+            self._notify(m)
+
+    def _escalations(self) -> list[str]:
+        """Сообщения о затянувшемся неясном (14.10, ревью F1/L2-1). unknown_orders {oid: {since, why, phase, side,
+        role}} ведёт _detail: запись снимается, когда ордер подтверждён (конечный / живой, в т.ч. в списке открытых) или
+        учёт его больше не ведёт. Ордер неясен ≥ UNKNOWN_ALERT_AFTER → одно сообщение, повтор не чаще UNKNOWN_ALERT_EVERY;
+        если он теперь держит закрытие по режиму или передачу стороны, а прошлое сообщение этого не называло, — сразу.
+        Прочие проглоченные сбои подряд ≥ ISSUE_ALERT_AFTER без чистого прохода → сообщение не чаще ISSUE_ALERT_EVERY."""
+        now, sym, msgs = float(self.now()), self.cfg["symbol"], []
+        book = self.st.setdefault("unknown_orders", {})
+        for oid, rec in list(book.items()):
+            side = rec.get("side")
+            refs = self._referenced(side) if side in DIR else set()
+            if oid not in refs or (oid in self._listed and oid not in self._unknown_now):
+                book.pop(oid, None)
+        if not book:
+            self.st.pop("unknown_alert_flags", None)
+        old = [(oid, r) for oid, r in book.items() if now - float(r.get("since") or now) >= UNKNOWN_ALERT_AFTER]
+        if old:
+            flags = {f for _, r in old for f in self._blocks(r)}
+            told = set(self.st.get("unknown_alert_flags") or [])
+            if now - float(self.st.get("unknown_alert_ts") or 0) >= UNKNOWN_ALERT_EVERY or not flags <= told:
+                self.st["unknown_alert_ts"] = now
+                self.st["unknown_alert_flags"] = sorted(flags | told)
+                msgs.append(self._unknown_text(old, flags, now))
+        if self._other_issues:
+            since = float(self.st.setdefault("issues_since", now))
+            if (now - since >= ISSUE_ALERT_AFTER
+                    and now - float(self.st.get("issue_alert_ts") or 0) >= ISSUE_ALERT_EVERY):
+                self.st["issue_alert_ts"] = now
+                start = min(since, float(self.st.get("last_tick_ok_ts") or since))
+                p, what = self._other_issues[0]
+                more = f" (и ещё {len(self._other_issues) - 1})" if len(self._other_issues) > 1 else ""
+                msgs.append(f"⚠️ Сетка WEEX {sym}: {int((now - start) // 60)} мин без чистого прохода — {p}: "
+                            f"{what[:200]}{more}. Сетка работает дальше, но этот сбой повторяется — проверь.")
+        else:
+            self.st.pop("issues_since", None)
+        return msgs
+
+    def _blocks(self, rec: dict) -> set[str]:
+        """Что держит неясный ордер: 'close' — закрытие по режиму, 'release' — передачу стороны."""
+        side, phase, out = rec.get("side"), str(rec.get("phase") or ""), set()
+        if phase.startswith("flatten") or side in self._closing or (side in DIR and self.st[side].get("flatten")):
+            out.add("close")
+        if phase.startswith("release") or side in self._released:
+            out.add("release")
+        return out
+
+    def _unknown_text(self, old: list, flags: set, now: float) -> str:
+        rows = [f"• {r.get('side')} {r.get('role') or 'ордер'} {oid}: {int((now - float(r['since'])) // 60)} мин, "
+                f"фаза {r.get('phase')} — {r.get('why')}" for oid, r in old[:5]]
+        if len(old) > 5:
+            rows.append(f"• и ещё {len(old) - 5}")
+        text = (f"⚠️ Сетка WEEX {self.cfg['symbol']}: статус ордера бота неясен дольше "
+                f"{int(UNKNOWN_ALERT_AFTER // 60)} мин — замену не ставлю, повторно не отправляю, жду ясного ответа "
+                f"биржи.\n" + "\n".join(rows))
+        for flag, head, tail in (("close", "ЗАКРЫТИЕ ПО РЕЖИМУ ЗАБЛОКИРОВАНО: рыночного закрытия", "не будет"),
+                                 ("release", "ПЕРЕДАЧА СТОРОНЫ ЖДЁТ: сторона", "не передаётся тебе")):
+            if flag in flags:
+                sides = sorted({str(r.get("side")) for _, r in old if flag in self._blocks(r)})
+                text += f"\n🛑 {head} {'/'.join(sides)} {tail}, пока статус не ясен."
+        return text + "\nПроверь ордер и позицию в приложении WEEX."
 
     def _mark_tick_failed(self, exc: BaseException) -> None:
         """Записать ошибку прохода в учёт на диске (последний целостный снимок), не сохраняя недосчитанный проход."""
@@ -797,6 +886,7 @@ class Grid:
         self._phase = "open_orders"
         self.open = {str(o["orderId"]): o for o in self.c.open_orders(sym)
                      if str(o.get("clientOrderId", "")).startswith(PREFIX)}
+        self._listed = set(self.open)
         self._phase = "orphans"
         self._orphans()
         open_ids = set(self.open)
@@ -810,6 +900,7 @@ class Grid:
         # сторона, переданная оператору (release_sides и её нет в sides): бот снимает свои ордера и забывает
         # лоты; пока передача не завершена — сторону не сопровождаем (иначе тейки встали бы снова)
         released = {x for x in (cfg.get("release_sides") or []) if x in DIR and x not in cfg["sides"]}
+        self._released = released
         for side in released:
             if self._side_busy(side):
                 self._phase = f"release:{side}"
@@ -833,6 +924,7 @@ class Grid:
         for side in DIR:
             if self.st[side].get("flatten"):
                 closing.add(side)
+        self._closing = closing - released
         for side in closing - released:
             self._phase = f"flatten:{side}"
             self._flatten_side(side, bid, ask, mid)
@@ -1131,16 +1223,19 @@ class Grid:
             info = self.c.order_info(oid) or {}
         except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.order_info_failed id=%s", oid)
-            return self._unknown(oid, f"ошибка запроса ({type(exc).__name__})"), {}
+            return self._unknown(oid, f"ошибка запроса ({type(exc).__name__}: {str(exc)[:120]})", side), {}
         if not isinstance(info, dict):
-            return self._unknown(oid, "ответ не объект"), {}
+            return self._unknown(oid, "ответ не объект", side), {}
         why = self._detail_problem(oid, info, side, order)
         if why:
-            return self._unknown(oid, why), info
+            return self._unknown(oid, why, side), info
+        (self.st.get("unknown_orders") or {}).pop(str(oid), None)     # подтверждён — эскалация снята
         return ("terminal" if str(info.get("status")).upper() in TERMINAL else "live"), info
 
     def _detail_problem(self, oid, info: dict, side: str | None, order: dict | None) -> str:
         """Почему ответ детали нельзя считать сведением о НАШЕМ ордере; '' — ответ годен."""
+        if not info:
+            return "пустой ответ биржи {}"
         if str(info.get("orderId")) != str(oid):
             return f"orderId ответа {info.get('orderId')!r}"
         sym = info.get("symbol")
@@ -1171,17 +1266,41 @@ class Grid:
             return "FILLED без исполнения"
         return ""
 
-    def _unknown(self, oid, why: str) -> str:
-        """Неясная деталь: в журнал службы и в метку прохода (успех прохода не отмечается)."""
+    def _unknown(self, oid, why: str, side: str | None = None) -> str:
+        """Неясная деталь: в журнал службы и в метку прохода (успех прохода не отмечается). Ордер стороны (вход, тейк,
+        сирота, рыночное закрытие) — в unknown_orders учёта: с какого момента неясен, почему, в какой фазе (14.10, ревью
+        F1: неясность без срока замораживала сторону молча); _escalations поднимает затянувшееся сообщением."""
         logger.warning("weex_grid.order_detail_unknown id=%s phase=%s why=%s", oid, self._phase, why)
-        self._issue(f"{oid}: {why}")
+        tracked = side in DIR
+        if tracked:
+            key = str(oid)
+            rec = self.st.setdefault("unknown_orders", {}).setdefault(key, {"since": float(self.now()), "side": side})
+            rec.update(why=why[:200], phase=self._phase, role=self._role(side, key), last=float(self.now()))
+            self._unknown_now.add(key)
+        self._issue(f"{oid}: {why}", tracked=tracked)
         return "unknown"
 
-    def _issue(self, what: str) -> None:
+    def _role(self, side: str, oid: str) -> str:
+        s = self.st[side]
+        if s.get("entry") and str(s["entry"]["id"]) == oid:
+            return "вход"
+        if any(l.get("tp_order") and str(l["tp_order"]["id"]) == oid for l in s["lots"]):
+            return "тейк"
+        x = next((x for x in s["strays"] if str(x["id"]) == oid), None)
+        if x is not None:
+            return "лишний " + ("вход" if x.get("kind") == "e" else "тейк")
+        if s.get("flatten") and str(s["flatten"].get("id")) == oid:
+            return "рыночное закрытие"
+        return "ордер"
+
+    def _issue(self, what: str, tracked: bool = False) -> None:
         """Сбой, который проход переживает (деталь неясна, запрос к бирже не прочитан, исход постановки неизвестен):
         проход не считается полностью успешным — last_tick_ok_ts не освежается, причина — в last_tick_error.
-        Снятие ордера сюда не пишется: его исход проверяется деталью."""
+        Снятие ордера сюда не пишется: его исход проверяется деталью. tracked — неясный ордер из unknown_orders: у него
+        своя эскалация, в сообщение «без чистого прохода» он не идёт."""
         self._issues.append((self._phase, what))
+        if not tracked:
+            self._other_issues.append((self._phase, what))
 
     def _cancel_tps(self, side: str) -> bool:
         """Снять тейки стороны, исполненное до снятия — в прибыль. True — все тейки в подтверждённом конечном
@@ -1211,7 +1330,8 @@ class Grid:
         передачу не завершает (13.10, разбор GPT W2).
         Передача фиксируется один раз (13.10, дополнение GPT §3): время, остаток, средняя, марк и переданный MTM — в
         учёт стороны (transfers, transferred_mtm) и в журнал; итог сетки включает MTM на момент передачи, поэтому
-        передача мешка — ни прибыль, ни убыток. Событие пишется и при нуле лотов — граница передачи для мониторинга.
+        передача мешка — ни прибыль, ни убыток. Событие пишется и при нуле лотов — граница передачи для мониторинга;
+        повторная передача уже переданной стороны без лотов (снята всплывшая сирота) — только учёт и лог (ревью L2-3).
         Учёт — на диск ДО журнала; сбой между ними дописывает журнал на следующем проходе (handover_unjournaled)."""
         s = self.st[side]
         if s.get("pending") and not self._resolve_pending(side):
@@ -1236,6 +1356,15 @@ class Grid:
         bag = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in lots)
         rec = {"ts": datetime.fromtimestamp(self.now(), timezone.utc).isoformat(timespec="seconds"),
                "qty": self._qty_str(q), "avg": avg, "mark": mid, "mtm": bag, "lots": len(lots)}
+        if not lots and s.get("transfers"):
+            # сторона уже передана раньше, лотов нет (снята всплывшая сирота): граница в журнале уже есть — второе
+            # «передано оператору» с нулём сбивало бы мониторинг (14.10, ревью L2-3). Только запись учёта и лог
+            s["transfers"] = list(s["transfers"]) + [{**rec, "mtm": 0.0, "repeat": True}]
+            s["ref"] = None
+            self.save()
+            logger.info("weex_grid.release_repeat side=%s — сторона уже передана, свои ордера сняты, лотов нет; "
+                        "в журнал не пишу", side)
+            return True
         s["transfers"] = list(s.get("transfers") or []) + [rec]
         s["transferred_mtm"] = float(s.get("transferred_mtm") or 0) + bag
         s["lots"], s["ref"] = [], None
