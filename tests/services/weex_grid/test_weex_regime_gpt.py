@@ -219,7 +219,11 @@ def test_release_after_sent_flatten_hands_only_real_remainder(tmp_path):
     tick(g)
     assert g.st["LONG"].get("flatten") is None and not g.st["LONG"]["lots"]
     j = (tmp_path / "journal.jsonl").read_text()
-    assert "закрытие по режиму" in j and "передано оператору" not in j    # передавать нечего — всё закрыто
+    assert "закрытие по режиму" in j
+    # передавать нечего — всё закрыто рынком; событие передачи (граница для мониторинга) — одно и с нулём лотов
+    # (разбор GPT 13.10 W2: «нулевой остаток тоже требует события передачи»)
+    hand = [json.loads(x) for x in j.splitlines() if "передано оператору" in x]
+    assert len(hand) == 1 and float(hand[0]["qty"]) == 0.0
 
 
 def test_release_waits_for_live_market(tmp_path):
@@ -241,7 +245,9 @@ def test_release_waits_for_live_market(tmp_path):
     oid = g.st["LONG"]["flatten"]["id"]
     ex.orders[oid].update(status="FILLED", executedQty=ex.orders[oid]["origQty"], avgPrice=slow.px)
     tick(g)
-    assert not g.st["LONG"]["lots"] and "передано оператору" not in (tmp_path / "journal.jsonl").read_text()
+    assert not g.st["LONG"]["lots"]
+    hand = [json.loads(x) for x in (tmp_path / "journal.jsonl").read_text().splitlines() if "передано оператору" in x]
+    assert len(hand) == 1 and float(hand[0]["qty"]) == 0.0               # лоты закрыл market, передано 0
 
 
 # ---------- L4: пустой ответ детали ордера не считается конечным — старый тейк не забывается

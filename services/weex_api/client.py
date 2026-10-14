@@ -30,6 +30,15 @@ class WeexError(RuntimeError):
     pass
 
 
+class WeexIncomplete(WeexError):
+    """Список ордеров не прочитан целиком (достигнут предел страниц или страница — не список): решения по
+    владению/сиротам по нему принимать нельзя (разбор GPT 13.10: 10 полных страниц молча выдавались за полный
+    список). Проход сетки прерывается до разбора сирот; трендовый бот считает намерение невыясненным."""
+
+
+MAX_PAGES = 10
+
+
 def load_credentials(path: Path = ENV_LOCAL) -> tuple[str, str, str] | None:
     vals = {}
     try:
@@ -103,14 +112,23 @@ class WeexClient:
         r = r[0] if isinstance(r, list) else r
         return float(r["bidPrice"]), float(r["askPrice"])
 
-    def open_orders(self, symbol: str) -> list[dict]:
-        out, page = [], 0
-        while True:
-            chunk = self.get(FUTURES, "/capi/v3/openOrders", {"symbol": symbol, "limit": 100, "page": page})
-            out.extend(chunk or [])
-            if not chunk or len(chunk) < 100 or page >= 9:
+    def _open_pages(self, path: str, symbol: str, first_page: int) -> list[dict]:
+        """Постраничный список открытых ордеров. Неполный ответ — WeexIncomplete, а не обрезанный список
+        (13.10, разбор GPT: после 10 полных страниц по 100 список молча считался полным): все MAX_PAGES страниц
+        полные или страница — не список (объект ошибки превращался в «список» из его ключей)."""
+        out = []
+        for page in range(first_page, first_page + MAX_PAGES):
+            chunk = self.get(FUTURES, path, {"symbol": symbol, "limit": 100, "page": page}) or []
+            if not isinstance(chunk, list):
+                raise WeexIncomplete(f"{path} {symbol}: страница {page} — не список ({str(chunk)[:120]})")
+            out.extend(chunk)
+            if len(chunk) < 100:
                 return out
-            page += 1
+        raise WeexIncomplete(f"{path} {symbol}: {MAX_PAGES} полных страниц по 100 — список может быть неполным")
+
+    def open_orders(self, symbol: str) -> list[dict]:
+        """Все открытые ордера символа (страницы с 0); неполный ответ — WeexIncomplete."""
+        return self._open_pages("/capi/v3/openOrders", symbol, 0)
 
     def order_history(self, symbol: str, limit: int = 100, page: int = 0,
                       start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
@@ -150,13 +168,8 @@ class WeexClient:
         return self.post(FUTURES, "/capi/v3/algoOrder", body)
 
     def open_algo_orders(self, symbol: str) -> list[dict]:
-        out, page = [], 1
-        while True:
-            chunk = self.get(FUTURES, "/capi/v3/openAlgoOrders", {"symbol": symbol, "limit": 100, "page": page}) or []
-            out.extend(chunk)
-            if len(chunk) < 100 or page >= 10:
-                return out
-            page += 1
+        """Все открытые условные ордера символа (страницы с 1); неполный ответ — WeexIncomplete."""
+        return self._open_pages("/capi/v3/openAlgoOrders", symbol, 1)
 
     def algo_history(self, symbol: str, start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
         """История условных ордеров (сработал ли аварийный стоп и по какой цене)."""
