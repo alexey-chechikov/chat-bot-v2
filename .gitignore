@@ -338,3 +338,5 @@ state/odds_scenarios_*.json
 state/weex_book/
 # пакет для GPT (make_gpt_bundle) содержит живой учёт и журнал — в публичный репо не попадает (ревью скилов 12.10)
 docs/WEEX_GRID_CODE_FOR_GPT_*.md
+# aggTrades Binance (внешние данные footprint, 14.10)
+backtests/aggtrades/
