@@ -36,6 +36,8 @@ if _other:                                               # раунд 2 ревь
     sys.exit(f"--src {SRC.name} похож на {_other[0]}, а символ прогона {SYM} — укажи символ явно")
 QTY = QTY_ALL[SYM]
 N_CTL = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--ctl=")), "12"))
+# лимит ордеров на сторону (как max_lots_per_side живой сетки, по умолчанию 50) — 14.10: при шаге 0.1 он режет глубину
+MAX_LOTS = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--max-lots=")), "50"))
 MAKER, TAKER, SLIP = 0.00016, 0.00048, 0.0002
 
 
@@ -153,7 +155,7 @@ def run(args):
                 else:
                     s["ref"] = max(s["ref"], p) if d > 0 else min(s["ref"], p)
                 lvl = s["ref"] * (1 - d * g)
-                if len(s["lots"]) < 50 and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
+                if len(s["lots"]) < MAX_LOTS and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
                     cost = sum(x[1] * x[0] for x in s["lots"])
                     if max(cost, sum(x[1] for x in s["lots"]) * p) + qty * lvl <= cap:
                         s["lots"].append([lvl, qty, lvl * (1 + d * t)])

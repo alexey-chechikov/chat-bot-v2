@@ -24,6 +24,11 @@ docs/GOLD_LIQUIDITY_SWEEP_SPEC_2026-10-13.md. Здесь только реали
 PAXG — PAXGUSDT спот Binance (backtests/frozen/PAXGUSDT_1m_2y.csv), XAU — XAUUSDT TradFi-перпетуал Binance
 (backtests/frozen/XAUUSDT_PERP_1m.csv, research/gold/fetch_xau_perp_1m.py) + история фандинга
 (backtests/frozen/XAUUSDT_PERP_funding.csv, research/gold/fetch_xau_funding.py). --s1 — чувствительность «только пн–пт».
+
+ATLAS 14.10 (docs/ATLAS_DELTA_PROTOCOL_2026-10-14.md, тест 2): инструменты BTCUSDT_UM / ETHUSDT_UM (Binance USDⓈ-M
+1m с taker_buy, research/atlas_data/fetch_binance_um_1m.py; комиссии WEEX; день полный при 1440 минутах) и версия
+Cn = B + nd сигнальной свечи ≤ P10 nd всех 15m-свечей 20 предыдущих полных UTC-дней (nd = (2·taker_buy − объём) /
+объём свечи). Поведение PAXG/XAU и версий A/B/E не меняется. Прогон — research/atlas_data/delta_test2.py.
 """
 from __future__ import annotations
 
@@ -50,6 +55,13 @@ INST = {
     "XAU": dict(file="backtests/frozen/XAUUSDT_PERP_1m.csv", tick=0.01, tick_before=None,
                 step=0.001, min_qty=0.001, min_notional=5.0, taker=0.0005, maker=0.0002, lev=20.0,
                 min_rows=720, funding_file="backtests/frozen/XAUUSDT_PERP_funding.csv"),
+    # ATLAS 14.10: Binance UM как прокси цен WEEX, комиссии WEEX (тейкер 0.048%, мейкер 0.016%), плечо ≤ 20×
+    "BTCUSDT_UM": dict(file="backtests/frozen/BTCUSDT_UM_1m.csv", tick=0.1, tick_before=None,
+                       step=0.001, min_qty=0.001, min_notional=5.0, taker=0.00048, maker=0.00016, lev=20.0,
+                       min_rows=1440, funding_file=None),
+    "ETHUSDT_UM": dict(file="backtests/frozen/ETHUSDT_UM_1m.csv", tick=0.01, tick_before=None,
+                       step=0.01, min_qty=0.01, min_notional=5.0, taker=0.00048, maker=0.00016, lev=20.0,
+                       min_rows=1440, funding_file=None),
 }
 SLIP = 0.0002
 RISK, DAY_LIMIT, RR, MAX_HOLD = 0.0025, 0.0075, 2.0, 4 * HOUR
@@ -60,6 +72,43 @@ N_BOOT = 9999
 EXITS = ("цель", "стоп", "время", "конец данных")
 # LVN (протокол п.4)
 LVN_WINDOW, BIN_PCT, VA_LO, VA_HI, LVN_FRAC, LVN_DIST = 2, 0.0005, 0.05, 0.95, 0.25, 0.0015
+# дельта агрессора (протокол ATLAS 14.10): порог — квантиль nd свечей ND_DAYS предыдущих полных UTC-дней
+ND_DAYS, ND_Q_LO = 20, 0.10
+
+
+def bar_nd(volume, taker_buy):
+    """Нормированная дельта агрессора свечи: (2·taker_buy − объём) / объём; NaN при нулевом объёме."""
+    v = np.asarray(volume, dtype=float)
+    tb = np.asarray(taker_buy, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(v > 0, (2.0 * tb - v) / np.where(v > 0, v, 1.0), np.nan)
+
+
+def prior_days_quantile(bar_day, values, complete_days, q: float, n_days: int = ND_DAYS):
+    """q-квантиль `values` по всем свечам `n_days` последних ПОЛНЫХ дней строго до дня свечи — только прошлое.
+    Свечи отсортированы по времени. NaN — полных дней раньше меньше `n_days` или нет конечных значений.
+    Квантиль — numpy, линейная интерполяция."""
+    bar_day = np.asarray(bar_day, dtype=np.int64)
+    values = np.asarray(values, dtype=float)
+    out = np.full(len(bar_day), np.nan)
+    if not len(bar_day):
+        return out
+    if np.any(np.diff(bar_day) < 0):
+        raise ValueError("свечи должны идти по времени")
+    cd = np.array(sorted(int(d) for d in complete_days), dtype=np.int64)
+    udays, first = np.unique(bar_day, return_index=True)
+    last = np.r_[first[1:], len(bar_day)]
+    span = {int(d): (int(s), int(e)) for d, s, e in zip(udays, first, last)}
+    for d, s, e in zip(udays.tolist(), first.tolist(), last.tolist()):
+        k = int(np.searchsorted(cd, d, side="left"))                   # полные дни строго до d: cd[:k]
+        if k < n_days:
+            continue
+        parts = [values[span[x][0]:span[x][1]] for x in cd[k - n_days:k].tolist() if x in span]
+        vals = np.concatenate(parts) if parts else np.array([])
+        vals = vals[np.isfinite(vals)]
+        if len(vals):
+            out[s:e] = np.quantile(vals, q)
+    return out
 
 
 def load(inst: str, root: Path | str | None = None):
@@ -71,6 +120,8 @@ def load(inst: str, root: Path | str | None = None):
             "missing_minutes": int((d.ts.iloc[-1] - d.ts.iloc[0]) // MIN + 1 - len(d))}
     a = {k: d[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close", "volume")}
     a["ts"] = d.ts.to_numpy(dtype=np.int64)
+    if "taker_buy" in d.columns:                                    # ATLAS: дельта агрессора (версия Cn)
+        a["taker_buy"] = d.taker_buy.to_numpy(dtype=float)
     return a, info
 
 
@@ -106,6 +157,11 @@ class Market:
         self.b_h = np.maximum.reduceat(a["high"], starts)[full]
         self.b_l = np.minimum.reduceat(a["low"], starts)[full]
         self.bar_day = (self.b_id * BAR) // DAY
+        # ATLAS: объём и дельта агрессора свечи (только если в данных есть taker_buy)
+        self.b_v = np.add.reduceat(a["volume"], starts)[full]
+        tb = a.get("taker_buy")
+        self.nd = bar_nd(self.b_v, np.add.reduceat(tb, starts)[full]) if tb is not None else None
+        self._nd_q: dict = {}
         # дни: покрытие минутами (данные) отдельно от сделок (активность) — П2
         did = ts // DAY
         dstarts = np.flatnonzero(np.r_[True, did[1:] != did[:-1]])
@@ -140,6 +196,15 @@ class Market:
             cond &= ((self.bar_day + 3) % 7) < 5
         self.cand = np.flatnonzero(cond)
         self._fund_src, self._fund = None, None
+
+    def nd_quantile(self, q: float):
+        """Порог nd по каждой свече: q-квантиль nd всех 15m-свечей ND_DAYS предыдущих полных UTC-дней (только прошлое)."""
+        if self.nd is None:
+            raise ValueError(f"{self.inst}: в данных нет taker_buy — дельта агрессора не считается")
+        key = float(q)
+        if key not in self._nd_q:
+            self._nd_q[key] = prior_days_quantile(self.bar_day, self.nd, self.complete_days, key, ND_DAYS)
+        return self._nd_q[key]
 
     def tick_at(self, t_ms: int) -> float:
         tb = self.cfg.get("tick_before")
@@ -270,12 +335,15 @@ def simulate(m, version: str, capital: float, costs: str, lvn_window: int = LVN_
             continue
         # фильтры версий
         ok = True
-        if version in ("B", "E"):
+        if version in ("B", "E", "Cn"):
             vw = m.vwap_at(m.b_end[conf] - 1)
             ok = vw is not None and m.b_c[conf] > vw
         if ok and version == "E":
             z = m.lvn(day, lvn_window)
             ok = z is not None and Market.near_zone(L, z[0], z[1])
+        if ok and version == "Cn":                                   # ATLAS: nd сигнальной свечи ≤ P10 прошлого
+            p10 = m.nd_quantile(ND_Q_LO)
+            ok = bool(np.isfinite(m.nd[b]) and np.isfinite(p10[b]) and m.nd[b] <= p10[b])
         if not ok:
             b = conf + 1
             continue
