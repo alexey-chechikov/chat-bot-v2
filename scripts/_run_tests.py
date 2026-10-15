@@ -45,6 +45,7 @@ TEST_DIRS = [
     "tests/research_tools/",
     "tests/research_gold/",
     "tests/research_atlas/",
+    "tests/research_manual/",
 ]
 
 def main():

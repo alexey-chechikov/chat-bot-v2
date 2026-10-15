@@ -1,0 +1,134 @@
+{
+ "protocol": "docs/PULLBACK_4H_PROTOCOL_2026-10-15.md",
+ "protocol_commit": "17c970b",
+ "protocol_sha256": "51050c715fd5eb5157ffb957c55c0802b06eb48dad075cdcfef2cab3b2c5bb70",
+ "replay_sha256": "18364266a382f8fb89a4443538a64c9f6047d477f8d767bbef3c52837fe71a77",
+ "stats_sha256": "527e9e9312c5fc28ca6da8472043521b9bbeaafc110f1a0249b67c72c4c5970e",
+ "start": "2024-05-15 00:00",
+ "end_exclusive": "2026-10-14 20:14",
+ "inputs": {
+  "ETHUSDT": {
+   "minutes": "backtests/frozen/ETHUSDT_UM_1m.csv",
+   "sha256": "1fd301a1a642541393f9b429f9004665d42fba40e88f7b170e2632754c0f6005",
+   "rows": 1271307,
+   "first": "2024-05-15 00:00",
+   "last": "2026-10-14 20:26",
+   "duplicates_or_unsorted": 0,
+   "not_on_minute": 0,
+   "missing_minutes": 0,
+   "gaps": 0,
+   "ohlc_defects": 0,
+   "bars15": 84752,
+   "bars15_holes": 0,
+   "bars4": 5297,
+   "bars4_holes": 0
+  },
+  "XRPUSDT": {
+   "minutes": "backtests/frozen/XRPUSDT_UM_1m.csv",
+   "sha256": "1b0828b5ea0cd8cb8b6c25d07b0859b4f609f1d6622ee075e11b037c3cb46888",
+   "rows": 1271447,
+   "first": "2024-05-15 00:00",
+   "last": "2026-10-14 22:46",
+   "duplicates_or_unsorted": 0,
+   "not_on_minute": 0,
+   "missing_minutes": 0,
+   "gaps": 0,
+   "ohlc_defects": 0,
+   "bars15": 84752,
+   "bars15_holes": 0,
+   "bars4": 5297,
+   "bars4_holes": 0
+  },
+  "BTCUSDT": {
+   "minutes": "backtests/frozen/BTCUSDT_UM_1m.csv",
+   "sha256": "8b39e6306c4d1c800d252c0417488a7c735c6a98f6170f047d3ba0e1ea56602f",
+   "rows": 1271294,
+   "first": "2024-05-15 00:00",
+   "last": "2026-10-14 20:13",
+   "duplicates_or_unsorted": 0,
+   "not_on_minute": 0,
+   "missing_minutes": 0,
+   "gaps": 0,
+   "ohlc_defects": 0,
+   "bars15": 84752,
+   "bars15_holes": 0,
+   "bars4": 5297,
+   "bars4_holes": 0
+  }
+ },
+ "funding": {
+  "ETHUSDT": {
+   "file": "backtests/frozen/ETHUSDT_funding.csv",
+   "sha256": "1229a220bb7cf4c29956f7fc5d7aaf268b326ee0c2354265e254f6ee1a2a9bad",
+   "rows": 2691,
+   "in_period": 2648,
+   "first": "2024-05-01 00:00",
+   "last": "2026-10-14 16:00",
+   "interval_hours": {
+    "8": 2647
+   },
+   "missing_mark": 0,
+   "jitter_ms_max": 26
+  },
+  "XRPUSDT": {
+   "file": "backtests/frozen/XRPUSDT_funding.csv",
+   "sha256": "bcdd47e8f6374fcc93ed79ffba191b8740a335884a11938e636acdd6b289fb0e",
+   "rows": 2691,
+   "in_period": 2648,
+   "first": "2024-05-01 00:00",
+   "last": "2026-10-14 16:00",
+   "interval_hours": {
+    "8": 2647
+   },
+   "missing_mark": 0,
+   "jitter_ms_max": 26
+  },
+  "BTCUSDT": {
+   "file": "backtests/frozen/BTCUSDT_funding.csv",
+   "sha256": "8b9aa7a42bcc3ca3d34dc5ed2160baf548d32d94deb51110ca856e34df4bb7a5",
+   "rows": 2691,
+   "in_period": 2648,
+   "first": "2024-05-01 00:00",
+   "last": "2026-10-14 16:00",
+   "interval_hours": {
+    "8": 2647
+   },
+   "missing_mark": 0,
+   "jitter_ms_max": 26
+  }
+ },
+ "outputs": {
+  "events_C1_BTC_base.csv": "d13fb97685e235279a33e4e0634ebbad3cf6f1277b8b12b0ca0f6520f54861c7",
+  "events_C1_ETH_base.csv": "e99c66ed2b5cdce2deb48267bee12dd671630f94fdb21b625f8e41c81b8c9164",
+  "events_C1_PORT_base.csv": "d44302cb48e12a77c2567081a52396dc54072ae7704c329bf4bafefaf94b3077",
+  "events_C1_XRP_base.csv": "e93fbf2940818fcaefd4708e0369ea305d05729c3c2aafc1107a792c2dc84476",
+  "events_C2_BTC_base.csv": "7664a2ea8ec08c06707e54462e8a35f138fc56aef5199ff2b0b713101739c6e2",
+  "events_C2_ETH_base.csv": "adc786baa2b3a5a2b42258f1be9dac724f50b555f4f0c983a65d4e376b5d641c",
+  "events_C2_PORT_base.csv": "c86673d54350d43e5e3da87ba59dcfe69f02163e44f7218f1700c825f97ea946",
+  "events_C2_XRP_base.csv": "a5ebd633a13f67c3fa008feb92c8c8b49cb70e1268189de0e863c01645cb7f04",
+  "events_S_BTC_base.csv": "b8618e5cb853945d668fe5dce25406f12ce176a6a12ec826df0525e6ba047802",
+  "events_S_BTC_slip2.csv": "d9628f07ce1fe7d2fa6e6d1d1f1dc83c636cddd33301abe55e920850c201c4c6",
+  "events_S_ETH_base.csv": "51ce9d47ca0d23417ee77fe7ba40e637bb4b24c22fa1e338a90e64fbb751a550",
+  "events_S_ETH_slip2.csv": "74a956ccc17ce84f62d721889b6fd8383f9a8c0ab614935f90bab7f42b3f9ee3",
+  "events_S_PORT_base.csv": "1a50a384bc647a0ae046070465f78fadfec637c306688a30286a9b16480cba51",
+  "events_S_PORT_slip2.csv": "80f7f5752301263faa1d8519e09693f3103c6f33fb941461db4fad36433f06a6",
+  "events_S_XRP_base.csv": "4a458874b8876e58d2f70830d6e8a967d372d9b74a02af304d92f4084e785214",
+  "events_S_XRP_slip2.csv": "4a458874b8876e58d2f70830d6e8a967d372d9b74a02af304d92f4084e785214",
+  "ledger_C1_BTC_base.csv": "381979ae00058a812768e0ef27502af392c2abca1394404a23bec26d9e9435fe",
+  "ledger_C1_ETH_base.csv": "9fa1fabc05bc8e9b06b399dd518848394188182e978fcdf408de53dd80d330f1",
+  "ledger_C1_PORT_base.csv": "7be8db59b5b19a2c31e0819f9dda59f69925847b5a46f82a6eb235c965ece770",
+  "ledger_C1_XRP_base.csv": "4f1756a11aeac03b4abbb5fd38d2afae4de6f3d9d8d5494ce1f9beb01e009d5d",
+  "ledger_C2_BTC_base.csv": "23cff301b79383d245f9e29043acd3fc501cd56e641b2ff2383f5ad8000e0836",
+  "ledger_C2_ETH_base.csv": "d753c5efa31bd908608b342a9862d2e4c5b48d7ebc2c3b7b6a1daa3ff9e7a323",
+  "ledger_C2_PORT_base.csv": "ca3d8a8010902be145658938b1278b32caacc9cf77b527857e63bd3958807c98",
+  "ledger_C2_XRP_base.csv": "f9a5c3eacc5a4cc9e2c02f4608cb5572515daf17a6122cf0a07f8a510986540d",
+  "ledger_S_BTC_base.csv": "2d3697f892d6f7f9d89a804e6ff3d22a6b832dbb8f2ad7629556412425346da6",
+  "ledger_S_BTC_slip2.csv": "d4bf844a38a38883b935888ed543fc82915324a3470fbf51d41a9a4094140fdb",
+  "ledger_S_ETH_base.csv": "29afb832519cb6df0a67d290db57b8ebf6476785c1f17fa1152e7400c9d29525",
+  "ledger_S_ETH_slip2.csv": "65715d6129f8949321f9b543ed3b962cd10178330bc4fcdb877c30af96594418",
+  "ledger_S_PORT_base.csv": "157e9f012ba0eb454f4f7df0a430cfccd54555e4c4413c78024e0fcade5ad60a",
+  "ledger_S_PORT_slip2.csv": "e5fb9d9f63e1533349fd473753b2eee929c74e20be3d7475d0dccdf565105619",
+  "ledger_S_XRP_base.csv": "5cba0e9be594fd383e60d0a5a17ff552bc59fe15d2730f9e887b64c7be17507b",
+  "ledger_S_XRP_slip2.csv": "65cdf7d6570396e0d77430f19ca57bc3637892e36e1e959334bedf8f4394e518"
+ }
+}

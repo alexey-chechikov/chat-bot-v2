@@ -1,0 +1,68 @@
+{
+ "S_ETH_base": {
+  "events_audit": 192,
+  "events_replay": 192,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 12,
+  "trades_replay": 12,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 7.216449660063518e-16
+ },
+ "C2_ETH_base": {
+  "events_audit": 250,
+  "events_replay": 250,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 13,
+  "trades_replay": 13,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 1.3322676295501878e-15
+ },
+ "S_XRP_base": {
+  "events_audit": 197,
+  "events_replay": 197,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 18,
+  "trades_replay": 18,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 4.440892098500626e-16
+ },
+ "C2_XRP_base": {
+  "events_audit": 266,
+  "events_replay": 266,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 26,
+  "trades_replay": 26,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 4.440892098500626e-16
+ },
+ "S_BTC_base": {
+  "events_audit": 219,
+  "events_replay": 219,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 12,
+  "trades_replay": 12,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 2.220446049250313e-16
+ },
+ "C2_BTC_base": {
+  "events_audit": 282,
+  "events_replay": 282,
+  "outcome_mismatches": 0,
+  "examples": [],
+  "replay_only_events": [],
+  "trades_audit": 15,
+  "trades_replay": 15,
+  "trade_mismatches": [],
+  "max_abs_R_diff": 7.771561172376096e-16
+ }
+}
