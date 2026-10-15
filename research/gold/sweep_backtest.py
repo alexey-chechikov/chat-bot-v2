@@ -7,7 +7,9 @@ docs/GOLD_LIQUIDITY_SWEEP_SPEC_2026-10-13.md. Здесь только реали
 параметры протокола не менялись, каждая поправка названа отклонением в отчёте:
   П1 профиль LVN — только выбранные полные дни строго до дня сигнала (без хвоста до конца файла и без пропущенных
      неполных дней между ними);
-  П2 полнота дня XAU — покрытие минутами (≥ 720 строк = 12 ч) и хотя бы одна сделка; минута без объёма — это данные;
+  П2 полнота дня XAU — покрытие минутами (≥ 720 разных минут = 12 ч) и хотя бы одна сделка; минута без объёма — это
+     данные; считаются разные метки UTC-сетки, не строки (ревью GPT 15.10 §2 п.7: дубль + пропуск ≠ полный день;
+     то же для 15m-свечи — 15 строк ровно на её минутах);
   П3 фандинг XAU: −qty × mark × rate в каждый момент начисления Binance, пока позиция открыта (вход < T ≤ выход);
   П4 выход на конце данных — рыночный (тейкер + проскальзывание); конец периода не отрезает последние 4 свечи — сигнал
      пропускается (и считается) только если его подтверждение/вход не помещаются в данные;
@@ -145,11 +147,16 @@ class Market:
         self.funding = funding                                    # {"t", "rate", "mark"} или None (спот)
         self.cancel_rule = "protocol"                             # "spec" — чувствительность: отмена до ВХОДА
         ts = a["ts"]
-        # 15m свечи: только полные (15 минут)
+        # 15m свечи: только полные — 15 строк ровно на минутах bid·BAR + k·MIN, k = 0..14, по порядку (15 строк с
+        # дублем и пропуском — 14 минут, не полная свеча; ревью GPT 15.10 §2 п.7, то же правило, что у дня)
         bid = ts // BAR
         starts = np.flatnonzero(np.r_[True, bid[1:] != bid[:-1]])
         ends = np.r_[starts[1:], len(ts)]
         full = (ends - starts) == 15
+        if full.any():
+            fs = starts[full]
+            grid = (bid[fs] * BAR)[:, None] + np.arange(15) * MIN
+            full[full] = (ts[fs[:, None] + np.arange(15)] == grid).all(axis=1)
         self.b_start, self.b_end = starts[full], ends[full]          # индексы минут [start, end)
         self.b_id = bid[self.b_start]
         self.b_o = a["open"][self.b_start]
@@ -169,12 +176,15 @@ class Market:
         self.days = did[dstarts]
         days = self.days.tolist()
         dlow = np.minimum.reduceat(a["low"], dstarts)
-        rows = dends - dstarts
+        # покрытие — число РАЗНЫХ минутных меток UTC-сетки дня, не строк (ревью GPT 15.10 §2 п.7: 1440 строк с дублем
+        # и пропуском — это 1439 минут, день неполный; метка вне сетки минутой не считается)
+        grid_min = np.unique(ts[ts % MIN == 0]) // DAY
+        minutes = np.searchsorted(grid_min, self.days, side="right") - np.searchsorted(grid_min, self.days, side="left")
         traded = np.add.reduceat((a["volume"] > 0).astype(int), dstarts)
         self.day_first_min = dict(zip(days, dstarts.tolist()))
         self.day_bounds = dict(zip(days, zip(dstarts.tolist(), dends.tolist())))
         self.day_close = dict(zip(days, a["close"][dends - 1].tolist()))
-        complete = (rows >= self.cfg["min_rows"]) & (traded >= 1)
+        complete = (minutes >= self.cfg["min_rows"]) & (traded >= 1)          # min_rows — минут, не строк
         self.level = {}
         prev = None
         for d, lo, ok in zip(days, dlow.tolist(), complete.tolist()):

@@ -18,6 +18,10 @@ Lock (GPT review 13.10, Q4): every 1m append and every 1h resample runs under th
 <frozen_dir>/.ingest.lock (fcntl.flock LOCK_EX) — the same lock research/weex/repair_frozen_1m.py holds over
 read -> verify -> replace. Under the lock the CSV path is reopened and its last ts re-read, so an append never lands
 in a file that repair has just replaced, and rows already present are not appended twice.
+
+1h (GPT review 15.10, §1 P2): an hour is written only from exactly 60 distinct minutes hour + k*60000, k=0..59, each
+a valid OHLCV — the same validator (scripts/ohlc_grid.py) repair_frozen_1m uses. An hour old enough but incomplete
+(59 minutes, duplicate + missing, off-grid stamp, invalid OHLC) is not written; it is counted in hours_rejected.
 """
 from __future__ import annotations
 
@@ -46,6 +50,11 @@ if hasattr(sys.stdout, "buffer") and sys.stdout.encoding and \
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))      # append, not insert: ROOT's folders must not shadow stdlib/site-packages
+
+from scripts.ohlc_grid import HOUR, full_hours, hour_bar  # noqa: E402  (shared with repair_frozen_1m)
+
 FROZEN_DIR = ROOT / "backtests" / "frozen"
 LOG_PATH = ROOT / "docs" / "STATE" / "ohlcv_ingest_log.jsonl"
 
@@ -387,32 +396,28 @@ def _fill_1h_from_1m(symbol: str, frozen_dir: Path, dry_run: bool) -> dict:
              _ms_to_dt(resample_from_ms).isoformat())
 
     df_1m = pd.read_csv(csv_1m, dtype={"ts": "int64"})
-    df_new = df_1m[df_1m["ts"] >= resample_from_ms].copy()
+    df_new = df_1m[df_1m["ts"] >= resample_from_ms]
     if df_new.empty:
         return {"skipped": False, "hours_added": 0, "note": "no new 1m data"}
 
-    df_new.index = pd.to_datetime(df_new["ts"], unit="ms", utc=True)
-    df_1h_new = df_new[["open", "high", "low", "close", "volume"]].resample("1h").agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum",
-    }).dropna(subset=["open"])
-    df_1h_new = df_1h_new[~df_1h_new.index.isna()]
+    # exact UTC grid (shared validator): 60 distinct minutes hour+k*60000, valid OHLCV; garbage -> NaN -> invalid
+    ohlcv = df_new[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors="coerce")
+    full, rejected = full_hours(zip(df_new["ts"].tolist(), ohlcv.to_numpy(dtype=float).tolist()), resample_from_ms)
 
-    # Filter: only complete hours (last bar of 1h may be incomplete)
-    cutoff_dt = _ms_to_dt(last_1m_ts - 3_600_000)
-    df_1h_new = df_1h_new[df_1h_new.index.tz_convert("UTC") <= pd.Timestamp(cutoff_dt)]
+    # age: an hour is closed once a minute >= hour + 1h exists (the last 1h may still be filling)
+    cutoff_ms = last_1m_ts - HOUR
+    ready = [h for h in sorted(full) if h <= cutoff_ms]
+    rejected = [h for h in rejected if h <= cutoff_ms]
+    if rejected:
+        log.warning("%s 1h: %d hour(s) without exactly 60 valid minutes not written (first %s)",
+                    symbol, len(rejected), _ms_to_dt(rejected[0]).isoformat())
+    rej_info = {"hours_rejected": len(rejected),
+                "rejected_sample": [_ms_to_dt(h).isoformat() for h in rejected[:5]]}
 
     if dry_run:
-        return {"dry_run": True, "hours_to_add": len(df_1h_new)}
+        return {"dry_run": True, "hours_to_add": len(ready), **rej_info}
 
-    rows = [
-        [int(idx.timestamp() * 1000), row["open"], row["high"],
-         row["low"], row["close"], row["volume"]]
-        for idx, row in df_1h_new.iterrows()
-    ]
+    rows = [[h, *hour_bar(full[h])] for h in ready]
     if rows:
         if _1h_new_file:
             with open(csv_1h, "w", newline="", encoding="utf-8") as f:
@@ -424,7 +429,7 @@ def _fill_1h_from_1m(symbol: str, frozen_dir: Path, dry_run: bool) -> dict:
             _append_rows_to_csv(csv_1h, rows)
             log.info("Appended %d 1h rows to %s", len(rows), csv_1h)
 
-    return {"hours_added": len(rows), "last_1h_ts": _ms_to_dt(rows[-1][0]).isoformat() if rows else ""}
+    return {"hours_added": len(rows), "last_1h_ts": _ms_to_dt(rows[-1][0]).isoformat() if rows else "", **rej_info}
 
 
 def _write_log(entry: dict) -> None:

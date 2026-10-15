@@ -77,7 +77,9 @@ def test_signal_insufficient_data() -> None:
     assert sig is None
 
 
-def test_signal_buy_sell_levels_correct() -> None:
+def test_signal_buy_sell_levels_correct(monkeypatch) -> None:
+    # изоляция от живого state: свежие VAL/VAH рядом с ценой теста подменяют симметричные уровни
+    monkeypatch.setattr("services.manual_levels.get_levels", lambda *a, **k: None)
     np.random.seed(7)
     prices = 81500 + np.random.uniform(-20, 20, 240)
     df = _make_window(prices.tolist())

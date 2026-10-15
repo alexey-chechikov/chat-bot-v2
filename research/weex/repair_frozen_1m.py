@@ -24,14 +24,13 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import shutil
 import sys
 import tempfile
 import time
 import urllib.request
-from collections import Counter, defaultdict
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,10 +41,15 @@ except ImportError:                                    # Windows: межпроц
     fcntl = None
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))                         # append: папки корня не затеняют stdlib/site-packages
+
+# полный час — общий валидатор с производителем scripts/ohlcv_ingest.py (ревью GPT 15.10, §1 P2)
+from scripts.ohlc_grid import full_hours, hour_bar  # noqa: E402
+
 FROZEN = ROOT / "backtests" / "frozen"
 API = "https://api.binance.com/api/v3/klines"
 MIN = 60_000
-HOUR = 3_600_000
 EOL = b"\r\n"                                          # как пишет ingest (csv.writer по умолчанию)
 LOCK_NAME = ".ingest.lock"                             # общий с scripts/ohlcv_ingest.py — имя не менять в одном месте
 
@@ -214,29 +218,12 @@ def repair(symbol: str, from_ms: int, apply: bool) -> None:
         fix_hours(symbol, body, from_ms, True)
 
 
-def _valid_bar(v: tuple) -> bool:
-    o, h, l, c, vol = v
-    return (all(math.isfinite(x) for x in v) and 0 < l <= min(o, c) and h >= max(o, c) and vol >= 0)
-
-
 def _full_hours(body_1m: list[bytes], from_ms: int) -> tuple[dict[int, list[tuple]], int]:
     """Полные часы: ровно 60 разных UTC-меток hour + k·60000, k=0..59, без дублей, с валидными OHLCV (ревью GPT
-    13.10: 60 строк с дублем минуты 0 и без минуты 17 принимались за полный час). Бары — в порядке времени."""
-    by_hour: dict[int, dict[int, tuple]] = defaultdict(dict)
-    dup: set[int] = set()
-    for line in body_1m:
-        ts = int(line.split(b",", 1)[0])
-        if ts >= from_ms:
-            h = ts // HOUR * HOUR
-            if ts in by_hour[h]:
-                dup.add(h)
-            by_hour[h][ts] = vals(line)
-    full = {}
-    for h, m in by_hour.items():
-        grid = [h + k * MIN for k in range(60)]
-        if h not in dup and len(m) == 60 and all(t in m for t in grid) and all(_valid_bar(m[t]) for t in grid):
-            full[h] = [m[t] for t in grid]
-    return full, len(by_hour) - len(full)
+    13.10: 60 строк с дублем минуты 0 и без минуты 17 принимались за полный час). Бары — в порядке времени.
+    Проверка — scripts/ohlc_grid.full_hours, та же, что у производителя часов (ревью GPT 15.10)."""
+    full, rejected = full_hours(((int(line.split(b",", 1)[0]), vals(line)) for line in body_1m), from_ms)
+    return full, len(rejected)
 
 
 def fix_hours(symbol: str, body_1m: list[bytes], from_ms: int, apply: bool) -> None:
@@ -256,7 +243,7 @@ def fix_hours(symbol: str, body_1m: list[bytes], from_ms: int, apply: bool) -> N
         m = full.get(h)
         if m is None:                                        # неполный/с дублями/битый час — не трогаем
             continue
-        v = (m[0][0], max(x[1] for x in m), min(x[2] for x in m), m[-1][3], round(sum(x[4] for x in m), 8))
+        v = hour_bar(m)                                      # тот же OHLCV часа, что пишет производитель
         if not same(vals(line), v):
             diff.append(h)
             lines[i] = fmt(h, v)
