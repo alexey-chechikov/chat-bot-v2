@@ -157,8 +157,10 @@ class Runner:
             logger.info("weex_grid.mode grid=%s dry=%s enabled=%s", name, dry, cfg["enabled"])
             self.mode[name] = mode
         sym = cfg["symbol"]
+        # name — знак ордеров сетки проверяется на совпадение с другими сетками (совпал/негоден → GridHalt, ни одного
+        # запроса к бирже от этой сетки)
         grid = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path, sigma_fn=lambda: sigma24(sym),
-                       send_fn=self.send)
+                       send_fn=self.send, name=name)
         grid.tick()
 
     def _live_leftovers(self, name: str, cfg: dict) -> None:
@@ -176,7 +178,7 @@ class Runner:
                    for k in ("entry", "lots", "pending", "strays", "fee_book")):
             return                            # живых остатков нет (сироты и недосверенные комиссии — тоже остатки)
         live_cfg = {**cfg, "dry_run": False, "enabled": False}
-        eg.Grid(self._client(), live_cfg, state_path=st_path, journal_path=jr_path, send_fn=self.send).tick()
+        eg.Grid(self._client(), live_cfg, state_path=st_path, journal_path=jr_path, send_fn=self.send, name=name).tick()
 
     def _send(self, text: str) -> bool:
         """True — доставлено. Интервал «раз в 30 мин» считается от УДАЧНОЙ доставки (15.10, разбор GPT P2: метка
@@ -213,7 +215,7 @@ def card(name: str | None = None) -> str:
             st_path, jr_path = run_files(n, bool(cfg["dry_run"]))
             sym = cfg["symbol"]
             client = eg.DryExchange(lambda: real.book(sym), symbol=sym) if cfg["dry_run"] else real
-            g = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path)
+            g = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path, name=n)
             out.append(g.card())
         except eg.GridHalt as exc:
             out.append(f"🛑 СЕТКА WEEX {n} — ОСТАНОВЛЕНА: {exc}")
@@ -256,7 +258,7 @@ def _account_line(client) -> str:
         for x in r.get("items", []):
             by_sym[x.get("symbol")] = by_sym.get(x.get("symbol"), 0.0) + float(x.get("income") or 0)
         if by_sym:
-            lines.append("фандинг (вся позиция символа, вкл. ручные): " +
+            lines.append("фандинг (вся позиция символа: все сетки символа и ручные): " +
                          ", ".join(f"{k} ${v:+.2f}" for k, v in by_sym.items()))
     except Exception:                                           # noqa: BLE001
         logger.exception("weex_card.funding_failed")
@@ -276,7 +278,41 @@ LIMITS = {"target_pct": (0.05, 5.0), "step_pct": (0.05, 5.0), "max_notional_usd"
           "stress_budget_frac": (0.0, 1.0)}          # объём ордера — по qty_step/qty_max сетки
 NAMES = {"btc": "BTC", "бтк": "BTC", "биток": "BTC", "биткоин": "BTC",
          "eth": "ETH", "эфир": "ETH", "эth": "ETH",
-         "xau": "XAU", "gold": "XAU", "золото": "XAU", "голд": "XAU"}
+         "xau": "XAU", "gold": "XAU", "золото": "XAU", "голд": "XAU",
+         # 15.10: три сетки BTCUSDT для сравнения (шаг 0.1, цели 0.34/0.49/0.89) — /weex b34 live|start|stop|set …
+         "b34": "B34", "b49": "B49", "b89": "B89"}
+
+
+def _label(name: str, cfg: dict) -> str:
+    return eg.grid_label(name, cfg["symbol"])
+
+
+def _cmd(name: str) -> str:
+    """Начало команды сетки: «/weex » у BTC (по умолчанию), «/weex eth » и т.п. у остальных."""
+    return "/weex " + ("" if name == "BTC" else name.lower() + " ")
+
+
+def split_message(text: str, limit: int = 4096) -> list[str]:
+    """Текст для Telegram кусками не длиннее limit (предел сообщения): режется по пустым строкам между карточками, затем
+    по строкам, в крайнем случае — по limit знаков. 15.10: шесть сеток + тренд + счёт не влезали в 4096 и обрезались —
+    пропадала строка общего потолка."""
+    tokens: list[tuple[str, str]] = []
+    for block in text.split("\n\n"):
+        pieces = [block] if len(block) <= limit else [ln[i:i + limit] for ln in block.split("\n")
+                                                       for i in range(0, max(len(ln), 1), limit)]
+        tokens += [("\n\n" if i == 0 else "\n", p) for i, p in enumerate(pieces)]
+    parts: list[str] = []
+    cur: str | None = None
+    for sep, piece in tokens:
+        if cur is None:
+            cur = piece
+        elif len(cur) + len(sep) + len(piece) <= limit:
+            cur += sep + piece
+        else:
+            parts.append(cur)
+            cur = piece
+    parts.append(cur or "")
+    return parts
 
 
 def set_params(arg: str, price_fn, name: str = "BTC") -> str:
@@ -286,7 +322,7 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
     cfg = grid_config(name)
     coin = cfg["symbol"].replace("USDT", "")
     if len(toks) < 2 or len(toks) % 2:
-        return (f"Формат: /weex {'' if name == 'BTC' else name.lower() + ' '}set цель 0.21 ордер 100 "
+        return (f"Формат: {_cmd(name)}set цель 0.21 ордер 100 "
                 f"[шаг 0.2] [потолок 1000] [стоп 30] [макс 50]\nордер — в долларах, qty — в {coin}.")
     qstep, qmax = float(cfg["qty_step"]), float(cfg["qty_max"])
     qdec = max(0, -int(math.floor(math.log10(qstep) + 1e-9)))
@@ -315,7 +351,7 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
     n_cap = int(float(cfg["max_notional_usd"]) // per) if per > 0 else 0
     stop = float(cfg["daily_loss_stop_usd"])
     stress = float(cfg["stress_budget_frac"])
-    return (f"✅ Сетка WEEX {cfg['symbol']}: шаг {cfg['step_pct']}%, цель {cfg['target_pct']}%, ордер {cfg['order_qty']} {coin} "
+    return (f"✅ Сетка WEEX {_label(name, cfg)}: шаг {cfg['step_pct']}%, цель {cfg['target_pct']}%, ордер {cfg['order_qty']} {coin} "
             f"(≈${per:,.0f}). Потолок ${float(cfg['max_notional_usd']):,.0f} на сторону → до "
             f"{min(n_cap, int(cfg['max_lots_per_side']))} ордеров; "
             f"стоп дня {'ВЫКЛ' if stop <= 0 else f'${stop:,.0f}'}; стресс-бюджет {'ВЫКЛ' if stress <= 0 else f'{stress:.0%}'}.\n"
@@ -368,7 +404,7 @@ def _command(arg: str) -> str:
         return card(name)
     name = name or "BTC"
     cfg = grid_config(name)
-    tag = f"Сетка WEEX {cfg['symbol']}"
+    tag = f"Сетка WEEX {_label(name, cfg)}"
     if arg in ("start", "старт"):
         cfg["enabled"] = True
         for dry in (False, True):
@@ -390,7 +426,7 @@ def _command(arg: str) -> str:
     if arg in ("live", "живая"):
         cfg["dry_run"] = False
         save_grid_config(cfg, name)
-        how = "" if cfg["enabled"] else f" (включить — /weex {'' if name == 'BTC' else name.lower() + ' '}start)"
+        how = "" if cfg["enabled"] else f" (включить — {_cmd(name)}start)"
         return f"🔴 {tag} переведена в ЖИВОЙ режим{how}."
     if arg in ("dry", "холостой"):
         cfg["dry_run"] = True

@@ -38,6 +38,8 @@ CODE = [
     ("Тесты: разбор живого режима (L1–L8)", "tests/services/weex_grid/test_weex_regime_gpt.py"),
     ("Тесты: передача стороны и ручной шорт оператора", "tests/services/weex_grid/test_weex_release.py"),
     ("Тесты: общий потолок", "tests/services/weex_grid/test_weex_portfolio.py"),
+    ("Тесты: несколько сеток на одном символе (BTC + B34/B49/B89)", "tests/services/weex_grid/test_weex_multigrid.py"),
+    ("Тесты: проверочные скрипты при нескольких сетках на символе", "tests/research_weex/test_rw_multigrid.py"),
     ("Тесты: трендовый бот", "tests/services/weex_trend/test_weex_trend.py"),
     ("Быстрый прогон для развёрток", "research/weex/fast_grid.py"),
     ("Сетка по режиму SMA100 (бэктест, контроль по отрезкам)", "research/weex/regime_grid.py"),

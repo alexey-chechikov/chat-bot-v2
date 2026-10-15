@@ -2658,13 +2658,15 @@ class TelegramBotApp:
                 return
             arg = (message.text or '').partition(' ')[2].strip()
             try:
-                from services.weex_grid.loop import command
+                from services.weex_grid.loop import command, split_message
                 text = command(arg)
             except Exception as exc:
                 logger.exception('handle_weex.failed')
                 self.bot.send_message(chat_id, f'❌ /weex failed: {exc}')
                 return
-            self.bot.send_message(chat_id, text[:4096])
+            # 2026-10-15: шесть сеток + тренд + счёт длиннее 4096 — частями по карточкам, без обрезки
+            for part in split_message(text):
+                self.bot.send_message(chat_id, part)
 
         # ── /scalp — место под помощника ручного интрадей-скальпинга (WEEX,
         # план оператора 02.10.2026). Пока заготовка: что будет и что нужно.

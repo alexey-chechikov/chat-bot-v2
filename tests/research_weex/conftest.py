@@ -5,6 +5,7 @@ import socket
 import pytest
 
 import services.weex_api.client as wc
+from research.weex import weex_monitor_common as mc
 from services.weex_grid import engine as eg
 
 
@@ -24,3 +25,4 @@ def _offline(monkeypatch):
     monkeypatch.setattr(wc, "WeexClient", _NoRealClient)
     monkeypatch.setattr(eg, "_REGIME_CACHE", {})
     monkeypatch.setattr(eg, "_fetch_daily", _no_network)
+    monkeypatch.setattr(mc, "PACE_SEC", 0.0)                # пауза между запросами — только для настоящей биржи

@@ -7,6 +7,11 @@
 Целостность (разбор GPT по коду 65eae029, 10.10): битый конфиг или учёт НЕ подменяются
 значениями по умолчанию (иначе сетка золота торговала бы конфигом BTC) — сетка встаёт
 (GridHalt) до ручного восстановления; учёт помнит свой символ.
+
+Несколько сеток на одном символе (15.10, сравнение B34/B49/B89 рядом с живой BTC): у каждой сетки свой знак в
+clientOrderId (cid_tag, по умолчанию — первая буква символа, прежний формат b7gB…/b7gE…). Своими сетка считает только
+ордера с префиксом b7g+свой знак — чужие (соседней сетки и ручные) не усыновляет, не снимает и не записывает в лишние.
+Позиция стороны на бирже у сеток одного символа общая (хедж-режим); каждая сетка закрывает только объём своих лотов.
 """
 from __future__ import annotations
 
@@ -14,6 +19,7 @@ import json
 import logging
 import math
 import os
+import re
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -27,6 +33,7 @@ CONFIG = ROOT / "state" / "weex_grid_config.json"
 STATE = ROOT / "state" / "weex_grid_state.json"
 JOURNAL = ROOT / "state" / "weex_grid_journal.jsonl"
 PREFIX = "b7g"
+TAG_RE = re.compile(r"[A-Za-z0-9]")      # знак сетки в clientOrderId: ровно один символ ASCII-буква/цифра
 DIR = {"LONG": 1, "SHORT": -1}
 LIVE = {"NEW", "PENDING", "CANCELING", "UNTRIGGERED", "UNACTIVATED", "PARTIALLY_FILLED"}   # может ещё исполниться
 TERMINAL = {"FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED"}   # подтверждённо больше не исполнится
@@ -54,8 +61,17 @@ DEFAULT = {
 }
 # Сетки по монетам. BTC — исходные файлы (weex_grid_config.json …), остальные — weex_grid_<имя>_*.
 # Новая сетка создаётся ВЫКЛЮЧЕННОЙ и ХОЛОСТОЙ: живой режим включает только оператор (/weex eth live).
-GRIDS = ("BTC", "ETH", "XAU")
+# B34/B49/B89 (15.10, оператор: «запусти 3х ботов и сравнивай неделю») — три лонг-сетки BTCUSDT шаг 0.1%, ордер ≈$100,
+# цели 0.34/0.49/0.89%, тот же режим SMA100, что у живой BTC; на одном символе с ней — свои знаки ордеров 3/4/8.
+# Шаг 0.1 на истории хуже (CLAUDE.md, «мелкий шаг 0.1–0.15 хуже при любой комиссии») — это живая проверка малым размером.
+GRIDS = ("BTC", "ETH", "XAU", "B34", "B49", "B89")
+_BTC_CMP = {"symbol": "BTCUSDT", "sides": ["LONG"], "regime_sma": 100, "step_pct": 0.1, "order_qty": "0.0012",
+            "qty_step": 0.0001, "price_tick": 0.1, "qty_max": 0.01, "max_lots_per_side": 15, "max_notional_usd": 1500.0,
+            "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0, "trail_min_move_pct": 0.05, "poll_sec": 10}
 TEMPLATES = {
+    "B34": {**_BTC_CMP, "cid_tag": "3", "target_pct": 0.34},
+    "B49": {**_BTC_CMP, "cid_tag": "4", "target_pct": 0.49},
+    "B89": {**_BTC_CMP, "cid_tag": "8", "target_pct": 0.89},
     # 09.10 развёртка 10 мес XAUUSDT (лонг+шорт, $100, потолок $4 000): шаг 0.75 итог +$349 — но «+$116 во
     # второй половине» был второй старт без старого мешка. После исправления методики (ордер 0.023, 50
     # ордеров, непрерывные половины) итог +$270.76, первая половина +$304.99, ВТОРАЯ −$34.23 — проверку по
@@ -91,6 +107,14 @@ ISSUE_ALERT_EVERY = 1800.0
 # 15.10, разбор GPT P2: недоставленное сообщение эскалации ждёт в alert_outbox учёта и повторяется через 1, 2, 5, затем
 # каждые 10 мин до первой удачной доставки; часовой/получасовой интервал считается от удачной доставки, не от попытки
 ALERT_RETRY = (60.0, 120.0, 300.0, 600.0)
+# 15.10: несколько сеток на одном символе — окно ±10 мин вокруг ордера с потерянным ответом плотное. История WEEX
+# параметр page ИГНОРИРУЕТ (любая страница = те же новейшие 100; окно startTime/endTime работает — проверено на счёте
+# 15.10), поэтому повтор страницы → деление окна пополам; сделки — тоже делением окна (предел ответа 100). Не больше
+# стольких запросов на один поиск; не хватило — поиск неполон («не дошёл» не доказан, намерение остаётся).
+HISTORY_SPLIT_BUDGET = 8
+TRADES_SPLIT_BUDGET = 8
+TRADES_DETAILS = 20      # деталей незнакомых ордеров за один поиск по сделкам (прочитанные чужие запоминаются в намерении)
+REGIME_RETRY = 30.0      # с: после сбоя дневок режим не перезапрашивается (4 сетки BTC — не 4 таймаута по 15 с за проход)
 
 
 class GridHalt(RuntimeError):
@@ -103,6 +127,68 @@ class ConfigError(GridHalt):
 
 class StateCorrupt(GridHalt):
     pass
+
+
+def cid_tag(cfg: dict) -> str:
+    """Знак сетки в clientOrderId (b7g + знак + сторона + вид + время + счётчик). Своими сетка считает только ордера с
+    префиксом b7g+знак (15.10: на одном символе несколько сеток — иначе сетка усыновляла бы и снимала ордера соседней).
+    Ключа cid_tag в конфиге нет — прежний формат: первая буква символа (BTC 'B', ETH 'E', XAU 'X'), живые сетки владеют
+    своими ордерами и учётом как раньше. Ключ есть, но не один знак [A-Za-z0-9] (в т.ч. null, '', 'B3') — ConfigError:
+    сетка встаёт, знак по умолчанию НЕ подставляется."""
+    if "cid_tag" not in cfg:
+        sym = str(cfg.get("symbol") or "")
+        if not sym or not TAG_RE.fullmatch(sym[0]):
+            raise ConfigError(f"символ {sym!r}: нет знака сетки для clientOrderId")
+        return sym[0]
+    tag = cfg["cid_tag"]
+    if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
+        raise ConfigError(f"cid_tag {tag!r} негоден: нужен ровно один знак A–Z, a–z или 0–9")
+    return tag
+
+
+def grid_label(name: str | None, symbol: str) -> str:
+    """Имя сетки в сообщениях и карточке: у прежних сеток (BTC, ETH, XAU) — символ, как раньше; у сетки со своим именем
+    на символе другой монеты (B34 на BTCUSDT) — «B34 BTCUSDT», иначе четыре сетки BTC в сообщениях не различить."""
+    return symbol if not name or str(symbol).upper().startswith(name.upper()) else f"{name} {symbol}"
+
+
+def peek_config(name: str) -> dict | None:
+    """Конфиг сетки ТОЛЬКО для чтения (файл не создаётся): нет файла — шаблон с умолчаниями; файл не читается или не
+    объект — None (такая сетка сама встанет при загрузке: ConfigError)."""
+    path = grid_files(name)[0]
+    base = {**DEFAULT, **TEMPLATES.get(name, {})}
+    if not path.exists():
+        return dict(base)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {**base, **raw} if isinstance(raw, dict) else None
+
+
+def grid_tags(names=None) -> dict[str, str | None]:
+    """{сетка: знак clientOrderId} по файлам конфигов, только чтение; None — конфиг не читается или знак негоден."""
+    out: dict[str, str | None] = {}
+    for n in (GRIDS if names is None else names):
+        cfg = peek_config(n)
+        try:
+            out[n] = cid_tag(cfg) if cfg is not None else None
+        except ConfigError:
+            out[n] = None
+    return out
+
+
+def check_tag(name: str, cfg: dict) -> str:
+    """Знак сетки name годен и не совпадает (без учёта регистра) со знаком другой сетки из GRIDS — иначе ConfigError:
+    сетка не торгует (две сетки с одним знаком усыновляли бы и снимали ордера друг друга). Совпали — встают ОБЕ: каждая
+    видит совпадение со своей стороны. Знаки других сеток — из их файлов конфигов, только чтение; сетка с нечитаемым
+    конфигом или негодным знаком в сравнение не входит — она стоит сама."""
+    tag = cid_tag(cfg)
+    clash = sorted(n for n, t in grid_tags().items() if n != name and t is not None and t.upper() == tag.upper())
+    if clash:
+        raise ConfigError(f"знак ордеров «{tag}» сетки {name} совпадает со знаком сетки {', '.join(clash)} — сетки "
+                          f"перепутали бы ордера друг друга; нужен свой cid_tag (одна буква или цифра)")
+    return tag
 
 
 def atomic_write(path: Path, text: str) -> None:
@@ -177,7 +263,7 @@ def new_side_state() -> dict:
             "strays": [], "fee_book": {}, "order_fills": {}, "transferred_mtm": 0.0, "transfers": []}
 
 
-_REGIME_CACHE: dict[tuple, tuple] = {}
+_REGIME_CACHE: dict[tuple, object] = {}    # (символ, дни) → (день, решение); ("fail", символ, дни) → время сбоя
 
 
 def _fetch_daily(symbol: str, limit: int) -> list:
@@ -193,13 +279,18 @@ def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=
     Решение привязано к дню: в новых сутках — новый запрос (12.10, разбор GPT L6: кэш на 30 мин пускал вчерашнее
     решение после полуночи). Данные проверяются: сортировка по времени, без повторов и пропусков дней, последняя
     закрытая свеча — вчерашняя, цены конечные и положительные. Сбой/устаревшие/битые данные → None (новых входов
-    нет, нового закрытия по режиму нет; уже начатое закрытие доводится)."""
+    нет, нового закрытия по режиму нет; уже начатое закрытие доводится).
+    Кэш процесса общий для всех сеток символа: 4 сетки BTC с SMA100 — один запрос дневок в сутки. После сбоя повтор не
+    раньше REGIME_RETRY (15.10: иначе каждая из 4 сеток BTC ждала бы свой таймаут 15 с в каждом проходе)."""
     now = now or time.time()
     today = int(now // 86400)
     key = (symbol, sma_days)
     c = _REGIME_CACHE.get(key)
     if c and c[0] == today:
         return c[1]
+    failed = _REGIME_CACHE.get(("fail",) + key)
+    if failed is not None and 0 <= now - float(failed) < REGIME_RETRY:
+        return None
     try:
         rows = (fetch or _fetch_daily)(symbol, sma_days + 5)
         bars = {int(r[0]) // 86_400_000: r for r in rows if int(r[6]) < now * 1000}   # день → закрытая свеча
@@ -215,17 +306,26 @@ def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=
         up = closes[-1] > sum(closes) / sma_days
     except Exception:                                           # noqa: BLE001
         logger.exception("weex_grid.regime_failed %s", symbol)
+        _REGIME_CACHE[("fail",) + key] = now
         return None
+    _REGIME_CACHE.pop(("fail",) + key, None)
     _REGIME_CACHE[key] = (today, up)
     return up
 
 
 class Grid:
     def __init__(self, client, cfg: dict | None = None, state_path: Path = STATE,
-                 journal_path: Path = JOURNAL, sigma_fn=None, send_fn=None, now_fn=time.time, regime_fn=None):
+                 journal_path: Path = JOURNAL, sigma_fn=None, send_fn=None, now_fn=time.time, regime_fn=None,
+                 name: str | None = None):
         self.c = client
         self.regime_fn = regime_fn or regime_up
         self.cfg = cfg or load_config()
+        # знак ордеров сетки (15.10): с именем (цикл, карточка) — ещё и проверка, что знак не занят другой сеткой GRIDS;
+        # негодный/занятый знак — ConfigError до чтения учёта и до любого запроса к бирже
+        self.name = name
+        self.tag = check_tag(name, self.cfg) if name else cid_tag(self.cfg)
+        self.own = PREFIX + self.tag                 # префикс СВОИХ ордеров: b7g + знак сетки
+        self.label = grid_label(name, self.cfg["symbol"])
         self.state_path = Path(state_path)
         self.journal_path = Path(journal_path)
         self.sigma_fn = sigma_fn
@@ -359,10 +459,11 @@ class Grid:
 
     # ---------- вспомогательное
     def _cid(self, side: str, kind: str) -> str:
-        """b7g + буква символа + сторона + вид + время + счётчик (уникально между сетками)."""
+        """b7g + знак сетки + сторона + вид + время + счётчик (уникально между сетками). Знак по умолчанию — буква
+        символа: у BTC/ETH/XAU формат прежний (b7gBL…, b7gEL…)."""
         s = self.st[side]
         s["seq"] += 1
-        return f"{PREFIX}{self.cfg['symbol'][0]}{side[0]}{kind}{int(self.now())}{s['seq']}"
+        return f"{self.own}{side[0]}{kind}{int(self.now())}{s['seq']}"
 
     def _qty_str(self, q: float) -> str:
         step = float(self.cfg.get("qty_step") or 0.0001)
@@ -612,12 +713,14 @@ class Grid:
         """Свой ордер по clientOrderId: открытые, затем история символа в окне ±half секунд вокруг момента
         намерения по часам биржи, постранично. Второе значение — поиск ПОЛНЫЙ: False, если все 10
         страниц заполнены (неполный поиск не доказывает, что ордер не дошёл, — такой pending не истекает).
-        Негодная страница истории (не список ордеров) — WeexIncomplete, а не «не нашёлся» (15.10, разбор GPT P1)."""
+        Негодная страница истории (не список ордеров) — WeexIncomplete, а не «не нашёлся» (15.10, разбор GPT P1).
+        Страница повторяет предыдущую (WEEX игнорирует page, 15.10) — дальше делением окна пополам (_history_window)."""
         o = next((x for x in self.open.values() if x.get("clientOrderId") == cid), None)
         if o is not None:
             return o, True
         start_ms = int((since - half) * 1000)
         end_ms = int((since + half) * 1000)
+        prev: set[str] = set()
         for page in range(10):
             chunk = self._orders_list(self.c.order_history(self.cfg["symbol"], limit=100, page=page,
                                                            start_ms=start_ms, end_ms=end_ms),
@@ -627,30 +730,71 @@ class Grid:
                 return o, True
             if len(chunk) < 100:
                 return None, True
+            ids = {str(x["orderId"]) for x in chunk}
+            if ids & prev:                                      # биржа не листает — та же страница ещё раз
+                return self._history_window(cid, start_ms, end_ms, int(since * 1000), [HISTORY_SPLIT_BUDGET], split=True)
+            prev = ids
         return None, False
 
-    def _find_by_trades(self, cid: str, srv: float) -> tuple[dict | None, bool]:
-        """Свой ордер по сделкам окна ±10 мин → деталь каждого незнакомого ордера → clientOrderId (исполненный ордер,
-        которого нет в открытых, а история его не показала, 12.10 L2). Второе значение — поиск ПОЛНЫЙ: сделки прочитаны
-        списком, их меньше 100, незнакомых ордеров не больше 20 и деталь каждого годна; иначе «не нашёлся» не доказан."""
-        try:
-            trades = self.c.user_trades(self.cfg["symbol"], start_ms=int((srv - 600) * 1000),
-                                        end_ms=int((srv + 600) * 1000))
-        except Exception as exc:                                # noqa: BLE001
-            logger.exception("weex_grid.window_trades_failed cid=%s", cid)
-            self._issue(f"сделки окна ордера {cid} не прочитаны ({type(exc).__name__}: {exc})")
+    def _history_window(self, cid: str, a: int, b: int, near: int, budget: list[int],
+                        split: bool = False) -> tuple[dict | None, bool]:
+        """Поиск по clientOrderId в окне истории [a, b] мс без листания: ответ меньше 100 — окно прочитано целиком; ровно
+        100 — окно делится пополам (до 1 с), сначала половина ближе к моменту намерения near. Всего не больше budget[0]
+        запросов; не хватило — (None, False). split — окно уже известно как полное (100), сразу делить."""
+        if not split:
+            if budget[0] <= 0:
+                return None, False
+            budget[0] -= 1
+            chunk = self._orders_list(self.c.order_history(self.cfg["symbol"], limit=100, page=0, start_ms=a, end_ms=b),
+                                      f"история ордеров {self.cfg['symbol']}, окно {a}..{b}")
+            o = next((x for x in chunk if x.get("clientOrderId") == cid), None)
+            if o is not None:
+                return o, True
+            if len(chunk) < 100:
+                return None, True
+        if b - a <= 1000:
             return None, False
-        if not isinstance(trades, list) or not all(isinstance(t, dict) for t in trades):
-            self._issue(f"сделки окна ордера {cid}: ответ не список сделок ({str(trades)[:120]})")
+        m = (a + b) // 2
+        halves = sorted([(a, m), (m + 1, b)], key=lambda w: 0 if w[0] <= near <= w[1] else min(abs(near - w[0]),
+                                                                                              abs(near - w[1])))
+        complete = True
+        for lo, hi in halves:
+            o, ok = self._history_window(cid, lo, hi, near, budget)
+            if o is not None:
+                return o, True
+            complete = complete and ok
+        return None, complete
+
+    def _find_by_trades(self, cid: str, srv: float, side: str | None = None, want: str | None = None,
+                        book: dict | None = None) -> tuple[dict | None, bool]:
+        """Свой ордер по сделкам окна ±10 мин → деталь каждого незнакомого ордера → clientOrderId (исполненный ордер,
+        которого нет в открытых, а история его не показала, 12.10 L2). Второе значение — поиск ПОЛНЫЙ: сделки окна
+        прочитаны целиком (_window_trades), незнакомых ордеров не больше TRADES_DETAILS и деталь каждого годна; иначе
+        «не нашёлся» не доказан.
+        15.10 (несколько сеток на символе — в окне десятки ордеров соседей): side/want — сторона позиции и направление
+        (BUY/SELL) искомого ордера; сделка другой стороны или направления — не наш ордер, деталь не спрашивается (поле не
+        пришло или значение незнакомое — не отсеиваем; годная деталь без clientOrderId — поиск неполон, «не дошёл» не
+        доказан). book — {orderId: clientOrderId} ордеров окна, чья годная деталь уже прочитана (хранится в
+        намерении на диске): известный чужой ордер не спрашивается снова, и поиск продвигается от попытки к попытке, а не
+        упирается каждый раз в те же TRADES_DETAILS ордеров."""
+        trades, complete = self._window_trades(cid, int((srv - 600) * 1000), int((srv + 600) * 1000))
+        if trades is None:
             return None, False
         known = self._referenced("LONG") | self._referenced("SHORT")
+        book = {} if book is None else book
         seen: set[str] = set()
-        complete = len(trades) < 100
         for t in trades:
             oid = str(t.get("orderId") or "")
-            if not oid or oid in known or oid in seen:
+            if not oid or oid in known or oid in seen or oid in book:
                 continue
-            if len(seen) >= 20:
+            # отсев — только по ИЗВЕСТНЫМ значениям полей (LONG/SHORT, BUY/SELL); поле не пришло или значение
+            # незнакомое — сделку не отсеиваем (её ордер мог быть нашим)
+            ps, sd = str(t.get("positionSide") or "").upper(), str(t.get("side") or "").upper()
+            if side and ps in DIR and ps != side:
+                continue
+            if want and sd in ("BUY", "SELL") and sd != want:
+                continue
+            if len(seen) >= TRADES_DETAILS:
                 complete = False
                 break
             seen.add(oid)
@@ -658,9 +802,52 @@ class Grid:
             if kind == "unknown":
                 complete = False
                 continue
-            if info.get("clientOrderId") == cid:
+            got = info.get("clientOrderId")
+            if got == cid:
                 return info, True
+            if not isinstance(got, str) or not got:
+                complete = False                                # деталь без clientOrderId — чей ордер, неясно
+                continue
+            book[oid] = got[:48]
         return None, complete
+
+    def _window_trades(self, cid: str, a: int, b: int) -> tuple[list | None, bool]:
+        """Сделки символа в окне [a, b] мс. Ответ — не больше 100 сделок: окно со 100 делится пополам (до 1 с), всего не
+        больше TRADES_SPLIT_BUDGET запросов. (None, False) — ответ не прочитан или не список сделок; иначе (сделки без
+        повторов, выборка полна)."""
+        budget = [TRADES_SPLIT_BUDGET]
+        rows: dict[str, dict] = {}
+        complete = True
+
+        def get(lo: int, hi: int) -> None:
+            nonlocal complete
+            if budget[0] <= 0:
+                complete = False
+                return
+            budget[0] -= 1
+            chunk = self.c.user_trades(self.cfg["symbol"], start_ms=lo, end_ms=hi)
+            if not isinstance(chunk, list) or not all(isinstance(t, dict) for t in chunk):
+                raise WeexIncomplete(f"ответ не список сделок ({str(chunk)[:120]})")
+            for t in chunk:
+                rows[str(t.get("id") or f"{t.get('orderId')}:{t.get('time')}:{t.get('qty')}")] = t
+            if len(chunk) < 100:
+                return
+            if hi - lo <= 1000:
+                complete = False
+                return
+            m = (lo + hi) // 2
+            get(lo, m)
+            get(m + 1, hi)
+        try:
+            get(a, b)
+        except WeexIncomplete as exc:
+            self._issue(f"сделки окна ордера {cid}: {exc}")
+            return None, False
+        except Exception as exc:                                # noqa: BLE001
+            logger.exception("weex_grid.window_trades_failed cid=%s", cid)
+            self._issue(f"сделки окна ордера {cid} не прочитаны ({type(exc).__name__}: {exc})")
+            return None, False
+        return list(rows.values()), complete
 
     def _resolve_pending(self, side: str) -> bool:
         """Ордер с потерянным ответом: найти и привязать. False — ещё не выяснено (на этой стороне
@@ -690,7 +877,7 @@ class Grid:
                 if not p.get("warned"):
                     p["warned"] = True
                     self.save()
-                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ордер {p['cid']} с потерянным ответом не "
+                    self._notify(f"⚠️ Сетка WEEX {self.label}: ордер {p['cid']} с потерянным ответом не "
                                  f"найден, история слишком плотная для полного поиска — новые ордера стороны "
                                  f"{side} не ставлю до выяснения.")
                 return False
@@ -703,13 +890,23 @@ class Grid:
             if self.now() - float(p.get("trades_ts") or 0) < PENDING_RECHECK:
                 return False                                    # поиск по сделкам (до 20 деталей) — не каждый проход
             p["trades_ts"] = float(self.now())
-            o, complete = self._find_by_trades(p["cid"], srv)
+            want = OPEN_SIDE[side] if p.get("kind") == "e" else CLOSE_SIDE[side]
+            o, complete = self._find_by_trades(p["cid"], srv, side=side, want=want, book=p.setdefault("foreign", {}))
             if o is None:
                 if not complete:
+                    # 15.10: раньше молча — сторона стояла без новых ордеров без единого сообщения. Теперь одно сообщение
+                    # (как у неполной истории); прочитанные чужие ордера окна запомнены в намерении — следующая попытка
+                    # через PENDING_RECHECK продолжит с непроверенных
+                    if not p.get("warned_trades"):
+                        p["warned_trades"] = True
+                        self.save()
+                        self._notify(f"⚠️ Сетка WEEX {self.label}: ордер {p['cid']} с потерянным ответом пока не найден "
+                                     f"ни в истории, ни в сделках окна (поиск по сделкам неполон) — новые ордера стороны "
+                                     f"{side} не ставлю до выяснения, ищу дальше.")
                     return False
                 logger.warning("weex_grid.pending_not_found side=%s cid=%s reads=%s — ордер не дошёл", side, p["cid"],
                                len(absent))
-                self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ биржи на ордер {p['cid']} потерян; за "
+                self._notify(f"⚠️ Сетка WEEX {self.label}: ответ биржи на ордер {p['cid']} потерян; за "
                              f"{self.now() - p['t']:.0f} с его нет ни в открытых, ни в истории ({len(absent)} проверки "
                              f"подряд), ни в сделках окна — считаю не дошедшим.")
                 s["pending"] = None
@@ -742,7 +939,8 @@ class Grid:
         self._cancel(order)
 
     def _orphans(self) -> None:
-        """Свои (b7g) ордера этого символа, о которых учёт не знает (потерянный ответ, откат учёта).
+        """Свои (b7g+знак этой сетки) ордера этого символа, о которых учёт не знает (потерянный ответ, откат учёта).
+        Ордера соседних сеток символа сюда не попадают (self.open отфильтрован по своему префиксу).
         Вход: если на стороне входа нет — принять как вход (его исполнения пойдут в лоты); иначе —
         снять и вести до конца. Тейк: если есть лот без тейка с тем же объёмом и ценой — принять как
         его тейк; иначе снять и вести до конца (исполненное распределить по лоту)."""
@@ -848,7 +1046,7 @@ class Grid:
                             lot["qty"] = self._qty_str(rest)
                     if left > self._tiny():
                         logger.warning("weex_grid.stray_tp_unallocated side=%s qty=%s", side, left)
-                        self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: тейк {x['cid']} закрыл {left:g} {side} "
+                        self._notify(f"⚠️ Сетка WEEX {self.label}: тейк {x['cid']} закрыл {left:g} {side} "
                                      f"сверх лотов учёта — расхождение, проверь позицию.")
             if kind == "terminal":
                 s["strays"].remove(x)
@@ -900,7 +1098,7 @@ class Grid:
         Сообщение не отправляется здесь, а ставится в alert_outbox учёта (15.10, разбор GPT P2): метки интервала
         unknown_alert_ts / issue_alert_ts пишет только УДАЧНАЯ доставка (_deliver_alerts); пока сообщение ждёт, его текст
         обновляется каждым проходом; условие снято до доставки — сообщение снимается."""
-        now, sym = float(self.now()), self.cfg["symbol"]
+        now = float(self.now())
         if not isinstance(self.st.get("alert_outbox"), dict):
             self.st["alert_outbox"] = {}
         box = self.st["alert_outbox"]
@@ -930,7 +1128,7 @@ class Grid:
                 start = min(since, float(self.st.get("last_tick_ok_ts") or since))
                 p, what = self._other_issues[0]
                 more = f" (и ещё {len(self._other_issues) - 1})" if len(self._other_issues) > 1 else ""
-                self._queue_alert("issue", f"⚠️ Сетка WEEX {sym}: {int((now - start) // 60)} мин без чистого прохода — "
+                self._queue_alert("issue", f"⚠️ Сетка WEEX {self.label}: {int((now - start) // 60)} мин без чистого прохода — "
                                            f"{p}: {what[:200]}{more}. Сетка работает дальше, но этот сбой повторяется — "
                                            f"проверь.")
         else:
@@ -1010,7 +1208,7 @@ class Grid:
                 f"фаза {r.get('phase')} — {r.get('why')}" for oid, r in old[:5]]
         if len(old) > 5:
             rows.append(f"• и ещё {len(old) - 5}")
-        text = (f"⚠️ Сетка WEEX {self.cfg['symbol']}: статус ордера бота неясен дольше "
+        text = (f"⚠️ Сетка WEEX {self.label}: статус ордера бота неясен дольше "
                 f"{int(UNKNOWN_ALERT_AFTER // 60)} мин — замену не ставлю, повторно не отправляю, жду ясного ответа "
                 f"биржи.\n" + "\n".join(rows))
         for flag, head, tail in (("close", "ЗАКРЫТИЕ ПО РЕЖИМУ ЗАБЛОКИРОВАНО: рыночного закрытия", "не будет"),
@@ -1043,10 +1241,11 @@ class Grid:
         mid = (bid + ask) / 2
         self._room_used = 0.0
         # список открытых неполон (предел страниц) или не список ордеров (null, {}, объект ошибки) → WeexIncomplete:
-        # проход прерывается до решений о сиротах и владении (13.10 и 15.10 P1, разборы GPT)
+        # проход прерывается до решений о сиротах и владении (13.10 и 15.10 P1, разборы GPT). Свои — только с префиксом
+        # b7g+знак этой сетки: ордера соседней сетки того же символа (b7g+другой знак) и ручные для неё не существуют
         self._phase = "open_orders"
         self.open = {str(o["orderId"]): o for o in self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
-                     if str(o.get("clientOrderId", "")).startswith(PREFIX)}
+                     if str(o.get("clientOrderId", "")).startswith(self.own)}
         self._listed = set(self.open)
         self._phase = "orphans"
         self._orphans()
@@ -1120,8 +1319,9 @@ class Grid:
             self.st["halt_reason"] = f"убыток за день ${today:,.2f}"
             for side in ("LONG", "SHORT"):
                 self._drop_entry(side)
-            self._notify(f"🛑 Сетка WEEX остановила новые входы: убыток за день ${today:,.2f}. "
-                         f"Тейки стоят, позиция закрывается сама. Запуск — /weex start.")
+            cmd = "/weex start" if self.name in (None, "BTC") else f"/weex {self.name.lower()} start"
+            self._notify(f"🛑 Сетка WEEX {self.label} остановила новые входы: убыток за день ${today:,.2f}. "
+                         f"Тейки стоят, позиция закрывается сама. Запуск — {cmd}.")
 
     def _take_entry_fill(self, side: str, e: dict, info: dict) -> bool:
         """Записать НОВУЮ исполненную часть входного ордера как лот. executedQty у биржи
@@ -1210,7 +1410,11 @@ class Grid:
         РОВНО недостающий объём (10.10, разбор GPT: раньше удалялся весь лот, хотя на бирже остаток
         был) с лотов без тейка, новые первыми; остаток лота остаётся и получит тейк. Снятое пишется в
         закрытое по текущей цене как оценка внешнего закрытия + сообщение. Позиция может включать
-        ручные сделки — тогда она больше суммы лотов и ничего не снимается."""
+        ручные сделки — тогда она больше суммы лотов и ничего не снимается.
+        Несколько сеток на символе (15.10): позиция стороны общая — лоты соседних сеток для этой сетки как ручные.
+        Снимается только то, чего не хватает ДАЖЕ во всей позиции; внешнее закрытие части общей позиции, пока её
+        хватает на лоты этой сетки, здесь не видно (сознательно: чужие лоты не вычитаются — по ошибке в учёте соседки
+        эта сетка не забудет свои настоящие лоты)."""
         s, d = self.st[side], DIR[side]
         try:
             pos = self.c.futures_positions() or []
@@ -1238,7 +1442,7 @@ class Grid:
                            side, lot["entry"], qs, rest, size, pnl)
             self._journal({"side": side, "kind": "внешнее закрытие (оценка по текущей цене)", "price": mid,
                            "qty": qs, "entry": lot["entry"], "pnl": pnl})
-            self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: на бирже не хватает {qs} {side} под лот по "
+            self._notify(f"⚠️ Сетка WEEX {self.label}: на бирже не хватает {qs} {side} под лот по "
                          f"{lot['entry']:,.2f} — закрыто не сеткой (вручную?). Записал по текущей цене "
                          f"{mid:,.2f}: ${pnl:+.2f}" + (f"; остаток лота {self._qty_str(rest)} оставлен." if rest > self._tiny() else "."))
         self.save()
@@ -1527,8 +1731,9 @@ class Grid:
                         "в журнал не пишу", side)
             return True
         # постоянный номер события передачи (15.10, разбор GPT P2): один и тот же в учёте (transfers) и в журнале — по нему
-        # запись журнала идемпотентна, сколько бы раз ни повторялась дозапись после сбоя
-        rec["event_id"] = (f"{PREFIX}{self.cfg['symbol']}-{side}-hand-{int(self.now() * 1000)}-"
+        # запись журнала идемпотентна, сколько бы раз ни повторялась дозапись после сбоя. Со знаком сетки (b7g3-…): у
+        # сеток одного символа номера не совпадают
+        rec["event_id"] = (f"{self.own}-{self.cfg['symbol']}-{side}-hand-{int(self.now() * 1000)}-"
                            f"{len(s.get('transfers') or []) + 1}")
         s["transfers"] = list(s.get("transfers") or []) + [rec]
         s["transferred_mtm"] = float(s.get("transferred_mtm") or 0) + bag
@@ -1537,11 +1742,11 @@ class Grid:
         self.save()                                             # учёт передачи — на диск до журнала (L8)
         self._journal_handover(side)
         if lots:
-            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
+            self._notify(f"🤝 Сетка WEEX {self.label}: сторона {side} передана тебе — ордера бота сняты, "
                          f"{len(lots)} лот(ов) {self._qty_str(q)} по средней {avg:,.1f} (мешок ${bag:+.2f}, входит в "
                          f"итог сетки) остаются на бирже, бот их больше не ведёт.")
         else:
-            self._notify(f"🤝 Сетка WEEX {self.cfg['symbol']}: сторона {side} передана тебе — ордера бота сняты, "
+            self._notify(f"🤝 Сетка WEEX {self.label}: сторона {side} передана тебе — ордера бота сняты, "
                          f"лотов бота на стороне нет.")
         return True
 
@@ -1556,7 +1761,7 @@ class Grid:
         if not rec:
             return
         if not rec.get("event_id"):
-            rec["event_id"] = f"{PREFIX}{self.cfg['symbol']}-{side}-hand-{rec.get('ts')}"
+            rec["event_id"] = f"{self.own}-{self.cfg['symbol']}-{side}-hand-{rec.get('ts')}"
             for tr in s.get("transfers") or []:
                 if tr.get("ts") == rec.get("ts") and not tr.get("event_id"):
                     tr["event_id"] = rec["event_id"]
@@ -1609,7 +1814,7 @@ class Grid:
             o = None
         if o is not None:
             return o
-        o, _ = self._find_by_trades(fl["cid"], srv)
+        o, _ = self._find_by_trades(fl["cid"], srv, side=side, want=CLOSE_SIDE[side], book=fl.setdefault("foreign", {}))
         return o
 
     def _flatten_side(self, side: str, bid: float, ask: float, mid: float) -> None:
@@ -1654,7 +1859,7 @@ class Grid:
             return
         if r and r.get("success") and r.get("orderId"):
             s["flatten"]["id"] = str(r["orderId"])
-            self._notify(f"↩️ Сетка WEEX {self.cfg['symbol']}: режим сменился — закрываю {side} {self._qty_str(q)} "
+            self._notify(f"↩️ Сетка WEEX {self.label}: режим сменился — закрываю {side} {self._qty_str(q)} "
                          f"по рынку (лоты бота).")
         elif r and not r.get("success"):
             # явный отказ (чаще всего позиции на бирже меньше лотов — часть закрыта вручную): учёт к позиции
@@ -1670,10 +1875,10 @@ class Grid:
         if s["flatten_rejects"] >= 3 and s["lots"]:
             self.st["halted"] = True
             self.st["halt_reason"] = f"рыночное закрытие {side} по режиму не исполнилось 3 раза"
-            self._notify(f"🛑 Сетка WEEX {self.cfg['symbol']}: закрытие {side} по режиму 3 раза не исполнилось ({why}). "
+            self._notify(f"🛑 Сетка WEEX {self.label}: закрытие {side} по режиму 3 раза не исполнилось ({why}). "
                          f"Сетка остановлена, лоты бота в учёте — проверь позицию руками.")
         else:
-            self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: закрытие {side} по режиму не исполнилось ({why}) — "
+            self._notify(f"⚠️ Сетка WEEX {self.label}: закрытие {side} по режиму не исполнилось ({why}) — "
                          f"сверил учёт с позицией, повторю.")
 
     def _flatten_progress(self, side: str, mid: float) -> None:
@@ -1682,12 +1887,20 @@ class Grid:
         s, d = self.st[side], DIR[side]
         fl = s["flatten"]
         if not fl.get("id"):
-            o = self._find_market(side, fl)
+            # 15.10: полный поиск потерянного market (история делением окна, сделки окна, детали) — не чаще раза в
+            # PENDING_RECHECK. При смене режима четыре сетки BTC закрываются в одном проходе, окно ±10 мин плотное (их
+            # снятые тейки); поиск каждым проходом по каждой сетке упирался бы в лимит веса WEEX (500 за 10 с на IP).
+            # Пропуск поиска ничего не отправляет: пока исход неизвестен, нового market нет
+            last = float(fl.get("search_ts") or 0)
+            o = None
+            if not 0 <= self.now() - last < PENDING_RECHECK:
+                fl["search_ts"] = float(self.now())
+                o = self._find_market(side, fl)
             if o is None:
                 if self.now() - fl["t"] >= PENDING_TTL and not fl.get("warned"):
                     fl["warned"] = True
                     self.save()
-                    self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ на рыночное закрытие {side} потерян и ордер "
+                    self._notify(f"⚠️ Сетка WEEX {self.label}: ответ на рыночное закрытие {side} потерян и ордер "
                                  f"{fl['cid']} пока не найден. Повторно НЕ отправляю (мог исполниться) — ищу дальше; "
                                  f"проверь позицию.")
                 return
@@ -1732,7 +1945,7 @@ class Grid:
             self._count_reject(side, info.get("status"))
         if not s["lots"]:
             s["ref"] = None
-            self._notify(f"✅ Сетка WEEX {self.cfg['symbol']}: {side} закрыт по режиму, новых входов до смены режима нет.")
+            self._notify(f"✅ Сетка WEEX {self.label}: {side} закрыт по режиму, новых входов до смены режима нет.")
         self.save()
 
     def disable_entries(self) -> None:
@@ -1745,6 +1958,8 @@ class Grid:
         if mid is None:
             bid, ask = self.c.book(self.cfg["symbol"])
             mid = (bid + ask) / 2
+        if self.label != self.cfg["symbol"]:
+            return self._card_compact(mid)
         cfg = self.cfg
         tick = float(cfg["price_tick"])
         mode = ("ВЫКЛ" if not cfg["enabled"] else "ХОЛОСТОЙ (без ордеров)" if cfg["dry_run"] else "ЖИВАЯ")
@@ -1783,6 +1998,33 @@ class Grid:
                      + (f" (в т.ч. мешок, переданный оператору, ${tm_all:+.2f} — по цене передачи)" if tm_all else "")
                      + f" · оборот ${turn:,.0f}")
         return "\n".join(lines)
+
+    def _card_compact(self, mid: float) -> str:
+        """Карточка сетки со своим именем (B34 …, 15.10): 1–3 строки, чтобы несколько сеток одного символа не раздували
+        /weex. Выключенная сетка без истории — одна строка; режим SMA — в заголовке, только когда он не пускает входы."""
+        cfg, tick = self.cfg, float(self.cfg["price_tick"])
+        mode = "ВЫКЛ" if not cfg["enabled"] else "ХОЛОСТОЙ" if cfg["dry_run"] else "ЖИВАЯ"
+        if cfg["enabled"] and int(cfg.get("regime_sma") or 0) > 0 and self.st.get("regime") is not True:
+            mode += " · ниже SMA — входов нет" if self.st.get("regime") is False else " · режим неизвестен — входов нет"
+        rows = [f"🕸 {self.label} — {mode}" + (f" · СТОП: {self.st['halt_reason']}" if self.st["halted"] else "")
+                + f" · шаг {cfg['step_pct']}% цель {cfg['target_pct']}% ордер {cfg['order_qty']}"]
+        hist = any(self._side_busy(x) or self.st[x]["realized"] or self.st[x]["fees"] or self.st[x].get("transferred_mtm")
+                   for x in DIR)
+        if not cfg["enabled"] and not hist:
+            return rows[0]
+        for side in DIR:
+            s = self.st[side]
+            if side not in cfg["sides"] and not self._side_busy(side) and not (s["realized"] or s["fees"]):
+                continue
+            q = sum(float(l["qty"]) for l in s["lots"])
+            un = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in s["lots"])
+            ent = (f"вход {fmt_px(s['entry']['price'], tick)}" if s.get("entry") else
+                   f"вход нет: {s['blocked']}" if s.get("blocked") else "вход нет")
+            rows.append(f"{'🟢 Л' if side == 'LONG' else '🔴 Ш'} {self._slots(side)} орд. ({q:g}), мешок ${un:+.2f}, "
+                        f"закрыто ${s['realized']:+.2f}, ком. ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}")
+        turn = sum(self.st[s]["turnover"] for s in DIR)
+        rows.append(f"итог с мешком ${self.bot_pnl(mid):+.2f} · оборот ${turn:,.0f}")
+        return "\n".join(rows)
 
 
 class DryExchange:

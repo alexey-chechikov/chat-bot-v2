@@ -12,6 +12,8 @@
 Тейка нет в учёте — лот без тейка (код 1). Плюс условные (algo) ордера с префиксом b7g — у сеток их быть не должно.
 Ревью скилов 12.10: проверка была только в одну сторону, «своих N, в учёте N» вводило в заблуждение.
 Сразу после постановки/исполнения возможна гонка с проходом сетки — при находке перепроверить через 10–20 с.
+Несколько сеток на символе (15.10: BTC и B34/B49/B89): «свои» сетки — только b7g + её знак (engine.cid_tag), ордера
+соседней сетки — не её сироты. Ордер b7g со знаком НИ ОДНОЙ сетки — сирота без хозяина (код 1), строкой символа.
 
     .venv/bin/python3 research/weex/orphan_check.py   (код 1 — сироты/остаток без TP/algo, 2 — тейк неизвестен)
 """
@@ -83,17 +85,45 @@ def main() -> None:
     c = WeexClient()
     c.sync_time()
     bad = unknown = False
+    tags = eg.grid_tags()
+    opens_cache: dict[str, list] = {}
+    algos_cache: dict[str, list] = {}
+
+    def opens(sym: str) -> list:                       # один запрос на символ, а не на каждую из 4 сеток BTC
+        if sym not in opens_cache:
+            opens_cache[sym] = list(c.open_orders(sym))
+        return opens_cache[sym]
+
+    def algos(sym: str) -> list:
+        if sym not in algos_cache:
+            algos_cache[sym] = list(c.open_algo_orders(sym) or [])
+        return algos_cache[sym]
+
     for name in eg.GRIDS:
         cfg_path, st_path, _ = eg.grid_files(name)
-        cfg = {**eg.DEFAULT, **eg.TEMPLATES.get(name, {}), **json.loads(cfg_path.read_text())}   # как load_config
+        cfg = eg.peek_config(name)                     # как load_config, но файл не создаётся
+        if cfg is None:
+            print(f"{name}: конфиг {cfg_path.name} не читается — свои ордера не определить")
+            unknown = True
+            continue
         sym = cfg.get("symbol", "BTCUSDT")
         tiny = float(cfg.get("qty_step") or 0.0001) / 2
         tick = float(cfg.get("price_tick") or 0.0)
+        if not tags.get(name):
+            print(f"{name} {sym}: знак ордеров сетки не установлен (cid_tag негоден) — свои ордера не определить")
+            unknown = True
+            continue
+        clash = sorted(n for n, t in tags.items() if n != name and t and t.upper() == tags[name].upper())
+        if clash:                                      # как engine.check_tag: обе сетки стоят (GridHalt)
+            print(f"{name} {sym}: знак ордеров «{tags[name]}» совпадает со знаком сетки {', '.join(clash)} — сетки "
+                  f"стоят, своих ордеров не различить")
+            bad = True
+            continue
+        own = eg.PREFIX + tags[name]
         if not st_path.exists():
             # учёта нет — любой свой ордер символа на бирже = сирота (раунд 2 ревью: раньше биржу не спрашивали)
-            stray = [o for o in c.open_orders(sym) if str(o.get("clientOrderId", "")).startswith(eg.PREFIX)]
-            stray_algo = [a for a in (c.open_algo_orders(sym) or [])
-                          if str(a.get("clientAlgoId", "")).startswith(eg.PREFIX)]
+            stray = [o for o in opens(sym) if str(o.get("clientOrderId", "")).startswith(own)]
+            stray_algo = [a for a in algos(sym) if str(a.get("clientAlgoId", "")).startswith(own)]
             bad |= bool(stray or stray_algo)
             print(f"{name} {sym}: живого учёта нет; своих ордеров на бирже {len(stray)}, algo {len(stray_algo)}"
                   + (" — СИРОТЫ" if stray or stray_algo else ""))
@@ -113,7 +143,7 @@ def main() -> None:
                 pend.add(fl["cid"])
                 if fl.get("id"):
                     known.add(str(fl["id"]))
-        mine = [o for o in c.open_orders(sym) if str(o.get("clientOrderId", "")).startswith(eg.PREFIX)]
+        mine = [o for o in opens(sym) if str(o.get("clientOrderId", "")).startswith(own)]
         open_by_id = {str(o["orderId"]): o for o in mine}
         lots_total = 0
         no_tp, unk, notes = [], [], []
@@ -139,9 +169,9 @@ def main() -> None:
         matched = sum(1 for o in mine if str(o["orderId"]) in known)
         by_cid = sum(1 for o in mine if str(o["orderId"]) not in known and o.get("clientOrderId") in pend)
         # algo сетки (b7g) быть не должно; стопы тренда (b7t) — его, тут только печатаются (тренд сверяется отдельно)
-        algo_all = [a for a in (c.open_algo_orders(sym) or []) if str(a.get("clientAlgoId", "")).startswith("b7")]
-        algo = [a for a in algo_all if str(a.get("clientAlgoId", "")).startswith(eg.PREFIX)]
-        trend_algo = [a for a in algo_all if a not in algo]
+        algo_all = [a for a in algos(sym) if str(a.get("clientAlgoId", "")).startswith("b7")]
+        algo = [a for a in algo_all if str(a.get("clientAlgoId", "")).startswith(own)]
+        trend_algo = [a for a in algo_all if not str(a.get("clientAlgoId", "")).startswith(eg.PREFIX)]
         if trend_algo:
             print(f"   стопов тренда b7t на {sym}: {len(trend_algo)} (не сверяются здесь)")
         bad |= bool(orphans or no_tp or algo)
@@ -163,10 +193,25 @@ def main() -> None:
         for o in mine:
             print("    ", o["positionSide"], o["side"], o["price"], o["origQty"], "исп", o.get("executedQty"),
                   "reduce" if o.get("reduceOnly") else "вход")
+    # ордера бота (b7g) со знаком ни одной сетки — их не ведёт никто (сетку убрали из GRIDS, сменили cid_tag)
+    known_prefixes = tuple(eg.PREFIX + t for t in tags.values() if t)
+    for sym in opens_cache:
+        nobody = [o for o in opens_cache[sym] if str(o.get("clientOrderId", "")).startswith(eg.PREFIX)
+                  and not str(o.get("clientOrderId", "")).startswith(known_prefixes)]
+        if nobody:
+            if all(tags.values()):
+                bad = True
+                print(f"{sym}: ордеров бота без сетки (знак b7g ни одной сетки) {len(nobody)} — СИРОТЫ БЕЗ ХОЗЯИНА")
+            else:                                        # знак какой-то сетки не прочитан — хозяин мог быть ею
+                unknown = True
+                print(f"{sym}: ордеров бота с неизвестным знаком {len(nobody)} — знак одной из сеток не прочитан")
+            for o in nobody:
+                print("   без сетки:", o.get("positionSide"), o.get("side"), o.get("price"), o.get("origQty"),
+                      o.get("clientOrderId"))
     if bad:
         print("ИТОГ: есть находки — перепроверить через 10–20 с")
     elif unknown:
-        print("ИТОГ: тейк неизвестен — не «ок», перепроверить через 10–20 с")
+        print("ИТОГ: неясно (тейк неизвестен или знак сетки не прочитан) — не «ок», перепроверить через 10–20 с")
     else:
         print("ИТОГ: сирот 0, лотов без тейка 0")
     sys.exit(1 if bad else (2 if unknown else 0))
