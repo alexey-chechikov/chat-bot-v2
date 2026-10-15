@@ -94,12 +94,9 @@ class Runner:
                 # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
                 logger.error("weex_grid.halt grid=%s err=%s", name, exc)
                 if self.send and time.time() - self.last_halt.get(name, 0.0) > 1800:
-                    self.last_halt[name] = time.time()
-                    try:
-                        self.send(f"🛑 Сетка WEEX {name} остановлена: {str(exc)[:250]}. Ордера на бирже не трогаю; "
-                                  f"нужно восстановить файл.")
-                    except Exception:                           # noqa: BLE001
-                        logger.exception("weex_grid.send_failed")
+                    if self._send(f"🛑 Сетка WEEX {name} остановлена: {str(exc)[:250]}. Ордера на бирже не трогаю; "
+                                  f"нужно восстановить файл."):
+                        self.last_halt[name] = time.time()
             except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.tick_failed grid=%s", name)
                 first = first or RuntimeError(f"{name}: {exc}")
@@ -181,14 +178,24 @@ class Runner:
         live_cfg = {**cfg, "dry_run": False, "enabled": False}
         eg.Grid(self._client(), live_cfg, state_path=st_path, journal_path=jr_path, send_fn=self.send).tick()
 
+    def _send(self, text: str) -> bool:
+        """True — доставлено. Интервал «раз в 30 мин» считается от УДАЧНОЙ доставки (15.10, разбор GPT P2: метка
+        ставилась до отправки, сбой Telegram глотался — оператор не получал ни первого сообщения, ни повтора полчаса);
+        недоставленное повторяется на следующей ошибке (цикл после ошибки ждёт ≥60 с)."""
+        try:
+            ok = self.send(text) is not False
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.send_failed")
+            return False
+        if not ok:
+            logger.warning("weex_grid.send_not_delivered")
+        return ok
+
     def on_error(self, exc: Exception) -> None:
         logger.exception("weex_grid.tick_failed")
         if self.send and time.time() - self.last_err > 1800:
-            self.last_err = time.time()
-            try:
-                self.send(f"⚠️ Сетка WEEX: ошибка прохода — {str(exc)[:200]}. Повторю через минуту.")
-            except Exception:                                   # noqa: BLE001
-                logger.exception("weex_grid.send_failed")
+            if self._send(f"⚠️ Сетка WEEX: ошибка прохода — {str(exc)[:200]}. Повторю через минуту."):
+                self.last_err = time.time()
 
 
 def card(name: str | None = None) -> str:

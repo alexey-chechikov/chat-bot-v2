@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.weex_api.client import WeexIncomplete
+
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "state" / "weex_grid_config.json"
@@ -67,7 +69,13 @@ TEMPLATES = {
             "order_qty": "0.001", "step_pct": 0.5, "target_pct": 1.5, "max_lots_per_side": 50,
             "max_notional_usd": 1000.0, "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0},
 }
-PENDING_TTL = 120.0      # с: ордер с потерянным ответом не нашёлся за полный поиск по времени → не дошёл
+PENDING_TTL = 120.0      # с: раньше этого срока ордер с потерянным ответом «не дошедшим» не считается
+# 15.10, разбор GPT P1: один годный пустой ответ истории — не доказательство (история может запаздывать). После TTL нужны
+# PENDING_ABSENT_READS годных полных поисков подряд, разнесённых не меньше чем на PENDING_RECHECK, и пустые сделки окна;
+# негодный/непрочитанный ответ обнуляет счёт подтверждений
+PENDING_RECHECK = 30.0
+PENDING_ABSENT_READS = 2
+HANDOVER = "передано оператору"     # вид записи журнала о передаче стороны оператору
 FEE_WINDOW = 3600.0      # с: сколько ждать появления комиссии по исполненному ордеру
 FEE_POLL = 60.0          # с: как часто досверять комиссии
 FEE_BATCH = 5            # курсоров комиссий за одну досверку (по кругу, давно не проверявшиеся первыми)
@@ -80,6 +88,9 @@ UNKNOWN_ALERT_AFTER = 300.0
 UNKNOWN_ALERT_EVERY = 3600.0
 ISSUE_ALERT_AFTER = 600.0
 ISSUE_ALERT_EVERY = 1800.0
+# 15.10, разбор GPT P2: недоставленное сообщение эскалации ждёт в alert_outbox учёта и повторяется через 1, 2, 5, затем
+# каждые 10 мин до первой удачной доставки; часовой/получасовой интервал считается от удачной доставки, не от попытки
+ALERT_RETRY = (60.0, 120.0, 300.0, 600.0)
 
 
 class GridHalt(RuntimeError):
@@ -299,17 +310,23 @@ class Grid:
                 st[s].pop("transfers", None)
             return
         add = 0.0
+        seen: set[str] = set()
         for line in lines:
             try:
                 r = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(r, dict) or r.get("kind") != "передано оператору" or r.get("side") not in sides:
+            if not isinstance(r, dict) or r.get("kind") != HANDOVER or r.get("side") not in sides:
                 continue
+            ev = r.get("event_id")
+            if ev:                                              # одна передача — одна запись (15.10, разбор GPT P2)
+                if ev in seen:
+                    continue
+                seen.add(ev)
             bag = float(r.get("bag") or 0)
             st[r["side"]]["transfers"].append({"ts": r.get("ts"), "qty": r.get("qty"), "avg": r.get("avg"),
                                                "mark": r.get("mark"), "mtm": bag, "lots": r.get("lots"),
-                                               "src": "журнал"})
+                                               "src": "журнал", **({"event_id": ev} if ev else {})})
             st[r["side"]]["transferred_mtm"] += bag
             add += bag
         if add and st.get("day"):
@@ -326,12 +343,19 @@ class Grid:
         with self.journal_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    def _notify(self, text: str) -> None:
-        if self.send:
-            try:
-                self.send(text)
-            except Exception:                                   # noqa: BLE001
-                logger.exception("weex_grid.send_failed")
+    def _notify(self, text: str) -> bool:
+        """Отправить сообщение; True — доставлено. Отправитель может бросить исключение или вернуть False (не доставлено,
+        15.10, разбор GPT P2: результат раньше проглатывался, и эскалация считалась отправленной); отправителя нет — False."""
+        if not self.send:
+            return False
+        try:
+            ok = self.send(text) is not False
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.send_failed")
+            return False
+        if not ok:
+            logger.warning("weex_grid.send_not_delivered text=%s", text[:80])
+        return ok
 
     # ---------- вспомогательное
     def _cid(self, side: str, kind: str) -> str:
@@ -572,18 +596,32 @@ class Grid:
         s["pending"] = None
         return {"id": str(r["orderId"]), "cid": cid, "price": price, "qty": q}
 
+    @staticmethod
+    def _orders_list(rows, what: str) -> list[dict]:
+        """Ответ-список ордеров WEEX (открытые, история): массив объектов с orderId. Иное — null, {}, объект ошибки,
+        строки, ордер без номера — WeexIncomplete: по такому ответу нельзя заключить, что ордера нет (15.10, разбор GPT
+        P1: «or []» делал из null/{} полную пустую историю, и после TTL ставился второй живой вход)."""
+        if not isinstance(rows, list):
+            raise WeexIncomplete(f"{what}: не список ({str(rows)[:120]})")
+        bad = next((x for x in rows if not isinstance(x, dict) or x.get("orderId") in (None, "")), None)
+        if bad is not None:
+            raise WeexIncomplete(f"{what}: элемент не ордер ({str(bad)[:120]})")
+        return rows
+
     def _find_by_cid(self, cid: str, since: float, half: float = 600.0) -> tuple[dict | None, bool]:
         """Свой ордер по clientOrderId: открытые, затем история символа в окне ±half секунд вокруг момента
         намерения по часам биржи, постранично. Второе значение — поиск ПОЛНЫЙ: False, если все 10
-        страниц заполнены (неполный поиск не доказывает, что ордер не дошёл, — такой pending не истекает)."""
+        страниц заполнены (неполный поиск не доказывает, что ордер не дошёл, — такой pending не истекает).
+        Негодная страница истории (не список ордеров) — WeexIncomplete, а не «не нашёлся» (15.10, разбор GPT P1)."""
         o = next((x for x in self.open.values() if x.get("clientOrderId") == cid), None)
         if o is not None:
             return o, True
         start_ms = int((since - half) * 1000)
         end_ms = int((since + half) * 1000)
         for page in range(10):
-            chunk = self.c.order_history(self.cfg["symbol"], limit=100, page=page,
-                                         start_ms=start_ms, end_ms=end_ms) or []
+            chunk = self._orders_list(self.c.order_history(self.cfg["symbol"], limit=100, page=page,
+                                                           start_ms=start_ms, end_ms=end_ms),
+                                      f"история ордеров {self.cfg['symbol']}, страница {page}")
             o = next((x for x in chunk if x.get("clientOrderId") == cid), None)
             if o is not None:
                 return o, True
@@ -591,24 +629,64 @@ class Grid:
                 return None, True
         return None, False
 
+    def _find_by_trades(self, cid: str, srv: float) -> tuple[dict | None, bool]:
+        """Свой ордер по сделкам окна ±10 мин → деталь каждого незнакомого ордера → clientOrderId (исполненный ордер,
+        которого нет в открытых, а история его не показала, 12.10 L2). Второе значение — поиск ПОЛНЫЙ: сделки прочитаны
+        списком, их меньше 100, незнакомых ордеров не больше 20 и деталь каждого годна; иначе «не нашёлся» не доказан."""
+        try:
+            trades = self.c.user_trades(self.cfg["symbol"], start_ms=int((srv - 600) * 1000),
+                                        end_ms=int((srv + 600) * 1000))
+        except Exception as exc:                                # noqa: BLE001
+            logger.exception("weex_grid.window_trades_failed cid=%s", cid)
+            self._issue(f"сделки окна ордера {cid} не прочитаны ({type(exc).__name__}: {exc})")
+            return None, False
+        if not isinstance(trades, list) or not all(isinstance(t, dict) for t in trades):
+            self._issue(f"сделки окна ордера {cid}: ответ не список сделок ({str(trades)[:120]})")
+            return None, False
+        known = self._referenced("LONG") | self._referenced("SHORT")
+        seen: set[str] = set()
+        complete = len(trades) < 100
+        for t in trades:
+            oid = str(t.get("orderId") or "")
+            if not oid or oid in known or oid in seen:
+                continue
+            if len(seen) >= 20:
+                complete = False
+                break
+            seen.add(oid)
+            kind, info = self._detail(oid)
+            if kind == "unknown":
+                complete = False
+                continue
+            if info.get("clientOrderId") == cid:
+                return info, True
+        return None, complete
+
     def _resolve_pending(self, side: str) -> bool:
         """Ордер с потерянным ответом: найти и привязать. False — ещё не выяснено (на этой стороне
-        новых ордеров не ставим)."""
+        новых ордеров не ставим).
+        «Не дошёл» (15.10, разбор GPT P1) — только после TTL, PENDING_ABSENT_READS годных полных поисков подряд по
+        открытым и истории (разнесённых не меньше чем на PENDING_RECHECK) и пустого поиска по сделкам окна. Негодный или
+        непрочитанный ответ (null, {}, объект ошибки, исключение) — исход НЕИЗВЕСТЕН: намерение остаётся на диске,
+        новых ордеров стороны нет, повторной отправки с новым clientOrderId нет, счёт подтверждений обнуляется."""
         s = self.st[side]
         p = s.get("pending")
         if not p:
             return True
+        srv = p.get("srv") or p["t"]
         try:
             # намерение без серверного времени (учёт до 10.10) — окно шире: ±30 мин
-            o, complete = self._find_by_cid(p["cid"], p.get("srv") or p["t"], 600.0 if p.get("srv") else 1800.0)
+            o, complete = self._find_by_cid(p["cid"], srv, 600.0 if p.get("srv") else 1800.0)
         except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.history_failed")
+            p.pop("absent", None)
             self._issue(f"поиск ордера {p['cid']} не прочитан ({type(exc).__name__}: {exc})")
             return False
         if o is None:
             if self.now() - p["t"] < PENDING_TTL:
                 return False
             if not complete:                                    # поиск неполный — не считаем «не дошёл»
+                p.pop("absent", None)
                 if not p.get("warned"):
                     p["warned"] = True
                     self.save()
@@ -616,12 +694,27 @@ class Grid:
                                  f"найден, история слишком плотная для полного поиска — новые ордера стороны "
                                  f"{side} не ставлю до выяснения.")
                 return False
-            logger.warning("weex_grid.pending_not_found side=%s cid=%s — ордер не дошёл", side, p["cid"])
-            self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ биржи на ордер {p['cid']} потерян, за "
-                         f"{PENDING_TTL:.0f} с в открытых и истории его нет — считаю не дошедшим.")
-            s["pending"] = None
-            self.save()
-            return True
+            absent = [float(x) for x in (p.get("absent") or [])]
+            if not absent or self.now() - absent[-1] >= PENDING_RECHECK:
+                absent.append(float(self.now()))
+                p["absent"] = absent
+            if len(absent) < PENDING_ABSENT_READS:
+                return False
+            if self.now() - float(p.get("trades_ts") or 0) < PENDING_RECHECK:
+                return False                                    # поиск по сделкам (до 20 деталей) — не каждый проход
+            p["trades_ts"] = float(self.now())
+            o, complete = self._find_by_trades(p["cid"], srv)
+            if o is None:
+                if not complete:
+                    return False
+                logger.warning("weex_grid.pending_not_found side=%s cid=%s reads=%s — ордер не дошёл", side, p["cid"],
+                               len(absent))
+                self._notify(f"⚠️ Сетка WEEX {self.cfg['symbol']}: ответ биржи на ордер {p['cid']} потерян; за "
+                             f"{self.now() - p['t']:.0f} с его нет ни в открытых, ни в истории ({len(absent)} проверки "
+                             f"подряд), ни в сделках окна — считаю не дошедшим.")
+                s["pending"] = None
+                self.save()
+                return True
         order = self._with_cursor(side, {"id": str(o["orderId"]), "cid": p["cid"], "price": p["price"],
                                          "qty": p.get("qty")})
         logger.warning("weex_grid.pending_adopted side=%s kind=%s cid=%s status=%s", side, p["kind"], p["cid"],
@@ -776,7 +869,8 @@ class Grid:
         ордеров; исключение → last_tick_error {ts, phase, err, fatal: true} в СОХРАНЁННЫЙ учёт (недосчитанный
         проход на диск не пишется) и исключение дальше; неясная деталь ордера или сбой запроса, который проход
         пережил (_issue: комиссия, поиск/постановка ордера, позиция, баланс), → last_tick_error с fatal: false,
-        успех не отмечается. Затянувшееся неясное поднимается сообщением (_escalations) — после сохранения учёта."""
+        успех не отмечается. Затянувшееся неясное поднимается сообщением (_escalations → alert_outbox учёта) — доставка
+        после сохранения учёта, недоставленное повторяется следующими проходами (_deliver_alerts)."""
         self._issues = []
         self._other_issues = []
         self._unknown_now = set()
@@ -784,7 +878,7 @@ class Grid:
         try:
             self._tick()
             self._phase = "save"
-            msgs = self._escalations()
+            self._escalations()
             if self._issues:
                 self.st["last_tick_error"] = {
                     "ts": float(self.now()), "phase": self._issues[0][0], "fatal": False,
@@ -795,16 +889,21 @@ class Grid:
         except Exception as exc:
             self._mark_tick_failed(exc)
             raise
-        for m in msgs:                        # метки сообщений уже на диске — сбой отправки не размножит их
-            self._notify(m)
+        self._deliver_alerts()
 
-    def _escalations(self) -> list[str]:
+    def _escalations(self) -> None:
         """Сообщения о затянувшемся неясном (14.10, ревью F1/L2-1). unknown_orders {oid: {since, why, phase, side,
         role}} ведёт _detail: запись снимается, когда ордер подтверждён (конечный / живой, в т.ч. в списке открытых) или
         учёт его больше не ведёт. Ордер неясен ≥ UNKNOWN_ALERT_AFTER → одно сообщение, повтор не чаще UNKNOWN_ALERT_EVERY;
         если он теперь держит закрытие по режиму или передачу стороны, а прошлое сообщение этого не называло, — сразу.
-        Прочие проглоченные сбои подряд ≥ ISSUE_ALERT_AFTER без чистого прохода → сообщение не чаще ISSUE_ALERT_EVERY."""
-        now, sym, msgs = float(self.now()), self.cfg["symbol"], []
+        Прочие проглоченные сбои подряд ≥ ISSUE_ALERT_AFTER без чистого прохода → сообщение не чаще ISSUE_ALERT_EVERY.
+        Сообщение не отправляется здесь, а ставится в alert_outbox учёта (15.10, разбор GPT P2): метки интервала
+        unknown_alert_ts / issue_alert_ts пишет только УДАЧНАЯ доставка (_deliver_alerts); пока сообщение ждёт, его текст
+        обновляется каждым проходом; условие снято до доставки — сообщение снимается."""
+        now, sym = float(self.now()), self.cfg["symbol"]
+        if not isinstance(self.st.get("alert_outbox"), dict):
+            self.st["alert_outbox"] = {}
+        box = self.st["alert_outbox"]
         book = self.st.setdefault("unknown_orders", {})
         for oid, rec in list(book.items()):
             side = rec.get("side")
@@ -819,23 +918,83 @@ class Grid:
         if old:
             flags = {f for _, r in old for f in self._blocks(r)}
             told = set(self.st.get("unknown_alert_flags") or [])
-            if now - float(self.st.get("unknown_alert_ts") or 0) >= UNKNOWN_ALERT_EVERY or not flags <= told:
-                self.st["unknown_alert_ts"] = now
-                self.st["unknown_alert_flags"] = sorted(flags | told)
-                msgs.append(self._unknown_text(old, flags, now))
+            due = now - float(self.st.get("unknown_alert_ts") or 0) >= UNKNOWN_ALERT_EVERY or not flags <= told
+            if due or "unknown" in box:
+                self._queue_alert("unknown", self._unknown_text(old, flags, now), flags=sorted(flags | told))
+        else:
+            self._drop_alert("unknown")
         if self._other_issues:
             since = float(self.st.setdefault("issues_since", now))
-            if (now - since >= ISSUE_ALERT_AFTER
-                    and now - float(self.st.get("issue_alert_ts") or 0) >= ISSUE_ALERT_EVERY):
-                self.st["issue_alert_ts"] = now
+            due = now - float(self.st.get("issue_alert_ts") or 0) >= ISSUE_ALERT_EVERY
+            if now - since >= ISSUE_ALERT_AFTER and (due or "issue" in box):
                 start = min(since, float(self.st.get("last_tick_ok_ts") or since))
                 p, what = self._other_issues[0]
                 more = f" (и ещё {len(self._other_issues) - 1})" if len(self._other_issues) > 1 else ""
-                msgs.append(f"⚠️ Сетка WEEX {sym}: {int((now - start) // 60)} мин без чистого прохода — {p}: "
-                            f"{what[:200]}{more}. Сетка работает дальше, но этот сбой повторяется — проверь.")
+                self._queue_alert("issue", f"⚠️ Сетка WEEX {sym}: {int((now - start) // 60)} мин без чистого прохода — "
+                                           f"{p}: {what[:200]}{more}. Сетка работает дальше, но этот сбой повторяется — "
+                                           f"проверь.")
         else:
             self.st.pop("issues_since", None)
-        return msgs
+            self._drop_alert("issue")
+        if not box:
+            self.st.pop("alert_outbox", None)
+
+    def _queue_alert(self, kind: str, text: str, **extra) -> None:
+        """Поставить/обновить ждущее сообщение вида kind: новое — к отправке сразу, ждущее — новый текст, срок повтора тот же."""
+        box = self.st.setdefault("alert_outbox", {})
+        rec = box.get(kind)
+        if rec is None:
+            now = float(self.now())
+            box[kind] = {"text": text, "created": now, "attempts": 0, "next_try": now, **extra}
+        else:
+            rec.update(text=text, **extra)
+
+    def _drop_alert(self, kind: str) -> None:
+        rec = (self.st.get("alert_outbox") or {}).pop(kind, None)
+        if rec:
+            logger.info("weex_grid.alert_dropped kind=%s attempts=%s — условие снято до доставки", kind,
+                        rec.get("attempts"))
+
+    def _deliver_alerts(self) -> None:
+        """Доставка ждущих сообщений эскалации (после сохранения прохода). Удача — сообщение снято, метка интервала
+        (unknown_alert_ts / issue_alert_ts) = время доставки, alert_delivered[kind] = {ts, attempts}. Неудача (исключение
+        или False отправителя) — attempts+1, last_attempt, следующая попытка через ALERT_RETRY (1, 2, 5, затем 10 мин).
+        Отправителя нет — сообщение ждёт. Учёт сохраняется сразу после попыток: доставленное после рестарта не повторяется."""
+        box = self.st.get("alert_outbox") or {}
+        if not isinstance(box, dict):
+            logger.error("weex_grid.alert_outbox_corrupt %s", str(box)[:120])
+            self.st.pop("alert_outbox", None)
+            return
+        if not box or not self.send:
+            return
+        now = float(self.now())
+        tried = False
+        for kind, rec in list(box.items()):
+            if now < float(rec.get("next_try") or 0):
+                continue
+            tried = True
+            rec["attempts"] = int(rec.get("attempts") or 0) + 1
+            rec["last_attempt"] = now
+            if self._notify(str(rec.get("text") or "")):
+                box.pop(kind, None)
+                self.st.setdefault("alert_delivered", {})[kind] = {"ts": now, "attempts": rec["attempts"],
+                                                                   "created": rec.get("created")}
+                if kind == "unknown":
+                    self.st["unknown_alert_ts"] = now
+                    self.st["unknown_alert_flags"] = list(rec.get("flags") or [])
+                elif kind == "issue":
+                    self.st["issue_alert_ts"] = now
+            else:
+                rec["next_try"] = now + ALERT_RETRY[min(rec["attempts"], len(ALERT_RETRY)) - 1]
+                logger.warning("weex_grid.alert_not_delivered kind=%s attempt=%s next_in=%.0fs", kind, rec["attempts"],
+                               rec["next_try"] - now)
+        if not box:
+            self.st.pop("alert_outbox", None)
+        if tried:
+            try:
+                self.save()
+            except Exception:                                   # noqa: BLE001 — проход уже сохранён; повтор доставки возможен
+                logger.exception("weex_grid.alert_state_save_failed")
 
     def _blocks(self, rec: dict) -> set[str]:
         """Что держит неясный ордер: 'close' — закрытие по режиму, 'release' — передачу стороны."""
@@ -883,10 +1042,10 @@ class Grid:
         bid, ask = self.c.book(sym)
         mid = (bid + ask) / 2
         self._room_used = 0.0
-        # список открытых неполон (предел страниц) → клиент бросает WeexIncomplete: проход прерывается до решений о
-        # сиротах и владении (13.10, разбор GPT)
+        # список открытых неполон (предел страниц) или не список ордеров (null, {}, объект ошибки) → WeexIncomplete:
+        # проход прерывается до решений о сиротах и владении (13.10 и 15.10 P1, разборы GPT)
         self._phase = "open_orders"
-        self.open = {str(o["orderId"]): o for o in self.c.open_orders(sym)
+        self.open = {str(o["orderId"]): o for o in self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
                      if str(o.get("clientOrderId", "")).startswith(PREFIX)}
         self._listed = set(self.open)
         self._phase = "orphans"
@@ -1367,6 +1526,10 @@ class Grid:
             logger.info("weex_grid.release_repeat side=%s — сторона уже передана, свои ордера сняты, лотов нет; "
                         "в журнал не пишу", side)
             return True
+        # постоянный номер события передачи (15.10, разбор GPT P2): один и тот же в учёте (transfers) и в журнале — по нему
+        # запись журнала идемпотентна, сколько бы раз ни повторялась дозапись после сбоя
+        rec["event_id"] = (f"{PREFIX}{self.cfg['symbol']}-{side}-hand-{int(self.now() * 1000)}-"
+                           f"{len(s.get('transfers') or []) + 1}")
         s["transfers"] = list(s.get("transfers") or []) + [rec]
         s["transferred_mtm"] = float(s.get("transferred_mtm") or 0) + bag
         s["lots"], s["ref"] = [], None
@@ -1383,42 +1546,71 @@ class Grid:
         return True
 
     def _journal_handover(self, side: str) -> None:
-        """Записать в журнал передачу, уже сохранённую в учёте (один раз; ts — момент передачи)."""
+        """Записать в журнал передачу, уже сохранённую в учёте, ровно один раз (ts — момент передачи). Идемпотентно по
+        event_id (15.10, разбор GPT P2: запись в журнал прошла, а снятие флага handover_unjournaled на диске — нет; после
+        рестарта передача дописывалась второй раз, сверка денег суммировала оба мешка): событие с тем же event_id уже в
+        журнале — флаг снимается без записи. Журнал не читается — флаг остаётся, дозапись на следующем проходе. Флаг из
+        учёта до 15.10 без номера получает его и сохраняется на диск ДО записи журнала."""
         s = self.st[side]
         rec = s.get("handover_unjournaled")
         if not rec:
             return
-        self._journal({"ts": rec["ts"], "side": side, "kind": "передано оператору", "qty": rec["qty"],
-                       "avg": rec["avg"], "mark": rec["mark"], "bag": rec["mtm"], "lots": rec["lots"]})
+        if not rec.get("event_id"):
+            rec["event_id"] = f"{PREFIX}{self.cfg['symbol']}-{side}-hand-{rec.get('ts')}"
+            for tr in s.get("transfers") or []:
+                if tr.get("ts") == rec.get("ts") and not tr.get("event_id"):
+                    tr["event_id"] = rec["event_id"]
+            self.save()
+        done = self._journal_events()
+        if done is None:
+            self._issue(f"журнал {self.journal_path.name} не читается — передача {side} будет дописана позже")
+            return
+        if rec["event_id"] in done:
+            logger.warning("weex_grid.handover_already_journaled side=%s event=%s — повтор не пишу", side,
+                           rec["event_id"])
+        else:
+            self._journal({"ts": rec["ts"], "side": side, "kind": HANDOVER, "qty": rec["qty"], "avg": rec["avg"],
+                           "mark": rec["mark"], "bag": rec["mtm"], "lots": rec["lots"], "event_id": rec["event_id"]})
         s.pop("handover_unjournaled", None)
         self.save()
+
+    def _journal_events(self) -> set[str] | None:
+        """Номера событий (event_id), уже записанных в журнал; None — журнал есть, но не читается."""
+        if not self.journal_path.exists():
+            return set()
+        try:
+            text = self.journal_path.read_text(encoding="utf-8")
+        except OSError:
+            logger.exception("weex_grid.journal_read_failed path=%s", self.journal_path)
+            return None
+        out: set[str] = set()
+        for line in text.splitlines():
+            if '"event_id"' not in line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("event_id"):
+                out.add(str(r["event_id"]))
+        return out
 
     def _find_market(self, side: str, fl: dict) -> dict | None:
         """Потерянный ответ рыночного закрытия: история ордеров по clientOrderId, затем сделки окна ±10 мин →
         деталь ордера → clientOrderId (12.10, разбор GPT L2: завершённого market нет в открытых, а короткая или
-        пустая история — не доказательство, что он не исполнился)."""
-        o, _ = self._find_by_cid(fl["cid"], fl.get("srv") or fl["t"])
-        if o is not None:
-            return o
+        пустая история — не доказательство, что он не исполнился). Негодный ответ истории (15.10, P1) — не повод
+        прерывать проход: сбой в метку прохода, поиск идёт дальше по сделкам; не найден — повтора market нет."""
         srv = fl.get("srv") or fl["t"]
         try:
-            trades = self.c.user_trades(self.cfg["symbol"], start_ms=int((srv - 600) * 1000),
-                                        end_ms=int((srv + 600) * 1000)) or []
+            o, _ = self._find_by_cid(fl["cid"], srv)
         except Exception as exc:                                # noqa: BLE001
-            logger.exception("weex_grid.flatten_trades_failed")
-            self._issue(f"сделки окна закрытия {fl['cid']} не прочитаны ({type(exc).__name__}: {exc})")
-            return None
-        known = self._referenced("LONG") | self._referenced("SHORT")
-        seen = set()
-        for t in trades:
-            oid = str(t.get("orderId") or "")
-            if not oid or oid in known or oid in seen or len(seen) >= 20:
-                continue
-            seen.add(oid)
-            kind, info = self._detail(oid)
-            if kind != "unknown" and info.get("clientOrderId") == fl["cid"]:
-                return info
-        return None
+            logger.exception("weex_grid.flatten_history_failed")
+            self._issue(f"история для закрытия {fl['cid']} не прочитана ({type(exc).__name__}: {exc})")
+            o = None
+        if o is not None:
+            return o
+        o, _ = self._find_by_trades(fl["cid"], srv)
+        return o
 
     def _flatten_side(self, side: str, bid: float, ask: float, mid: float) -> None:
         """Закрыть сторону по смене режима (как в research/weex/regime_grid.py): снять вход и тейки (исполненное до
