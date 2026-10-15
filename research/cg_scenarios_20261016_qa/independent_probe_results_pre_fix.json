@@ -1,0 +1,66 @@
+{
+  "source_sha256": "06319fa1e1549e638ea3ecc183b0d1075f072e693234364ee0fa22a165a600ba",
+  "scope": "Invented offline fixture; no production IO/data/API",
+  "cases": {
+    "valid_synthetic": {
+      "status": "READY_RESEARCH",
+      "reasons": [],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "unknown_source_lag": {
+      "status": "CONDITIONAL",
+      "reasons": [
+        "UNKNOWN_SOURCE_LAG_OUTSIDE_PRIMARY"
+      ],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "future_quote": {
+      "status": "NO_TRADE",
+      "reasons": [
+        "QUOTE_TIMING_INVALID"
+      ],
+      "entry": null,
+      "quantity": null,
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "no_entry_quote": {
+      "status": "CONDITIONAL",
+      "reasons": [
+        "ENTRY_QUOTE_NOT_PROVIDED_NO_RR_ADMISSION"
+      ],
+      "entry": null,
+      "quantity": null,
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "missing_snapshot_id": {
+      "status": "READY_RESEARCH",
+      "reasons": [],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": null,
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "declared_impossible_minima": {
+      "status": "READY_RESEARCH",
+      "reasons": [],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    }
+  }
+}

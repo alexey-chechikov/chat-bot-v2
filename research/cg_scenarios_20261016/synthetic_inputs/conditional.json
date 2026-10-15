@@ -1,0 +1,213 @@
+{
+  "schema_version": "cg-manual-scenario-v1",
+  "synthetic": true,
+  "data_asof_ms": 1792110600000,
+  "attempt_state": "unused",
+  "atr_seed_start_ms": 1792090800000,
+  "price_source": {
+    "exchange": "Binance",
+    "symbol": "BTCUSDT",
+    "market": "perpetual",
+    "timezone": "UTC"
+  },
+  "snapshot": {
+    "snapshot_id": "SYNTHETIC-NOT-A-WEBSITE-CAPTURE",
+    "capture_ms": 1792108800000,
+    "annotation_lock_ms": 1792108800000,
+    "source_asof_ms": 1792108790000,
+    "lag_status": "known",
+    "source_record_complete": true,
+    "source_record_fresh": true,
+    "annotation_frozen": true,
+    "settings": {
+      "provider": "CoinGlass",
+      "product": "liquidation_heatmap",
+      "model": "model1",
+      "exchange": "Binance",
+      "symbol": "BTCUSDT",
+      "market": "perpetual",
+      "lookback": "24h",
+      "threshold": "0.85"
+    },
+    "frozen_spot": "100",
+    "lower_zone": {
+      "low": "97",
+      "high": "98"
+    },
+    "upper_zone": {
+      "low": "120",
+      "high": "122"
+    }
+  },
+  "contract": {
+    "exchange": "Binance",
+    "symbol": "BTCUSDT",
+    "market": "perpetual",
+    "tick_size": "0.1",
+    "quantity_step": "0.001",
+    "min_quantity": "0.001",
+    "min_notional": "5",
+    "verified": true,
+    "verified_at_ms": 1792072800000,
+    "verification_source": "SYNTHETIC CONTRACT ONLY; not an actual exchange specification"
+  },
+  "ohlc_15m": [
+    {
+      "ts_ms": 1792090800000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792091700000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792092600000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792093500000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792094400000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792095300000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792096200000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792097100000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792098000000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792098900000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792099800000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792100700000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792101600000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792102500000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792103400000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792104300000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792105200000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792106100000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792107000000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792107900000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792108800000,
+      "open": "100",
+      "high": "100.2",
+      "low": "99.8",
+      "close": "100"
+    },
+    {
+      "ts_ms": 1792109700000,
+      "open": "100",
+      "high": "101",
+      "low": "96",
+      "close": "100"
+    }
+  ],
+  "ohlc_1m": [],
+  "next_available_quote": null,
+  "note": "EVERY VALUE IS FABRICATED. This is not an observed map or backtest."
+}

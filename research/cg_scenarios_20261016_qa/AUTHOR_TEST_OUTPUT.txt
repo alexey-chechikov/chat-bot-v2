@@ -1,0 +1,34 @@
+test_bytes_parsing_hash_and_explicit_synthetic_no_overwrite (test_scenario_card.CLITests.test_bytes_parsing_hash_and_explicit_synthetic_no_overwrite) ... ok
+test_atr_and_outward_stop_do_not_use_signal_extrema (test_scenario_card.CardTests.test_atr_and_outward_stop_do_not_use_signal_extrema) ... ok
+test_both_zones_consumes_snapshot_without_entry (test_scenario_card.CardTests.test_both_zones_consumes_snapshot_without_entry) ... ok
+test_consumed_and_busy_are_refusals_not_retries (test_scenario_card.CardTests.test_consumed_and_busy_are_refusals_not_retries) ... ok
+test_continuation_is_diagnostic_with_invalidation_no_entry (test_scenario_card.CardTests.test_continuation_is_diagnostic_with_invalidation_no_entry) ... ok
+test_declared_contract_minimums_required_and_enforced (test_scenario_card.CardTests.test_declared_contract_minimums_required_and_enforced) ... ok
+test_freeze_future_or_expired_deadline_refused (test_scenario_card.CardTests.test_freeze_future_or_expired_deadline_refused) ... ok
+test_invalid_source_and_explicit_stale_or_incomplete_refused (test_scenario_card.CardTests.test_invalid_source_and_explicit_stale_or_incomplete_refused) ... ok
+test_lag_unknown_outside_primary_and_known_stale_refused (test_scenario_card.CardTests.test_lag_unknown_outside_primary_and_known_stale_refused) ... ok
+test_late_quote_not_rescued_by_current_freshness (test_scenario_card.CardTests.test_late_quote_not_rescued_by_current_freshness) ... ok
+test_minimum_atr_true_prevclose_and_wilder_gap (test_scenario_card.CardTests.test_minimum_atr_true_prevclose_and_wilder_gap) ... ok
+test_missing_causal_atr_or_signal_data_refused (test_scenario_card.CardTests.test_missing_causal_atr_or_signal_data_refused) ... ok
+test_one_minute_aggregate_and_crosscheck_no_false_fullness (test_scenario_card.CardTests.test_one_minute_aggregate_and_crosscheck_no_false_fullness) ... ok
+test_pure_no_input_mutation_and_markdown_has_no_fake_entry (test_scenario_card.CardTests.test_pure_no_input_mutation_and_markdown_has_no_fake_entry) ... ok
+test_quote_before_close_future_old_or_other_signal_refused (test_scenario_card.CardTests.test_quote_before_close_future_old_or_other_signal_refused) ... ok
+test_quote_executability_and_first_receipt_not_assumed (test_scenario_card.CardTests.test_quote_executability_and_first_receipt_not_assumed) ... ok
+test_quote_is_price_anchor_and_colours_are_not_forecasts (test_scenario_card.CardTests.test_quote_is_price_anchor_and_colours_are_not_forecasts) ... ok
+test_ready_is_research_only_no_primary_or_order_permission (test_scenario_card.CardTests.test_ready_is_research_only_no_primary_or_order_permission) ... ok
+test_reclaim_strict_on_extreme_and_close_both_sides (test_scenario_card.CardTests.test_reclaim_strict_on_extreme_and_close_both_sides) ... ok
+test_rr_exact_two_below_and_size_cost_once (test_scenario_card.CardTests.test_rr_exact_two_below_and_size_cost_once) ... ok
+test_signed_geometry_gap_and_quantity_rounding (test_scenario_card.CardTests.test_signed_geometry_gap_and_quantity_rounding) ... ok
+test_snapshot_id_required_and_contract_bound_to_exact_market (test_scenario_card.CardTests.test_snapshot_id_required_and_contract_bound_to_exact_market) ... ok
+test_spot_perp_f_same_closed_bar_only_diagnostic_never_filter (test_scenario_card.CardTests.test_spot_perp_f_same_closed_bar_only_diagnostic_never_filter) ... ok
+test_synthetic_requires_explicit_mode_and_matching_flag (test_scenario_card.CardTests.test_synthetic_requires_explicit_mode_and_matching_flag) ... ok
+test_t0_uses_later_freeze_strictly_and_signal_whole_bar (test_scenario_card.CardTests.test_t0_uses_later_freeze_strictly_and_signal_whole_bar) ... ok
+test_unclosed_misaligned_duplicate_price_not_accepted (test_scenario_card.CardTests.test_unclosed_misaligned_duplicate_price_not_accepted) ... ok
+test_unknown_entry_stays_conditional_never_close_spot_or_zone_price (test_scenario_card.CardTests.test_unknown_entry_stays_conditional_never_close_spot_or_zone_price) ... ok
+test_unknown_settings_or_contract_cannot_be_ready (test_scenario_card.CardTests.test_unknown_settings_or_contract_cannot_be_ready) ... ok
+test_wait_for_full_closed_bar_no_touch_entry (test_scenario_card.CardTests.test_wait_for_full_closed_bar_no_touch_entry) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 0.041s
+
+OK

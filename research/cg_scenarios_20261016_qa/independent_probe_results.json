@@ -1,0 +1,71 @@
+{
+  "source_sha256": "0a95bf8cbff3171a98c61ba9dbb70347e65a38bbd96041c7c44ce2f724c9bf7c",
+  "scope": "Invented offline fixture; no production IO/data/API",
+  "cases": {
+    "valid_synthetic": {
+      "status": "READY_RESEARCH",
+      "reasons": [],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "unknown_source_lag": {
+      "status": "CONDITIONAL",
+      "reasons": [
+        "UNKNOWN_SOURCE_LAG_OUTSIDE_PRIMARY"
+      ],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "future_quote": {
+      "status": "NO_TRADE",
+      "reasons": [
+        "QUOTE_TIMING_INVALID"
+      ],
+      "entry": null,
+      "quantity": null,
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "no_entry_quote": {
+      "status": "CONDITIONAL",
+      "reasons": [
+        "ENTRY_QUOTE_NOT_PROVIDED_NO_RR_ADMISSION"
+      ],
+      "entry": null,
+      "quantity": null,
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "missing_snapshot_id": {
+      "status": "NO_TRADE",
+      "reasons": [
+        "MISSING_SNAPSHOT_ID"
+      ],
+      "entry": null,
+      "quantity": null,
+      "snapshot_id": null,
+      "trade_permission": false,
+      "primary_admitted": false
+    },
+    "declared_impossible_minima": {
+      "status": "NO_TRADE",
+      "reasons": [
+        "BELOW_CONTRACT_MIN_QUANTITY",
+        "BELOW_CONTRACT_MIN_NOTIONAL"
+      ],
+      "entry": "95",
+      "quantity": "3.983",
+      "snapshot_id": "qa-invented-001",
+      "trade_permission": false,
+      "primary_admitted": false
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "source_sha256": "6b43a7d7591198f7c750d297b10fa3405b710e9a9a4c4ef565a37000bda4fdb2",
+  "scope": "invented in-memory fixtures; not evidence any real episode hit this condition",
+  "stale_held_position": {
+    "now": 1501,
+    "position": 1.0,
+    "fresh": false,
+    "liquidating": false,
+    "risk_triggers": [],
+    "order_kind": "exit"
+  },
+  "first_fill_with_current_bid_below_stop": {
+    "now": 200,
+    "position": 1.0,
+    "fresh": true,
+    "bid": 99.0,
+    "stop": 99.75,
+    "liquidating": false,
+    "risk_triggers": [],
+    "order_kind": "exit"
+  }
+}

@@ -1,0 +1,2 @@
+id,start_ms,first_fill_ms,cash_price,fees,turnover,max_inventory,fill_count,ambiguous_passive_fills,unknown_queue_orders,coverage_uncertain,truncated,unresolved,risk_triggers,end_ms,reason,net_scenario,scenario_cost_per_M,complete_before_boundary,full_15min_followup_available
+1,250.0,1344.0,-0.006269746628472461,0.005999373025337153,59.993730253371524,0.012293620840146048,2,1,1,False,True,False,"[{""reason"": ""end_of_data"", ""ms"": 718938.0, ""inventory"": 0.012293620840146048}]",719938.0,end_of_data,-0.012269119653809614,204.5066976497951,False,False

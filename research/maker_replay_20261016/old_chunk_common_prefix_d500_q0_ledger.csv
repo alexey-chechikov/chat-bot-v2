@@ -1,0 +1,11 @@
+ms,seq,episode,event,position,oid,kind,side,price,qty,queue,queue_unknown,liquidity,fee,reason,unfilled
+250.0,3,1,submit,0.0,1,entry,buy,2440.29,0.012293620840146048,,,,,,
+750.0,10,1,virtual_ack,0.0,1,,,,,0.0,False,,,,
+1344.0,14,1,fill,0.012293620840146048,1,,buy,2440.29,0.012293620840146048,,,passive,0.003,,
+1344.0,14,1,submit,0.012293620840146048,2,exit,sell,2442.25,0.012293620840146048,,,,,,
+1844.0,16,1,virtual_ack,0.012293620840146048,2,,,,,,True,,,,
+718938.0,5275,1,liquidation_trigger,0.012293620840146048,,,,,,,,,,end_of_data,
+718938.0,5275,1,cancel_request,0.012293620840146048,2,,,,,,,,,end_of_data,
+719438.0,5279,1,virtual_cancel_ack,0.012293620840146048,2,,,,,,,,,,0.012293620840146048
+719938.0,5282,1,fill,0.0,,,sell,2439.78,0.012293620840146048,,,forced_taker,0.002999373025337153,,
+719938.0,5282,1,episode_terminal,0.0,,,,,,,,,,end_of_data,

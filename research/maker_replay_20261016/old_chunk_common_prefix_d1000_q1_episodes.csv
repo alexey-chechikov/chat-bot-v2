@@ -1,0 +1,17 @@
+id,start_ms,first_fill_ms,cash_price,fees,turnover,max_inventory,fill_count,ambiguous_passive_fills,unknown_queue_orders,coverage_uncertain,truncated,unresolved,risk_triggers,end_ms,reason,net_scenario,scenario_cost_per_M,complete_before_boundary,full_15min_followup_available
+1,250.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],6250.0,no_fill,0.0,,True,False
+2,6375.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],12375.0,no_fill,0.0,,True,False
+3,12375.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],13375.0,no_fill,0.0,,True,False
+4,17375.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],23375.0,no_fill,0.0,,True,False
+5,23391.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],29391.0,no_fill,0.0,,True,False
+6,29454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],35454.0,no_fill,0.0,,True,False
+7,35454.0,,0.0,0.0,0.0,0.0,0,0,1,False,False,False,[],41454.0,no_fill,0.0,,True,False
+8,41454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],47454.0,no_fill,0.0,,True,False
+9,47454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],48454.0,no_fill,0.0,,True,False
+10,52454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],58454.0,no_fill,0.0,,True,False
+11,58454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],64454.0,no_fill,0.0,,True,False
+12,64454.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],70454.0,no_fill,0.0,,True,False
+13,70532.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],71532.0,no_fill,0.0,,True,False
+14,75875.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],81875.0,no_fill,0.0,,True,False
+15,81875.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],87875.0,no_fill,0.0,,True,False
+16,87875.0,91672.0,0.004796281037478423,0.006000479628103748,60.00479628103748,0.0122981565063397,2,1,1,False,True,False,"[{""reason"": ""end_of_data"", ""ms"": 717938.0, ""inventory"": 0.0122981565063397}]",719938.0,end_of_data,-0.0012041985906253256,20.068372284531403,False,False
