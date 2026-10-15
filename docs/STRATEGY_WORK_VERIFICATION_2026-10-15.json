@@ -1,0 +1,57 @@
+{
+  "status": "PASS",
+  "archive": "STRATEGY_WORK_REPRO_2026-10-15.zip",
+  "sha256": "6cdc81c8e4e7be594385c8cd434804f657dbd3d2b35ea24c97b19a68bae1ad56",
+  "members": 80,
+  "checks": [
+    {
+      "check": "CG42tests",
+      "exit_code": 0,
+      "last_output": "----------------------------------------------------------------------\nRan 42 tests in 2.168s\n\nOK\n"
+    },
+    {
+      "check": "ETH17tests",
+      "exit_code": 0,
+      "last_output": "----------------------------------------------------------------------\nRan 17 tests in 0.080s\n\nOK\n"
+    },
+    {
+      "check": "exporter7tests",
+      "exit_code": 0,
+      "last_output": "----------------------------------------------------------------------\nRan 7 tests in 0.352s\n\nOK (skipped=1)\n"
+    },
+    {
+      "check": "spot4tests",
+      "exit_code": 0,
+      "last_output": "----------------------------------------------------------------------\nRan 4 tests in 0.035s\n\nOK\n"
+    },
+    {
+      "check": "ETHfullreplay",
+      "exit_code": 0,
+      "last_output": "otal_usd\": -31.21883614859256, \"net_mean_usd_per_source_candidate\": -0.17941859855512965, \"net_mean_return_pct_completed\": -0.017941859855512953, \"net_mean_R\": -0.017941859855512953, \"raw_gross_total_usd\": 108.32009353263899, \"slippage_total_usd\": 104.36519216453402, \"fees_total_usd\": 34.78839413857912, \"flat_all_in_cost_total_usd\": 0.0, \"funding_total_usd\": -0.38534337811832453, \"funding_upper_total_usd\": -0.2649253355055674, \"ambiguous_funding_events\": 2, \"PF\": 0.9484795768019466, \"monthly_block_CI95_mean_net_pct\": [-0.11703578568097175, 0.09230580704465803], \"max_DD_liquidation_point_usd\": 118.81354568739744, \"max_DD_minute_close_usd\": 118.81354568739744, \"max_loss_trade_usd\": 9.565013720390136, \"minimum_research_equity_1000\": 962.0907492649256, \"capital_1000_breached\": false, \"best_three\": [{\"candidate\": 130, \"signal_time\": 1787932800000, \"side\": -1, \"reason\": \"target\", \"net_usd\": 17.56340741106123}, {\"candidate\": 54, \"signal_time\": 1782196200000, \"side\": -1, \"reason\": \"target\", \"net_usd\": 17.510512623646864}, {\"candidate\": 56, \"signal_time\": 1782315900000, \"side\": -1, \"reason\": \"target\", \"net_usd\": 17.50759834467446}], \"after_remove_best_three_total_usd\": -83.80035452797495, \"after_remove_best_three_mean_return_pct\": -0.04900605527951759, \"planned_max_stop_risk_usd\": 9.8}]}\n"
+    },
+    {
+      "check": "ETHindependent696paths",
+      "exit_code": 0,
+      "last_output": "tion_imported\": false, \"network_calls\": 0, \"source_1m_rows\": 218880, \"trade_paths_checked\": 696, \"scenarios\": [{\"scenario\": \"static_all_in_4bp\", \"trades_checked\": 174, \"max_numeric_error\": 4.547473508864641e-13, \"ledger_sha256\": \"7b48b20a66d8c981cdeeee4edf762416cdae591a82383d5d28ac194928bf9efc\", \"net_usd\": 56.58616076757134, \"price_path_cash_size_deadline_and_summary\": \"PASS\"}, {\"scenario\": \"static_all_in_8bp\", \"trades_checked\": 174, \"max_numeric_error\": 4.547473508864641e-13, \"ledger_sha256\": \"ecc79f829df1ca844cf675820c9f3f7e03c75582b88d78bbf835ea4f6e3d636d\", \"net_usd\": -13.013839232428644, \"price_path_cash_size_deadline_and_summary\": \"PASS\"}, {\"scenario\": \"decomposed_fee1bp_slip1bp\", \"trades_checked\": 174, \"max_numeric_error\": 4.547473508864641e-13, \"ledger_sha256\": \"b73a96bdd432f48cefa73ac8c2492b93af1bb48a5a94c6f015f03bb089dfac96\", \"net_usd\": 52.13155486673638, \"price_path_cash_size_deadline_and_summary\": \"PASS\"}, {\"scenario\": \"decomposed_fee1bp_slip3bp\", \"trades_checked\": 174, \"max_numeric_error\": 4.547473508864641e-13, \"ledger_sha256\": \"1b75c507c71e12ccd6a5b135661ab0a9c026c6b9ade1e11710e683474b8f3253\", \"net_usd\": -31.218836148592565, \"price_path_cash_size_deadline_and_summary\": \"PASS\"}], \"limitations\": \"Numerical/chronology QA is not out-of-sample or execution validation.\"}\n"
+    },
+    {
+      "check": "spotcachedrepro_network_forbidden",
+      "exit_code": 0,
+      "last_output": "{\"archive\": \"BTCUSDT-15m-2026-05.zip\", \"selected_rows\": 2400}\n{\"archive\": \"BTCUSDT-15m-2026-06.zip\", \"selected_rows\": 2880}\n{\"archive\": \"BTCUSDT-15m-2026-07.zip\", \"selected_rows\": 2976}\n{\"archive\": \"BTCUSDT-15m-2026-08.zip\", \"selected_rows\": 2976}\n{\"archive\": \"BTCUSDT-15m-2026-09.zip\", \"selected_rows\": 2880}\n{\"archive\": \"BTCUSDT-15m-2026-10-01.zip\", \"selected_rows\": 96}\n{\"archive\": \"BTCUSDT-15m-2026-10-02.zip\", \"selected_rows\": 96}\n{\"archive\": \"BTCUSDT-15m-2026-10-03.zip\", \"selected_rows\": 96}\n{\"archive\": \"BTCUSDT-15m-2026-10-04.zip\", \"selected_rows\": 96}\n{\"archive\": \"BTCUSDT-15m-2026-10-05.zip\", \"selected_rows\": 96}\n{\"status\": \"ok\", \"paired_rows\": 14592, \"missing\": 0, \"out\": \"C:\\\\bot7\\\\research\\\\strategy_workplan_20261015\\\\repro_verify_001\\\\research\\\\strategy_workplan_20261015\\\\public_history\"}\n"
+    },
+    {
+      "check": "CGsyntheticfixture",
+      "exit_code": 0,
+      "last_output": "Wrote explicitly SYNTHETIC fixtures; no market or account data was used.\n"
+    },
+    {
+      "check": "CGsyntheticCLI",
+      "exit_code": 0,
+      "last_output": "{\"version\": \"CG-SR1-v0-offline-0.1\", \"synthetic\": true, \"snapshot_count\": 2, \"entered_count\": 1, \"closed_count\": 1, \"pending_count\": 0, \"reason_counts\": {\"OBSERVATION_MISSED\": 1}}\n"
+    }
+  ],
+  "ETH_report_exactly_reproduced": true,
+  "network_calls": 0,
+  "native_Mac_verified": false,
+  "synthetic_tests": "69 PASS,1 SKIP (symlink creation unavailable)"
+}
