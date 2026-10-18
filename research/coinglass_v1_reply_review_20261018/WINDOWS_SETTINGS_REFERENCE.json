@@ -1,0 +1,70 @@
+{
+  "role": "settings-only reference from an existing real Windows package; no raw observations",
+  "source_report_sha256": "24aba0118fa9891cc89bbe8654a23af60950d5bdd0a4b52e4cd73a39cec303c9",
+  "source_package_collected_at": "2026-10-18T12:37:38.011+02:00",
+  "source_package_status": "PARTIAL",
+  "Mac_settings_verified": false,
+  "sources": [
+    {
+      "id": "coinglass_liquidation_model1_btc",
+      "status": "PARTIAL",
+      "settings": {
+        "model": 1,
+        "mode": "pair",
+        "exchange": "Binance",
+        "symbol": "BTCUSDT_perpetual",
+        "window": "24h",
+        "threshold": 0.85,
+        "liquidation_map": true,
+        "captured_at_ms": 1792319901940,
+        "read_started_at_ms": 1792319901940,
+        "read_finished_at_ms": 1792319903317
+      }
+    },
+    {
+      "id": "coinglass_btc_actual_liquidations",
+      "status": "PARTIAL",
+      "settings": {
+        "symbol": "BTC",
+        "exchanges": "all_covered_by_provider",
+        "windows_hours": [
+          1,
+          4,
+          12,
+          24
+        ],
+        "captured_at_ms": 1792319917495,
+        "displayed_timezone": "unknown",
+        "read_started_at_ms": 1792319917495,
+        "read_finished_at_ms": 1792319918990
+      }
+    },
+    {
+      "id": "coinglass_orderbook_heatmap_btc",
+      "status": "PARTIAL",
+      "settings": {
+        "exchange": "Binance",
+        "symbol": "BTCUSDT_perpetual",
+        "bar_interval": "15m",
+        "merge": 1,
+        "captured_at_ms": 1792319928749,
+        "read_started_at_ms": 1792319928749,
+        "read_finished_at_ms": 1792319930184
+      }
+    },
+    {
+      "id": "coinglass_spot_book_delta_btc",
+      "status": "PARTIAL",
+      "settings": {
+        "symbol": "BTC",
+        "bar_interval": "15m",
+        "range_percent": 1,
+        "mode": "Delta",
+        "currency": "USD",
+        "captured_at_ms": 1792319942991,
+        "read_started_at_ms": 1792319942991,
+        "read_finished_at_ms": 1792319944364
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "commit": "13e40a7198d51c9627b585ccd8a517b3dee11ebf",
+  "files": [
+    {
+      "path": "docs/COINGLASS_MAC_PIPELINE_2026-10-18.md",
+      "git_blob_sha": "39bbb47178bc1d0a5b099908ae4b67f8ee5bc171",
+      "sha256": "eede769efb216c8b4b95f77fbf954d6a38eab7f3ad9c27065c4123218cec9503",
+      "bytes": 6176
+    },
+    {
+      "path": "services/coinglass_web/collector.py",
+      "git_blob_sha": "fede86b0dbe53cd0b81488f0db06494cb879f68b",
+      "sha256": "9f2d241da5bae61fe5511d77c4968dad2f15d30213a408c50c06131bc20de877",
+      "bytes": 10962
+    },
+    {
+      "path": "services/coinglass_web/outcomes.py",
+      "git_blob_sha": "f39d56939968190dbf35e692ab2cbfcc38dcdf74",
+      "sha256": "5914a5db6944aeee7de7253d095e954cf1230d17e3e683922e9332c6990c7d26",
+      "bytes": 5934
+    },
+    {
+      "path": "services/coinglass_web/section.py",
+      "git_blob_sha": "0e7cf56e78c5271b62ae7e78aed70fb8af1baddc",
+      "sha256": "4837df7306c79cd1a9fee039ec2ea80287830e3ee8eb9fe3e16b64ae7e55c337",
+      "bytes": 4918
+    },
+    {
+      "path": "deploy/launchd/com.bot7.coinglass-web.plist",
+      "git_blob_sha": "9600ef1c7502f3c71aa8a39ee6654743c3ce8bcb",
+      "sha256": "f596e3b68f818980214798957393120194ee67334a51e18a46e6d7e8fad9c758",
+      "bytes": 2658
+    },
+    {
+      "path": "tests/services/coinglass_web/test_coinglass_web.py",
+      "git_blob_sha": "451ca4bc2423254745b50f3bc4fddacdf4e96b2c",
+      "sha256": "c6da093e9ea7e90d0a6717a9bc03135aed4bad00c1a437cdc223561e97e4e942",
+      "bytes": 3532
+    }
+  ]
+}

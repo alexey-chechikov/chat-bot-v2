@@ -1,0 +1,68 @@
+{
+  "commit": "3db1d5eddbef5702f8ef7589d2436161c85f3d61",
+  "source_path": "services/coinglass_web/outcomes.py",
+  "source_sha256": "5aba15be7b7bd14401ad2d2d4aeead44f043d977c6107b8be4d2511ae5462978",
+  "scope": "local synthetic only; no market data or network calls",
+  "interpretation": "PASS means the defect is reproduced in the reviewed v1 source.",
+  "passed": 2,
+  "failed": 0,
+  "reproductions": [
+    {
+      "id": "missing_first_morning_replaced",
+      "status": "PASS",
+      "meaning": "DEFECT_REPRODUCED",
+      "source_lines": [
+        214,
+        218
+      ],
+      "input": {
+        "first_capture_warsaw": "2026-10-18T07:00:30+02:00",
+        "first_outcome": "missing",
+        "later_capture_warsaw": "2026-10-18T07:20:30+02:00",
+        "later_outcome": "upper"
+      },
+      "actual_table": {
+        "n": 1,
+        "obs": {
+          "upper": 1.0,
+          "lower": 0.0,
+          "both": 0.0,
+          "none": 0.0
+        },
+        "exp": {
+          "upper": 0.25,
+          "lower": 0.25,
+          "both": 0.25,
+          "none": 0.25
+        }
+      },
+      "required_behavior": "Fix the first scheduled morning ID before quality/outcome filtering; record it as missing and do not replace it with the later capture."
+    },
+    {
+      "id": "future_hour_changes_snapshot_atr",
+      "status": "PASS",
+      "meaning": "DEFECT_REPRODUCED",
+      "source_lines": [
+        48,
+        53,
+        174,
+        176
+      ],
+      "input": {
+        "captured_utc": "2026-10-18T07:00:23+00:00",
+        "evaluated_utc": "2026-10-19T07:04:23+00:00",
+        "future_hour_open_utc": "2026-10-18T07:00:00+00:00",
+        "future_hour_close_exclusive_utc": "2026-10-18T08:00:00+00:00",
+        "all_pre_capture_data_identical": true,
+        "only_changed_field": "high of the still-open-at-capture hourly bar",
+        "hourly_high_before": 100.1,
+        "hourly_high_after": 1000.0
+      },
+      "actual_atr_before": 0.19999999999998863,
+      "actual_atr_after": 64.47857142857141,
+      "actual_du_atr_before": 50.00000000000284,
+      "actual_du_atr_after": 0.15509028470145123,
+      "required_behavior": "Use only hourly bars closed no later than the capture cutoff; changing post-capture data must not change the snapshot ATR or baseline."
+    }
+  ]
+}

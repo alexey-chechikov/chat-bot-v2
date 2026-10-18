@@ -1,0 +1,68 @@
+{
+  "schema": "coinglass-review-publication-v1",
+  "reviewed_commits": [
+    "13e40a7198d51c9627b585ccd8a517b3dee11ebf",
+    "3db1d5eddbef5702f8ef7589d2436161c85f3d61"
+  ],
+  "original_report_sha256": "494efd634deec24c8bf37ce3962d1bacc8dac5bcfc8035e43ae31dcee6791420",
+  "portable_copy": true,
+  "raw_market_data_or_images_included": false,
+  "credentials_or_account_data_included": false,
+  "files": [
+    {
+      "path": "docs/COINGLASS_CONFIRMATORY_PROTOCOL_2026-10-18.md",
+      "sha256": "12e9c237896d67264f66b59f657b305cc59903ab912fcccdf02b74d1ac500ffd",
+      "bytes": 19621
+    },
+    {
+      "path": "docs/COINGLASS_V1_GPT_REPLY_2026-10-18.md",
+      "sha256": "0dd4fdeab8b86f83946d9f50a1fd4d886f37e7b94de6d32d21c9027d1d708454",
+      "bytes": 11619
+    },
+    {
+      "path": "research/coinglass_mac_pipeline_review_20261018/REPORT_RU.md",
+      "sha256": "5f84bfa76034e7f2035317f1d57e8665d24549ac664ae08ad3ff5d9e1525c528",
+      "bytes": 35372
+    },
+    {
+      "path": "research/coinglass_mac_pipeline_review_20261018/REPRODUCTIONS.json",
+      "sha256": "eed54ff50ac29214f613091da7462b27db60c0f8b14ad3e2d7a787c5b1346cfb",
+      "bytes": 1663
+    },
+    {
+      "path": "research/coinglass_mac_pipeline_review_20261018/SOURCES.json",
+      "sha256": "633f8737aea1cba677157a5056a1dd432989bd059289972f37b4d44513385751",
+      "bytes": 1567
+    },
+    {
+      "path": "research/coinglass_mac_pipeline_review_20261018/reproduce_review.py",
+      "sha256": "e232a2535f2bb3ce3350ea0c75856b5cd7e5f5b6a0afe5090f3ce0435c022796",
+      "bytes": 5776
+    },
+    {
+      "path": "research/coinglass_mac_pipeline_review_20261018/source_snapshot/services/coinglass_web/outcomes.py",
+      "sha256": "5914a5db6944aeee7de7253d095e954cf1230d17e3e683922e9332c6990c7d26",
+      "bytes": 5934
+    },
+    {
+      "path": "research/coinglass_v1_reply_review_20261018/REPRODUCTIONS_V1.json",
+      "sha256": "9a0678af1ca59f8a5562cc2994814053932cdfa816e7ac89e8215b312c8e8d58",
+      "bytes": 2291
+    },
+    {
+      "path": "research/coinglass_v1_reply_review_20261018/WINDOWS_SETTINGS_REFERENCE.json",
+      "sha256": "95d87156f770311caff7183ca56a72e9a9e2bc4321dea3401af4bc12a3c99535",
+      "bytes": 1996
+    },
+    {
+      "path": "research/coinglass_v1_reply_review_20261018/reproduce_v1.py",
+      "sha256": "90a2e0da51146215ac0da1c131fe1b104c4d428139fa0d43adf1bf2bca07fa62",
+      "bytes": 9160
+    },
+    {
+      "path": "research/coinglass_v1_reply_review_20261018/source_snapshot/services/coinglass_web/outcomes.py",
+      "sha256": "5aba15be7b7bd14401ad2d2d4aeead44f043d977c6107b8be4d2511ae5462978",
+      "bytes": 11993
+    }
+  ]
+}
