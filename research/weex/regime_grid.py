@@ -80,6 +80,36 @@ def load():
     return ts[start:], o[start:], h[start:], l[start:], c[start:], reg[start:].astype(bool)
 
 
+def structure_gate(ts, h, c, bar_s: int = 3600, k: int = 3) -> np.ndarray:
+    """18.10 (идея оператора): не входить в лонги, пока цена делает всё более низкие максимумы; снова входить после
+    слома структуры. Причинно, по закрытым барам bar_s (по умолчанию 1h):
+      - локальный максимум бара j: H[j] > max(H[j-k..j-1]) и H[j] ≥ max(H[j+1..j+k]) — известен на закрытии бара j+k;
+      - ЗАКРЫТО, когда подтверждён максимум ниже предыдущего подтверждённого (lower high);
+      - ОТКРЫТО, когда закрытие бара выше последнего подтверждённого максимума (слом структуры вверх).
+    Состояние после бара b действует с первой минуты бара b+1. На старте — открыто."""
+    bar = ts // bar_s
+    starts = np.r_[0, np.flatnonzero(np.diff(bar)) + 1]
+    ends = np.r_[starts[1:], len(ts)]
+    H = np.maximum.reduceat(h, starts)
+    C = c[ends - 1]
+    state = np.ones(len(starts), dtype=bool)                 # состояние ПОСЛЕ закрытия бара b
+    sh: list[float] = []
+    cur = True
+    for b in range(len(starts)):
+        j = b - k
+        if j >= k and H[j] > H[j - k:j].max() and H[j] >= H[j + 1:b + 1].max():
+            sh.append(H[j])
+            if len(sh) >= 2 and sh[-1] < sh[-2]:
+                cur = False
+        if not cur and sh and C[b] > sh[-1]:
+            cur = True
+        state[b] = cur
+    gate = np.ones(len(ts), dtype=bool)
+    for b in range(1, len(starts)):
+        gate[starts[b]:ends[b]] = state[b - 1]
+    return gate
+
+
 def cut_label(ts) -> str:
     """Срез половин: минута len//2; капитал 1-й половины — по закрытию минуты перед ней, до её операций."""
     return f"{pd.to_datetime(int(ts[len(ts) // 2]), unit='s')} UTC"
@@ -87,7 +117,10 @@ def cut_label(ts) -> str:
 
 def run(args):
     name, mode, seed, step, tgt, *extra = args              # extra: объём ордера, потолок на сторону
-    ts, o, h, l, c, reg = DATA
+    ts, o, h, l, c, reg, *rest = DATA
+    gate = rest[0] if rest else None
+    if mode == "lfgshift":                                   # контроль: те же паузы той же длины, сдвинутые во времени
+        gate = np.roll(gate, int(np.random.default_rng(seed).integers(len(gate) // 10, len(gate) - len(gate) // 10)))
     # границы отрезков ИСХОДНОГО режима: на каждой — обязательное закрытие (11.10, разбор GPT: в контроле
     # соседние одинаковые случайные стороны сливались — меньше закрытий, другая механика выхода)
     bound = np.r_[False, reg[1:] != reg[:-1]]
@@ -120,15 +153,18 @@ def run(args):
             act = {1: bool(reg[i]), -1: False}
         elif mode == "longhold":                          # 18.10 (оператор: «выход −4% по ETH не нравится»): ниже
             act = {1: bool(reg[i]), -1: False}            # SMA100 новых входов нет, лоты держатся со своими тейками
+        elif mode in ("lfgate", "lfgshift"):              # 18.10: лонг выше SMA100 И структура не нисходящая
+            act = {1: bool(reg[i]) and bool(gate[i]), -1: False}
         elif mode == "both":
             act = {1: True, -1: True}
         else:
             act = {1: mode == "long", -1: mode == "short"}
-        switching = mode in ("regime", "invert", "shuffle", "longflat", "shuffle_lf")
+        switching = mode in ("regime", "invert", "shuffle", "longflat", "shuffle_lf", "lfgate", "lfgshift")
         if prev is not None and switching and bound[i]:   # граница отрезка — закрыть по рынку всё, что было
             flips += 1
             for d in (1, -1):
-                if prev[d]:
+                # фильтр структуры: на выходе из режима ЛОНГ лоты закрываются, даже если вход был на паузе
+                if prev[d] or (mode in ("lfgate", "lfgshift") and d > 0 and S[d]["lots"]):
                     s = S[d]
                     px = o[i] * (1 - d * SLIP)
                     for e, q, _ in s["lots"]:
@@ -160,7 +196,7 @@ def run(args):
                 if len(s["lots"]) < MAX_LOTS and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
                     # longhold: после паузы ниже SMA уровень от старых лотов может быть выше рынка — живой POST_ONLY
                     # не пересекает стакан и берёт по рынку, поэтому вход не дороже текущей цены
-                    px_in = min(lvl, p) if (mode == "longhold" and d > 0) else lvl
+                    px_in = min(lvl, p) if (mode in ("longhold", "lfgate", "lfgshift") and d > 0) else lvl
                     cost = sum(x[1] * x[0] for x in s["lots"])
                     if max(cost, sum(x[1] for x in s["lots"]) * p) + qty * px_in <= cap:
                         s["lots"].append([px_in, qty, px_in * (1 + d * t)])
@@ -181,6 +217,10 @@ def init(data):
 def main():
     data = load()
     ts = data[0]
+    gbar = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--gate-bar=")), "3600"))
+    gate = structure_gate(data[0], data[2], data[4], bar_s=gbar)
+    data = (*data, gate)
+    print(f"фильтр структуры (бар {gbar // 60} мин): закрыто {1 - gate.mean():.0%} времени", file=sys.stderr)
     print(f"окно {pd.to_datetime(ts[0], unit='s').date()} … {pd.to_datetime(ts[-1], unit='s').date()}, "
           f"доля времени выше SMA100 {data[5].mean():.0%}; срез половин {cut_label(ts)}")
     jobs = []
@@ -195,18 +235,32 @@ def main():
     for step, tgt in steps:
         for mode in modes:
             jobs.append((f"{step:g}/{tgt:g}", mode, 0, step, tgt, *extra))
+    g_ctl = int(next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--gctl=")), "0"))
+    for step, tgt in steps:
+        jobs += [(f"{step:g}/{tgt:g}", "lfgshift", s, step, tgt, *extra) for s in range(g_ctl)]
     n_ctl = N_CTL                                          # --ctl=999 для решения (часы счёта); 12 — только ориентир
     jobs += [("0.6/1.4", "shuffle", s, 0.6, 1.4) for s in range(n_ctl)]
     jobs += [("0.6/1.4", "shuffle_lf", s, 0.6, 1.4) for s in range(n_ctl)]
     with ProcessPoolExecutor(max_workers=3, initializer=init, initargs=(data,)) as ex:
         res = list(ex.map(run, jobs))
     names = {"regime": "по режиму", "longflat": "только лонг/вне", "both": "всегда обе", "long": "всегда лонг",
-             "short": "всегда шорт", "invert": "режим наоборот", "longhold": "лонг/держать"}
+             "short": "всегда шорт", "invert": "режим наоборот", "longhold": "лонг/держать",
+             "lfgate": "лонг+структура", "lfgshift": "контроль сдвиг"}
     print(f"{'сетка':>9} {'вариант':>15} | {'итог':>8} {'1-я пол':>8} {'2-я пол':>8} | {'просадка':>9} {'смен':>5} | стороны")
     for name, mode, seed, step, tgt, eq, mid, dd, flips, side in res:
-        if mode.startswith("shuffle"):
+        if mode.startswith("shuffle") or mode == "lfgshift":
             continue
         print(f"{name:>9} {names[mode]:>15} | {eq:>+8.0f} {mid:>+8.0f} {eq - mid:>+8.0f} | {dd:>+9.0f} {flips:>5} | {side}")
+    for name in sorted({r[0] for r in res if r[1] == "lfgshift"}):
+        real = next((r for r in res if r[1] == "lfgate" and r[0] == name), None)
+        sh = [r for r in res if r[1] == "lfgshift" and r[0] == name]
+        if real and sh:
+            eqs = np.array([r[5] for r in sh])
+            dds = np.array([r[7] for r in sh])
+            print(f"контроль {name}: те же паузы, сдвинутые во времени ({len(sh)}): итог медиана {np.median(eqs):+.0f} "
+                  f"(10–90% {np.quantile(eqs, .1):+.0f}…{np.quantile(eqs, .9):+.0f}), не хуже настоящего "
+                  f"{int((eqs >= real[5]).sum())}/{len(sh)}; просадка медиана {np.median(dds):+.0f}, "
+                  f"не глубже настоящей {int((dds >= real[7]).sum())}/{len(sh)}")
     for real_mode, ctl_mode, what in (("regime", "shuffle", "лонг/шорт"), ("longflat", "shuffle_lf", "только лонг")):
         if n_ctl <= 0 or not any(r[1] == real_mode and r[0] == "0.6/1.4" for r in res):
             continue
