@@ -39,7 +39,7 @@ LIVE_1M = ROOT / "market_live" / "market_1m.csv"
 # 13-21 UTC даёт 41.7% суточного хода, пик 14:00 UTC (1.85x нормы),
 # 57% затяжных эпизодов стартуют в 12-21 UTC. 11:00 Варшавы — за 4.5 часа
 # до этого окна и через 9 часов после дневного закрытия.
-CARD_HOUR_START_LOCAL, CARD_HOUR_END_LOCAL = 11, 13
+CARD_HOUR_START_LOCAL, CARD_HOUR_END_LOCAL = 8, 11      # 18.10 оператор: «к утру сводку» (было 11–13)
 TREND_DAYS = 5                 # порог затяжного движения по SMA20д
 TREND_SPEED_PCT_DAY = 1.53     # медианная скорость затяжного движения
 GRID_COVERAGE_PCT = 6.0        # 300 ордеров x 0.02%

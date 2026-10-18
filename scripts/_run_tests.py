@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_DIRS = [
     "tests/services/pump_freeze/",
     "tests/services/market_brief/",
+    "tests/services/coinglass_web/",
     "tests/services/twap_defender/",
     "tests/services/bot_brain/",
     "tests/services/range_hunter/",

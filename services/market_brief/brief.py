@@ -255,6 +255,11 @@ def build() -> str:
                               "по этим данным следующие сутки как обычный день — ни по направлению, ни по размаху. "
                               "Контекст, не сигнал входа."))
     lines += bodies
+    try:                                                        # 18.10: цифры CoinGlass со страницы (сбор раз в час)
+        from services.coinglass_web.section import section
+        lines.append(section())
+    except Exception:                                           # noqa: BLE001
+        logger.exception("market_brief.coinglass_failed")
     lines += yesterday_check()
     try:
         DIR.mkdir(parents=True, exist_ok=True)
