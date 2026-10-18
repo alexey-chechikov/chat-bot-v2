@@ -1,0 +1,75 @@
+{
+ "generated_utc": "2026-10-15 14:23:55",
+ "source": "https://data.binance.vision/data/futures/um/daily/klines",
+ "symbol": "XRPUSDT",
+ "protocol_section": "7a (commit 6ed43ad)",
+ "fill_days": [
+  "2022-02-26",
+  "2022-02-27",
+  "2022-02-28",
+  "2022-04-01",
+  "2022-04-02"
+ ],
+ "check_days": [
+  "2022-02-25",
+  "2022-03-01",
+  "2022-03-31",
+  "2022-04-03"
+ ],
+ "per_day": {
+  "2022-02-26": {
+   "status": "ok",
+   "sha256": "b0ab75e80659453a51ff5473ca94b41b8fe3d2394651b8db17853d4f3fa30e36",
+   "note": "",
+   "role": "fill"
+  },
+  "2022-02-27": {
+   "status": "ok",
+   "sha256": "7283b18bb4999177417451a54239b32bfc5f535ec6d2d4595faa61b1dbb9ba9b",
+   "note": "",
+   "role": "fill"
+  },
+  "2022-02-28": {
+   "status": "ok",
+   "sha256": "8a56566f2d89c70572c9740868ec91de7c48e2677521f8a814628ea834fa04d6",
+   "note": "",
+   "role": "fill"
+  },
+  "2022-04-01": {
+   "status": "ok",
+   "sha256": "018c6366274843d1041d7facf0a2c0ec014455d86c958fd3d90db0e9bca7a4b0",
+   "note": "",
+   "role": "fill"
+  },
+  "2022-04-02": {
+   "status": "ok",
+   "sha256": "73073095f35fe004bfa61122cf5acce1db53a210e055abaad12c9f0048021e72",
+   "note": "",
+   "role": "fill"
+  },
+  "2022-02-25": {
+   "status": "ok",
+   "sha256": "2a981d4f502f752ff8d410c12f6f071af3d01165fec59f8dcc1b18a768dcd7a0",
+   "note": "",
+   "role": "check"
+  },
+  "2022-03-01": {
+   "status": "ok",
+   "sha256": "6dc47c8c7daae89c93ba8bdd1b4ea9aee250066b62ce760bbeed8fd4add59591",
+   "note": "",
+   "role": "check"
+  },
+  "2022-03-31": {
+   "status": "ok",
+   "sha256": "c3459db2cb0d800d84f8c6bda4ded3ccb593797174431cb737d4047eaf882697",
+   "note": "",
+   "role": "check"
+  },
+  "2022-04-03": {
+   "status": "ok",
+   "sha256": "527c210d854ee9c07f52464eaae50eceeb4047091f48050b7a9df9dd491b3138",
+   "note": "",
+   "role": "check"
+  }
+ }
+}

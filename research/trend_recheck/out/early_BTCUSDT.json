@@ -1,0 +1,160 @@
+{
+ "symbol": "BTCUSDT",
+ "file": "backtests/frozen/BTCUSDT_UM_1m_early.csv",
+ "sha256": "579f9c3d722e206cf6f045b0e97f05d24b6682759bd31a76fd8c2509f7308200",
+ "bytes": 161059880,
+ "rows": 2298240,
+ "first_utc": "2020-01-01 00:00",
+ "last_utc": "2024-05-14 23:59",
+ "first_ms": 1577836800000,
+ "last_ms": 1715731140000,
+ "archives": {
+  "first_month": "2020-01",
+  "last_month": "2024-05",
+  "count": 53
+ },
+ "grid_span_minutes": 2298240,
+ "missing_minutes": 0,
+ "missing_minutes_inside_span": 0,
+ "missing_minutes_at_seam_before_2024-05-15": 0,
+ "gap_ranges": 0,
+ "gap_size_buckets": {},
+ "largest_gaps": [],
+ "duplicates_identical_dropped": 0,
+ "off_grid_dropped": 0,
+ "outside_month_dropped": 0,
+ "archives_with_header": 29,
+ "archives_unsorted": 0,
+ "invalid_rows": 0,
+ "invalid_sample": [],
+ "decimals_written": {
+  "open": {
+   "2": 2298240
+  },
+  "high": {
+   "2": 2298240
+  },
+  "low": {
+   "2": 2298240
+  },
+  "close": {
+   "2": 2298240
+  },
+  "volume": {
+   "3": 2297997,
+   "0": 243
+  },
+  "taker_buy": {
+   "3": 2297963,
+   "0": 277
+  }
+ },
+ "number_style_existing_file": {
+  "open": {
+   "decimals": 2,
+   "zero": "0.00",
+   "zero_seen": {}
+  },
+  "high": {
+   "decimals": 2,
+   "zero": "0.00",
+   "zero_seen": {}
+  },
+  "low": {
+   "decimals": 2,
+   "zero": "0.00",
+   "zero_seen": {}
+  },
+  "close": {
+   "decimals": 2,
+   "zero": "0.00",
+   "zero_seen": {}
+  },
+  "volume": {
+   "decimals": 3,
+   "zero": "0",
+   "zero_seen": {
+    "0": 33
+   }
+  },
+  "taker_buy": {
+   "decimals": 3,
+   "zero": "0",
+   "zero_seen": {
+    "0": 33
+   }
+  }
+ },
+ "padded_integer_strings_F7": {
+  "low": 29590,
+  "open": 21994,
+  "high": 30017,
+  "close": 21812,
+  "taker_buy": 117,
+  "volume": 147,
+  "taker_buy:zero": 164,
+  "volume:zero": 144
+ },
+ "h4_candles_utc00": {
+  "total": 9576,
+  "full_240_valid": 9576,
+  "partial": 0,
+  "empty": 0
+ },
+ "line_endings": "CRLF (csv.writer), как у существующего файла",
+ "seam": {
+  "existing_file": "backtests/frozen/BTCUSDT_UM_1m.csv",
+  "existing_sha256": "8b39e6306c4d1c800d252c0417488a7c735c6a98f6170f047d3ba0e1ea56602f",
+  "existing_header_equal": true,
+  "existing_header_bytes": "ts,open,high,low,close,volume,taker_buy,trades\r\n",
+  "existing_first_utc": "2024-05-15 00:00",
+  "existing_starts_2024-05-15": true,
+  "window_utc": [
+   "2024-05-15 00:00",
+   "2024-05-31 23:59"
+  ],
+  "minutes_archive": 24480,
+  "minutes_existing": 24480,
+  "minutes_both": 24480,
+  "identical": 24480,
+  "format_only": 0,
+  "different": 0,
+  "different_by_field": {},
+  "ohlcv_field_differences": 0,
+  "max_abs_diff": {
+   "open": 0.0,
+   "high": 0.0,
+   "low": 0.0,
+   "close": 0.0,
+   "volume": 0.0,
+   "taker_buy": 0.0,
+   "trades": 0.0
+  },
+  "only_in_archive": [],
+  "only_in_archive_count": 0,
+  "only_in_existing": [],
+  "only_in_existing_count": 0,
+  "diff_sample": [],
+  "existing_decimals_in_window": {
+   "open": {
+    "2": 24480
+   },
+   "high": {
+    "2": 24480
+   },
+   "low": {
+    "2": 24480
+   },
+   "close": {
+    "2": 24480
+   },
+   "volume": {
+    "3": 24480
+   },
+   "taker_buy": {
+    "3": 24480
+   }
+  },
+  "ok": true
+ }
+}

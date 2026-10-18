@@ -1,0 +1,59 @@
+{
+ "generated_utc": "2026-10-15 14:22:12",
+ "mismatches": 0,
+ "first_mismatches": [],
+ "per_symbol": {
+  "ETHUSDT": {
+   "bars": 14873,
+   "episodes": 233,
+   "trades": 246,
+   "exits_brute_force": {
+    "close_exit": 77,
+    "emergency_stop": 169,
+    "gap_through_stop": 0,
+    "censored": 0
+   },
+   "funding_trades_checked": 36,
+   "truncation_trades_checked": 454
+  },
+  "XRPUSDT": {
+   "bars": 14811,
+   "episodes": 240,
+   "trades": 256,
+   "exits_brute_force": {
+    "close_exit": 90,
+    "emergency_stop": 166,
+    "gap_through_stop": 0,
+    "censored": 0
+   },
+   "funding_trades_checked": 37,
+   "truncation_trades_checked": 449
+  },
+  "XRPUSDT_filled7a": {
+   "bars": 14841,
+   "episodes": 240,
+   "trades": 256,
+   "exits_brute_force": {
+    "close_exit": 90,
+    "emergency_stop": 166,
+    "gap_through_stop": 0,
+    "censored": 0
+   },
+   "funding_trades_checked": 37,
+   "truncation_trades_checked": 449
+  },
+  "BTCUSDT": {
+   "bars": 14873,
+   "episodes": 248,
+   "trades": 259,
+   "exits_brute_force": {
+    "close_exit": 131,
+    "emergency_stop": 128,
+    "gap_through_stop": 0,
+    "censored": 0
+   },
+   "funding_trades_checked": 37,
+   "truncation_trades_checked": 449
+  }
+ }
+}

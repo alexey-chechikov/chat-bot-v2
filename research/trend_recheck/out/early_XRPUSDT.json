@@ -1,0 +1,169 @@
+{
+ "symbol": "XRPUSDT",
+ "file": "backtests/frozen/XRPUSDT_UM_1m_early.csv",
+ "sha256": "0ccd012439d8deaf75fe9275f52947185d826773717deb1b98994ee64f1c057b",
+ "bytes": 147722306,
+ "rows": 2283339,
+ "first_utc": "2020-01-06 08:21",
+ "last_utc": "2024-05-14 23:59",
+ "first_ms": 1578298860000,
+ "last_ms": 1715731140000,
+ "archives": {
+  "first_month": "2020-01",
+  "last_month": "2024-05",
+  "count": 53
+ },
+ "grid_span_minutes": 2290539,
+ "missing_minutes": 7200,
+ "missing_minutes_inside_span": 7200,
+ "missing_minutes_at_seam_before_2024-05-15": 0,
+ "gap_ranges": 2,
+ "gap_size_buckets": {
+  ">1440": 2
+ },
+ "largest_gaps": [
+  {
+   "from_utc": "2022-02-26 00:00",
+   "to_utc": "2022-02-28 23:59",
+   "minutes": 4320
+  },
+  {
+   "from_utc": "2022-04-01 00:00",
+   "to_utc": "2022-04-02 23:59",
+   "minutes": 2880
+  }
+ ],
+ "duplicates_identical_dropped": 0,
+ "off_grid_dropped": 0,
+ "outside_month_dropped": 0,
+ "archives_with_header": 28,
+ "archives_unsorted": 0,
+ "invalid_rows": 0,
+ "invalid_sample": [],
+ "decimals_written": {
+  "open": {
+   "4": 2283339
+  },
+  "high": {
+   "4": 2283339
+  },
+  "low": {
+   "4": 2283339
+  },
+  "close": {
+   "4": 2283339
+  },
+  "volume": {
+   "1": 2282952,
+   "0": 387
+  },
+  "taker_buy": {
+   "0": 12014,
+   "1": 2271325
+  }
+ },
+ "number_style_existing_file": {
+  "open": {
+   "decimals": 4,
+   "zero": "0.0000",
+   "zero_seen": {}
+  },
+  "high": {
+   "decimals": 4,
+   "zero": "0.0000",
+   "zero_seen": {}
+  },
+  "low": {
+   "decimals": 4,
+   "zero": "0.0000",
+   "zero_seen": {}
+  },
+  "close": {
+   "decimals": 4,
+   "zero": "0.0000",
+   "zero_seen": {}
+  },
+  "volume": {
+   "decimals": 1,
+   "zero": "0",
+   "zero_seen": {
+    "0": 33
+   }
+  },
+  "taker_buy": {
+   "decimals": 1,
+   "zero": "0",
+   "zero_seen": {
+    "0": 34
+   }
+  }
+ },
+ "padded_integer_strings_F7": {
+  "taker_buy:zero": 12011,
+  "volume:zero": 384,
+  "volume": 13016,
+  "taker_buy": 12948
+ },
+ "h4_candles_utc00": {
+  "total": 9544,
+  "full_240_valid": 9513,
+  "partial": 1,
+  "empty": 30
+ },
+ "line_endings": "CRLF (csv.writer), как у существующего файла",
+ "seam": {
+  "existing_file": "backtests/frozen/XRPUSDT_UM_1m.csv",
+  "existing_sha256": "1b0828b5ea0cd8cb8b6c25d07b0859b4f609f1d6622ee075e11b037c3cb46888",
+  "existing_header_equal": true,
+  "existing_header_bytes": "ts,open,high,low,close,volume,taker_buy,trades\r\n",
+  "existing_first_utc": "2024-05-15 00:00",
+  "existing_starts_2024-05-15": true,
+  "window_utc": [
+   "2024-05-15 00:00",
+   "2024-05-31 23:59"
+  ],
+  "minutes_archive": 24480,
+  "minutes_existing": 24480,
+  "minutes_both": 24480,
+  "identical": 24480,
+  "format_only": 0,
+  "different": 0,
+  "different_by_field": {},
+  "ohlcv_field_differences": 0,
+  "max_abs_diff": {
+   "open": 0.0,
+   "high": 0.0,
+   "low": 0.0,
+   "close": 0.0,
+   "volume": 0.0,
+   "taker_buy": 0.0,
+   "trades": 0.0
+  },
+  "only_in_archive": [],
+  "only_in_archive_count": 0,
+  "only_in_existing": [],
+  "only_in_existing_count": 0,
+  "diff_sample": [],
+  "existing_decimals_in_window": {
+   "open": {
+    "4": 24480
+   },
+   "high": {
+    "4": 24480
+   },
+   "low": {
+    "4": 24480
+   },
+   "close": {
+    "4": 24480
+   },
+   "volume": {
+    "1": 24480
+   },
+   "taker_buy": {
+    "1": 24480
+   }
+  },
+  "ok": true
+ }
+}

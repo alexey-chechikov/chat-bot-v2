@@ -1,0 +1,850 @@
+{
+ "generated_utc": "2026-10-15 09:29:10",
+ "end_month": "2024-05",
+ "source": "https://data.binance.vision/data/futures/um/monthly/klines",
+ "symbols": {
+  "ETHUSDT": {
+   "first_month": "2020-01",
+   "first_month_source": "listing",
+   "months": 53,
+   "missing_in_listing": [],
+   "bytes": 98091043,
+   "status_counts": {
+    "ok": 53,
+    "new": 0,
+    "refetched": 0,
+    "bad": 0,
+    "unverified": 0
+   },
+   "per_month": {
+    "2020-01": {
+     "status": "ok",
+     "sha256": "a3e4f209b53ba03eb5adbb9560faf88431cd268b1cc7890fce488fb7674f385e",
+     "note": ""
+    },
+    "2020-02": {
+     "status": "ok",
+     "sha256": "b5267b5dc4f45cb23aedede25b0586948d41fcbb8f79e3460351ebb182633ee4",
+     "note": ""
+    },
+    "2020-03": {
+     "status": "ok",
+     "sha256": "f4a6a230bf25a1d4f6a7f612d3a365e9bc8ea19a62e43b4eda6804cf923eca3f",
+     "note": ""
+    },
+    "2020-04": {
+     "status": "ok",
+     "sha256": "01023b5182512955021849e207592b10e28a750da7f705cbba34a44fa15936dd",
+     "note": ""
+    },
+    "2020-05": {
+     "status": "ok",
+     "sha256": "64708f859d8bfb51360835ed6cd97a23801b0a254c087639d5a2f6c7a5d51906",
+     "note": ""
+    },
+    "2020-06": {
+     "status": "ok",
+     "sha256": "6a61c20545009bb270c237d2d083f71274486069eb0f9f9e5fad377a40e20d4f",
+     "note": ""
+    },
+    "2020-07": {
+     "status": "ok",
+     "sha256": "dd83a3a8fa0f79ff086c7cb6d67af4c7e44f4e118f04f7a9af864200a63ee1f9",
+     "note": ""
+    },
+    "2020-08": {
+     "status": "ok",
+     "sha256": "3ecade833e5be335b5eb0a2c3bee4b1f09fe742c0b2c88a2185922c2fb28ad10",
+     "note": ""
+    },
+    "2020-09": {
+     "status": "ok",
+     "sha256": "20e851e03a8bf4414931db2974b21d1fe9c4f6f567172ea61296738e4a829a2a",
+     "note": ""
+    },
+    "2020-10": {
+     "status": "ok",
+     "sha256": "6d85dac37a0092cf8b9f687701afdd1d7b325e4471767eca5908cb3579842669",
+     "note": ""
+    },
+    "2020-11": {
+     "status": "ok",
+     "sha256": "0042b802f1dd09ef5b4cf1c53c54b11c76190ac147cff096da1df7a38c4c8444",
+     "note": ""
+    },
+    "2020-12": {
+     "status": "ok",
+     "sha256": "6a331abd5e2cbc53c3730ceb15545294a450209e0da4d4baa2cc241c872b59b1",
+     "note": ""
+    },
+    "2021-01": {
+     "status": "ok",
+     "sha256": "eec71d7526f3736012c0961fe9893d7f00947fe722709e45bbcd14d8b47b216f",
+     "note": ""
+    },
+    "2021-02": {
+     "status": "ok",
+     "sha256": "f0ad622d0add8de4d62974a79cbc4010216011bc7c2ae2c0ea5ce1a190564a38",
+     "note": ""
+    },
+    "2021-03": {
+     "status": "ok",
+     "sha256": "5f452486b3ba9fbc7ee98ede470501b7202d12744048f75088943590a0edc6ff",
+     "note": ""
+    },
+    "2021-04": {
+     "status": "ok",
+     "sha256": "b6ff07c1674a645b75578d7bf06c2fc616e0443b1c2fc5efb50f7fead2bee0f6",
+     "note": ""
+    },
+    "2021-05": {
+     "status": "ok",
+     "sha256": "3b8c11f3f8a87320b4a948b60257157b2920ef5363929a26f184bfe205f40446",
+     "note": ""
+    },
+    "2021-06": {
+     "status": "ok",
+     "sha256": "b06233d329610c0f38b65a8b10255393367172119fbbec9a135923329f396166",
+     "note": ""
+    },
+    "2021-07": {
+     "status": "ok",
+     "sha256": "13057ee33037fd9fb0cc063c6f28247e09fcf903023f7eac6ef59a6d6ada55d7",
+     "note": ""
+    },
+    "2021-08": {
+     "status": "ok",
+     "sha256": "c13383864ddebabe6f5e19e399a858fbc868b567e67e298b64703697a5419629",
+     "note": ""
+    },
+    "2021-09": {
+     "status": "ok",
+     "sha256": "33ea7e86283b55400613a6af94f0dcdf4c309bc7a8550011e931236f5bf1adc2",
+     "note": ""
+    },
+    "2021-10": {
+     "status": "ok",
+     "sha256": "244d0e66583023a557b8b5486a476a770d03dad315e2363ea426db62e404cf53",
+     "note": ""
+    },
+    "2021-11": {
+     "status": "ok",
+     "sha256": "b083257f558380a01d3eadd84c8d821ea4930c3eaa0a53d3317139e8d89b4b41",
+     "note": ""
+    },
+    "2021-12": {
+     "status": "ok",
+     "sha256": "c00acbd9a587da4ef3f8e1aea30b4e0746cbc33539280247fbcec301a030885a",
+     "note": ""
+    },
+    "2022-01": {
+     "status": "ok",
+     "sha256": "6b1f5eef19ba80942734c04dd77cf177c7d82bfcc165424a6b9ad005e30df787",
+     "note": ""
+    },
+    "2022-02": {
+     "status": "ok",
+     "sha256": "0a282034071d71093e41440a77eb6e5eecb9cb293191a05432df5de411a49782",
+     "note": ""
+    },
+    "2022-03": {
+     "status": "ok",
+     "sha256": "8dd4fbcefdc6ed44f580daadf7ee180a2206d2c56062efa4e9c29170509b7528",
+     "note": ""
+    },
+    "2022-04": {
+     "status": "ok",
+     "sha256": "f3d073fdcd87efc51b5eca9eda12bc1d6969832fedcc7279fac9189403c2ff3d",
+     "note": ""
+    },
+    "2022-05": {
+     "status": "ok",
+     "sha256": "ace5b3685a0e64d51b44e8c8028c04f74f4158728e1091c0ee6485e0af8c4a28",
+     "note": ""
+    },
+    "2022-06": {
+     "status": "ok",
+     "sha256": "fe28507344a66f351fff61708981dff001cccf5d07f6d1036431c9222a03df7b",
+     "note": ""
+    },
+    "2022-07": {
+     "status": "ok",
+     "sha256": "f74f6765b85cf5ecd3e566ad7c2bcd403a0cf13197a988a832b44f20d7208ca1",
+     "note": ""
+    },
+    "2022-08": {
+     "status": "ok",
+     "sha256": "04e0f53dc0acd9caf96e6cbd09ad4d65a1842e34f21ef878aeb9994d04853f95",
+     "note": ""
+    },
+    "2022-09": {
+     "status": "ok",
+     "sha256": "a063208820fa69a391071daf2ba30a2eebafc41f1de2b4dac34752980004d83c",
+     "note": ""
+    },
+    "2022-10": {
+     "status": "ok",
+     "sha256": "dfbf63b2f5e6131156cf6934cc414af4b08d4bd83bce6bb0c3ad8e843e084281",
+     "note": ""
+    },
+    "2022-11": {
+     "status": "ok",
+     "sha256": "28c780ededdc1f725869a5bc91edbaf570941b8d3e9fdd8ad815d32d74e07c16",
+     "note": ""
+    },
+    "2022-12": {
+     "status": "ok",
+     "sha256": "1e426fd43bd84ab244e8a47630d7b09084455dc68eee32eb5ccecd9950c68af6",
+     "note": ""
+    },
+    "2023-01": {
+     "status": "ok",
+     "sha256": "0f501c198dd70e9330e698d62fbaeaf8b4b94275a4157b859f9fc3de0498dfe4",
+     "note": ""
+    },
+    "2023-02": {
+     "status": "ok",
+     "sha256": "e19b3ba0cfb3121d51d0617a0b0f6889233d8d4e6ce6f391e573adfce2385c88",
+     "note": ""
+    },
+    "2023-03": {
+     "status": "ok",
+     "sha256": "277ce2cc1c7175df2d19ccebe081ff286bc3ef6eb028c698f86c4eca1b9b4989",
+     "note": ""
+    },
+    "2023-04": {
+     "status": "ok",
+     "sha256": "b900eb2661c1559133d58ea820a9c54d2a3fb0054ba148c7f0d86a1a790b267a",
+     "note": ""
+    },
+    "2023-05": {
+     "status": "ok",
+     "sha256": "5d75bb047ecbb013fabefd80e883b3dd6d21cd98bfbedb208147e5b2e7c395d6",
+     "note": ""
+    },
+    "2023-06": {
+     "status": "ok",
+     "sha256": "726c301fe41f23a79eed5a09ff556ffb9dbdfb54ce2a66fe2737ae61c33d07c1",
+     "note": ""
+    },
+    "2023-07": {
+     "status": "ok",
+     "sha256": "cd3bcf0ed40e17b4c4cbce1f6af1c8fe2be309db2fecdfc7436f7c453a15e177",
+     "note": ""
+    },
+    "2023-08": {
+     "status": "ok",
+     "sha256": "b0f54f67f3135d3f64ea2ca9a95f01fb18031c1b6d7ffbf552aa37e4965bcee5",
+     "note": ""
+    },
+    "2023-09": {
+     "status": "ok",
+     "sha256": "1d57af68d4f8d652bb6a4d78cd50b6ceecb4aff4b19a2cb59c7d1cba005dc386",
+     "note": ""
+    },
+    "2023-10": {
+     "status": "ok",
+     "sha256": "d14f90cbc8075341cf1dfe9cfc29dc1689a0b3c3adcc0c3a35ca360a5c78f651",
+     "note": ""
+    },
+    "2023-11": {
+     "status": "ok",
+     "sha256": "5eeb6b99e8dc6889fe9d317f373f4f587c4c8d35de9ee2854a6471d6fd7b3e1b",
+     "note": ""
+    },
+    "2023-12": {
+     "status": "ok",
+     "sha256": "6ebf84e9b991619d772af5d9835175c5e456688c33c72affa35b3aecbac30d09",
+     "note": ""
+    },
+    "2024-01": {
+     "status": "ok",
+     "sha256": "7fa68ec5fedc6eef175ed0af6e9f252062f6ceaca016106c265e6e4b724b5ef2",
+     "note": ""
+    },
+    "2024-02": {
+     "status": "ok",
+     "sha256": "de3f91fcd929d207b4382afd7a728c0f44527d6bdbcb0a585b01b0fe001e24ab",
+     "note": ""
+    },
+    "2024-03": {
+     "status": "ok",
+     "sha256": "dd10515a9b010920bac628f2ec600405ff8e41de7d0f81694fbf391ca54b86b2",
+     "note": ""
+    },
+    "2024-04": {
+     "status": "ok",
+     "sha256": "1856da8b501dbb831b9a5490e99be8564433c4a4d46de89200f0258c74dd4790",
+     "note": ""
+    },
+    "2024-05": {
+     "status": "ok",
+     "sha256": "d512aa43b5b6a5168fa1b6242fe4cf01c88e51c78bb9f4d202f0ca2e42338f96",
+     "note": ""
+    }
+   }
+  },
+  "XRPUSDT": {
+   "first_month": "2020-01",
+   "first_month_source": "listing",
+   "months": 53,
+   "missing_in_listing": [],
+   "bytes": 86519088,
+   "status_counts": {
+    "ok": 53,
+    "new": 0,
+    "refetched": 0,
+    "bad": 0,
+    "unverified": 0
+   },
+   "per_month": {
+    "2020-01": {
+     "status": "ok",
+     "sha256": "6de1a49f6915090a2388266bf103c844e95b743579d4180ef7a6bb84e0fa96e0",
+     "note": ""
+    },
+    "2020-02": {
+     "status": "ok",
+     "sha256": "afee1dc64cee6a9870b11e8f65b051e464a2d4935448411276a22e3063865eaa",
+     "note": ""
+    },
+    "2020-03": {
+     "status": "ok",
+     "sha256": "a7e77ea26fb9f0f346504669cd655b8685f811f5383d4437cc70b88bb85e307f",
+     "note": ""
+    },
+    "2020-04": {
+     "status": "ok",
+     "sha256": "7a98fd9fb03beb1559d43c5eab11d5ac9826963955c6fa8dbaedaa6fa0babb98",
+     "note": ""
+    },
+    "2020-05": {
+     "status": "ok",
+     "sha256": "aa558beba4dc615af1d2efdad79fbb6f5c3bdc0d0af92bc927fd2d5b5a649880",
+     "note": ""
+    },
+    "2020-06": {
+     "status": "ok",
+     "sha256": "72e052a2b080f409c6dbe6a836f100955d55f175506e895878664dfc2421dea9",
+     "note": ""
+    },
+    "2020-07": {
+     "status": "ok",
+     "sha256": "26feb2c7016dfa03f09e4286eb0cf8be42c4653622e71e0dc8ae98102fe9b1eb",
+     "note": ""
+    },
+    "2020-08": {
+     "status": "ok",
+     "sha256": "504345e5d3523245f5aa20d016f02d380f5dcf9b4cd821c861fda54a5e589225",
+     "note": ""
+    },
+    "2020-09": {
+     "status": "ok",
+     "sha256": "6d06163e2af04d3719490872f3bf54b329e6ec320bb9614c866d80d7ad9076fc",
+     "note": ""
+    },
+    "2020-10": {
+     "status": "ok",
+     "sha256": "315f886dd74c839d670920536f9e0cee96995835e328b4a7dd18b046e409620b",
+     "note": ""
+    },
+    "2020-11": {
+     "status": "ok",
+     "sha256": "37ee0a34956fb19af544b52c91a5fdf175b2d53f9520893cf12a5dc8c51f8283",
+     "note": ""
+    },
+    "2020-12": {
+     "status": "ok",
+     "sha256": "d16f35b35dd4011e6c99dc20ac6580876e9c8b65a73184cd275d0d5377fd418d",
+     "note": ""
+    },
+    "2021-01": {
+     "status": "ok",
+     "sha256": "128587c3c66114eb362be493b23fdd5325aa694a25d175f3722fa45269e13311",
+     "note": ""
+    },
+    "2021-02": {
+     "status": "ok",
+     "sha256": "7cfa1ba214fb3c232be9318bdecb51eae3e0385ffb2aa45f8d7407e2d4bd5bbf",
+     "note": ""
+    },
+    "2021-03": {
+     "status": "ok",
+     "sha256": "1d3cf71a4015b2c655ba856b5ae7b698fbb14e6cfb7c1183c3f10c6d1e629684",
+     "note": ""
+    },
+    "2021-04": {
+     "status": "ok",
+     "sha256": "238a20a15a03dfc7da8250c88c4eeb5b4d0bf4598ac94e109ed14fb4355c3294",
+     "note": ""
+    },
+    "2021-05": {
+     "status": "ok",
+     "sha256": "b4b1a367c0f7cfe98d1d5acf62422edfd83d428847883524c3a3dbebae23529a",
+     "note": ""
+    },
+    "2021-06": {
+     "status": "ok",
+     "sha256": "0d9011840166e636befeb29224e265f3bdb176dff70db0f04867bc6822eb28b3",
+     "note": ""
+    },
+    "2021-07": {
+     "status": "ok",
+     "sha256": "2cc1bde62b8deb86528c7fd6ab7ce5978a30fd1f04589c9a739f865b4181512e",
+     "note": ""
+    },
+    "2021-08": {
+     "status": "ok",
+     "sha256": "aa2dce8ccd7f982df30ac91dd9f7c35e0afcd1695c24f92d87197dadb6516b55",
+     "note": ""
+    },
+    "2021-09": {
+     "status": "ok",
+     "sha256": "7f39decb0cf6b937468a8704926587823c1676e358973d5be64af9b297740075",
+     "note": ""
+    },
+    "2021-10": {
+     "status": "ok",
+     "sha256": "9aea7e0ec17e43550787d4bc8cf10fe246545b86390e48d895457a22d0a059bf",
+     "note": ""
+    },
+    "2021-11": {
+     "status": "ok",
+     "sha256": "9097d6701577911966e33eecfb866c099785f588f48ea5bf30989baaf2f4f5b8",
+     "note": ""
+    },
+    "2021-12": {
+     "status": "ok",
+     "sha256": "cf73cd9e3b97a1c2806a0c5487f57bebf2e73adb7f350e281c4be29051768fcf",
+     "note": ""
+    },
+    "2022-01": {
+     "status": "ok",
+     "sha256": "aa5bb48ffbabbe6971fa7e3a8965cb6afead2b881993074dbaf316304356787a",
+     "note": ""
+    },
+    "2022-02": {
+     "status": "ok",
+     "sha256": "c2427ac93c91a589c62f10193b9672cd3e7cca23e219e444bc12c945d6a245e7",
+     "note": ""
+    },
+    "2022-03": {
+     "status": "ok",
+     "sha256": "9a2980ca8def5632a770977fa1b46df298ff1649b5511bc233470600c2250fb0",
+     "note": ""
+    },
+    "2022-04": {
+     "status": "ok",
+     "sha256": "28a9f6c9cc7bcf6cadc5acc1cacf297f7a83193fd1e13858ebc5dc927cb3df7b",
+     "note": ""
+    },
+    "2022-05": {
+     "status": "ok",
+     "sha256": "8643a45e59be46c33f5e4023a11d760e1a37ae9761a09dc07e9c558cd0125680",
+     "note": ""
+    },
+    "2022-06": {
+     "status": "ok",
+     "sha256": "c9a49986c98090ba617584b006d84d06c74f816e3e4deaac485fce96d5a9591d",
+     "note": ""
+    },
+    "2022-07": {
+     "status": "ok",
+     "sha256": "acc632a1472fabb5bb215bf1427861c977f28b89986c042e31ce0d1112ee79e7",
+     "note": ""
+    },
+    "2022-08": {
+     "status": "ok",
+     "sha256": "fdfe4f491e43a3ba1c968fb29dac2e36c52a63946254f9fc56afc0ff79a6a0b0",
+     "note": ""
+    },
+    "2022-09": {
+     "status": "ok",
+     "sha256": "87d8e9189c96db88e412100b800cf98c593b7a3d2e5ba0db05f2e3d1fc96302d",
+     "note": ""
+    },
+    "2022-10": {
+     "status": "ok",
+     "sha256": "a77df18ea332605fc4960f640d24c8daddac3b072930822137d202afb9fea023",
+     "note": ""
+    },
+    "2022-11": {
+     "status": "ok",
+     "sha256": "e99554d48371f81f683d264b4eeb6379e69b8d126a2b4a4bb1d1202f67ed3527",
+     "note": ""
+    },
+    "2022-12": {
+     "status": "ok",
+     "sha256": "a33b33fd72aadf7e6b5034fbb5574aa431ddcb5247da00f24a43a309d7e22037",
+     "note": ""
+    },
+    "2023-01": {
+     "status": "ok",
+     "sha256": "079b1913e16c5db49e6806cb5427014a4cb76897bad01a1cec5db41b0034c210",
+     "note": ""
+    },
+    "2023-02": {
+     "status": "ok",
+     "sha256": "91921432f8c9387cc5c76b8b6ba60b71c53c7bbc339f2a24f85fda99bf8abfa8",
+     "note": ""
+    },
+    "2023-03": {
+     "status": "ok",
+     "sha256": "f80e76228874e809f406526efd10e4642f95821a30220cacc13fabab5310e492",
+     "note": ""
+    },
+    "2023-04": {
+     "status": "ok",
+     "sha256": "ee5730806d6040f8e8d07b30e98c649a2a0fd6e04296aadaabe4439467c53491",
+     "note": ""
+    },
+    "2023-05": {
+     "status": "ok",
+     "sha256": "8960c4b445466cf9498eff1aa21b25bdde618d8ecfe16ec84280255b241cedaf",
+     "note": ""
+    },
+    "2023-06": {
+     "status": "ok",
+     "sha256": "00716c7542088ffbf8188cc3916b1909cad8e8b56acf6b0c297eab98ef2cc838",
+     "note": ""
+    },
+    "2023-07": {
+     "status": "ok",
+     "sha256": "0d47ef854806819735907b57f2c435402f95cfb560ec06a71849a033a65310c6",
+     "note": ""
+    },
+    "2023-08": {
+     "status": "ok",
+     "sha256": "65566c5f67531e215b698914b7731a0a93df2a1b749caa17e007a415eb7ea933",
+     "note": ""
+    },
+    "2023-09": {
+     "status": "ok",
+     "sha256": "4cade3153d08b9f3facecd42f553e6ce2420533e628c6e167c11d544cf5b860b",
+     "note": ""
+    },
+    "2023-10": {
+     "status": "ok",
+     "sha256": "bcd8f7869ddb2d29869ee918f520c7a621c5e6900cac76001dfeca69a2d7331b",
+     "note": ""
+    },
+    "2023-11": {
+     "status": "ok",
+     "sha256": "b817ca0a6478d73cfd50dfc224aab84ec7f15ed0129795c3df2c39e6ce08cc99",
+     "note": ""
+    },
+    "2023-12": {
+     "status": "ok",
+     "sha256": "51efd41052243e9215f429a6e4c1af1cf33e5677f5d19183f6b2e712ca653688",
+     "note": ""
+    },
+    "2024-01": {
+     "status": "ok",
+     "sha256": "9d0623c5b5d6e13e8dc5698383b317af8f46a3fe9d587fc9d01236a309f7993f",
+     "note": ""
+    },
+    "2024-02": {
+     "status": "ok",
+     "sha256": "90242d3140d75918c3be287907f805fe10c44c40b27cd16689a5716d6afac022",
+     "note": ""
+    },
+    "2024-03": {
+     "status": "ok",
+     "sha256": "01fa94527d6b7af23ab08bb72e1d11f6e4a6b822f4291fdd14fb292128eddada",
+     "note": ""
+    },
+    "2024-04": {
+     "status": "ok",
+     "sha256": "c545585efc5dc8896c68ff4982e33f106122e2479a265c92c1a85eb64abbc4bc",
+     "note": ""
+    },
+    "2024-05": {
+     "status": "ok",
+     "sha256": "ea69a39f55006d3256522737ae2596f189bc312d0b650f84bd88feb5249622e2",
+     "note": ""
+    }
+   }
+  },
+  "BTCUSDT": {
+   "first_month": "2020-01",
+   "first_month_source": "listing",
+   "months": 53,
+   "missing_in_listing": [],
+   "bytes": 99940090,
+   "status_counts": {
+    "ok": 53,
+    "new": 0,
+    "refetched": 0,
+    "bad": 0,
+    "unverified": 0
+   },
+   "per_month": {
+    "2020-01": {
+     "status": "ok",
+     "sha256": "b4e13ea185ba96c413ac9167cfbb6e238eb5eae119a7a77f41f4c61c5e099d03",
+     "note": ""
+    },
+    "2020-02": {
+     "status": "ok",
+     "sha256": "f32b20168ea590cd7d04a2995bc5ec500ea06331c8174f7fd14f29c1078e5ed2",
+     "note": ""
+    },
+    "2020-03": {
+     "status": "ok",
+     "sha256": "15790b4b031cbc5f59cae30e523fb8341588d279fe3839ba1224c7fe8a6bc929",
+     "note": ""
+    },
+    "2020-04": {
+     "status": "ok",
+     "sha256": "f45228183c21030fc3a787109eada99187d9ba8c4d5d7ea5c178967150fa7467",
+     "note": ""
+    },
+    "2020-05": {
+     "status": "ok",
+     "sha256": "bc5bdae217f9ef6a32ffcc7653e3d45e007a2d9b2e93b752bdc7805254446821",
+     "note": ""
+    },
+    "2020-06": {
+     "status": "ok",
+     "sha256": "91f18492445c0a9609d70bd4603c73c8588a88c06105ade34082417f8b2e7e6d",
+     "note": ""
+    },
+    "2020-07": {
+     "status": "ok",
+     "sha256": "4cb7dcf6e1adb17e8ab8787c459f3f645b7070633f530485f0f93dd45a9de693",
+     "note": ""
+    },
+    "2020-08": {
+     "status": "ok",
+     "sha256": "7596de0f26df44d782713475f97af34f27a287faf084c73bdcc61819215b060a",
+     "note": ""
+    },
+    "2020-09": {
+     "status": "ok",
+     "sha256": "9f2d575ffc17a14320bc08a99d51a5580fd7f058f1495cfec598fbbd959792c2",
+     "note": ""
+    },
+    "2020-10": {
+     "status": "ok",
+     "sha256": "f35bc01dc1bba142c87033b33055c34a0ba37c2a2abd6c115af6a9c4f238dd03",
+     "note": ""
+    },
+    "2020-11": {
+     "status": "ok",
+     "sha256": "8eb55b2a547c35d792f88186168774804346426b82289bc9b1633406c0ff9e40",
+     "note": ""
+    },
+    "2020-12": {
+     "status": "ok",
+     "sha256": "72cfa1e9aeb851871af0168eb7ee22d334b5efb3aa4a76d7382754dac5e885d8",
+     "note": ""
+    },
+    "2021-01": {
+     "status": "ok",
+     "sha256": "ba7aeda6a99e0828b39da1b0605aaefcb40882fe9d44034598c4404f8a07783f",
+     "note": ""
+    },
+    "2021-02": {
+     "status": "ok",
+     "sha256": "0a270f354b15b053824a7bb87c652aa95acb4a255fc968fe0a24bdc9e785223e",
+     "note": ""
+    },
+    "2021-03": {
+     "status": "ok",
+     "sha256": "15a2676410d5104fac1ea15f7302addbf4d0de14f6db8ce10a4930c3f5d5e7fa",
+     "note": ""
+    },
+    "2021-04": {
+     "status": "ok",
+     "sha256": "d957fcde82f9b5a9a05264a9602e5deae03472aa0d424ddb0f27a04e58723217",
+     "note": ""
+    },
+    "2021-05": {
+     "status": "ok",
+     "sha256": "dcf7c567cbde49a5e564b29f01be95e28d32f12cb68c40b2a14da75930187dc8",
+     "note": ""
+    },
+    "2021-06": {
+     "status": "ok",
+     "sha256": "a640c7f935a1136d2f65f28f9606f0e063185c500f982aec273bb2ed3f61bfc5",
+     "note": ""
+    },
+    "2021-07": {
+     "status": "ok",
+     "sha256": "1367b5cd230474b0ecc6031b9e18cffe66e011c8fdd01c3325985a39c5d5ed48",
+     "note": ""
+    },
+    "2021-08": {
+     "status": "ok",
+     "sha256": "a864bdf38c9d06b7a6a1dc07c5593bbe7387cec3b869e9ebee020da053d94f37",
+     "note": ""
+    },
+    "2021-09": {
+     "status": "ok",
+     "sha256": "6e7bbfe650e6c56e189e78d521b3714feffd38468d1268b706a6626737326676",
+     "note": ""
+    },
+    "2021-10": {
+     "status": "ok",
+     "sha256": "4b78dd0174890c975effca2ed078163d6e9b4f7437f692e2c430c724b7eafc24",
+     "note": ""
+    },
+    "2021-11": {
+     "status": "ok",
+     "sha256": "67da3342f014166d2af97321599e0011453c4bd5a9282ef12c1a6131efd12993",
+     "note": ""
+    },
+    "2021-12": {
+     "status": "ok",
+     "sha256": "c905c5c8ff36d0dfac3a0581225ab305f72d1e11e634953d8d3a136161d10956",
+     "note": ""
+    },
+    "2022-01": {
+     "status": "ok",
+     "sha256": "9cdbcf68903434c850f9bec60d8174c2cfd105dd24a7566965b442ec15124e04",
+     "note": ""
+    },
+    "2022-02": {
+     "status": "ok",
+     "sha256": "63672d552f98ec125ac4d90d82154313fb9832b7e1aaed196101816bd61bfb89",
+     "note": ""
+    },
+    "2022-03": {
+     "status": "ok",
+     "sha256": "4532faf2f92d205fac79b7d25327d2045843b60a4494e00b0962e6b7f028bc06",
+     "note": ""
+    },
+    "2022-04": {
+     "status": "ok",
+     "sha256": "0f509e296da62eed5f4e903507ced0de9738ea96a7a885e76dd2394b8049e689",
+     "note": ""
+    },
+    "2022-05": {
+     "status": "ok",
+     "sha256": "768bdbbd11b08d935b3753ecfee7f1e351a346c71b11cf68a4a51296d694f368",
+     "note": ""
+    },
+    "2022-06": {
+     "status": "ok",
+     "sha256": "8587319eaf1b1f6d73fd34446acdecdc72c47b23ecfd2d88e2a6dd2a35470565",
+     "note": ""
+    },
+    "2022-07": {
+     "status": "ok",
+     "sha256": "6fc45fa135a6be85679a6ab0b1268fbd1f8258079295cd134b9a4c535c6b6b65",
+     "note": ""
+    },
+    "2022-08": {
+     "status": "ok",
+     "sha256": "806ee1d6efa856984fe79453d17f04c0fb5e447413fe828cbd3ec2df9a1f5fc4",
+     "note": ""
+    },
+    "2022-09": {
+     "status": "ok",
+     "sha256": "fa1adecbe41b530c12f481882115511297ac7b78a9a7ae9d9d21b11c745649a4",
+     "note": ""
+    },
+    "2022-10": {
+     "status": "ok",
+     "sha256": "0f2d2cd67b30ab186bf3db5a07acfe835f1d74335c6493c80e9e4f0598e29b2c",
+     "note": ""
+    },
+    "2022-11": {
+     "status": "ok",
+     "sha256": "96916aba47f230a9bc68cd3fd98d0d352e1fd8f23c16c515107c4d965a2067a3",
+     "note": ""
+    },
+    "2022-12": {
+     "status": "ok",
+     "sha256": "0f4788019cdb29f4db7b03d9efefce099d7adf49c0daf70a144b814b292bf577",
+     "note": ""
+    },
+    "2023-01": {
+     "status": "ok",
+     "sha256": "b7b04483464b36c89f519bf35d6461d278c709577562108b6a00fb786b92e6a6",
+     "note": ""
+    },
+    "2023-02": {
+     "status": "ok",
+     "sha256": "b62ca5df57b1715109cb1fd57097529b28410fb36b0db5bd41dbefe7e070db68",
+     "note": ""
+    },
+    "2023-03": {
+     "status": "ok",
+     "sha256": "1cb47aae71e941d3e9d333f9c96723eb35c8b4a7ec90e819c59a7c02f89b03bb",
+     "note": ""
+    },
+    "2023-04": {
+     "status": "ok",
+     "sha256": "2c22e2e460bf0e41884bf71031eebf60224ba470b25777a4d17ddc9298390650",
+     "note": ""
+    },
+    "2023-05": {
+     "status": "ok",
+     "sha256": "cf9e0ab390e3872ddb9d807ad161933a28e374e09dbee2b9addf659856d1e656",
+     "note": ""
+    },
+    "2023-06": {
+     "status": "ok",
+     "sha256": "8dac3fe301198e752b257817542a7ded393dbe00b604f67aba6bc0090778ae95",
+     "note": ""
+    },
+    "2023-07": {
+     "status": "ok",
+     "sha256": "5cc84c767c9f4d1fa3cb3d33bd009a0b5e3a445e9c89ad2ef259c90b0365cbc3",
+     "note": ""
+    },
+    "2023-08": {
+     "status": "ok",
+     "sha256": "8d77e6f898fba3aa5bf643d128e0aaa1b722ea6881cd26a3d19088705117a1d7",
+     "note": ""
+    },
+    "2023-09": {
+     "status": "ok",
+     "sha256": "ea43f6e612b54e165c47ea30955b8d9e825b1d3ad1846f12c03ad0f0fced9029",
+     "note": ""
+    },
+    "2023-10": {
+     "status": "ok",
+     "sha256": "153f1322695d16a12cab261b7798045323d9f893b19d35d95ffe94a62530b4de",
+     "note": ""
+    },
+    "2023-11": {
+     "status": "ok",
+     "sha256": "63aa156170b2316927ae4c4928cc78866934a02b4bbc14c730b5fe4790383a80",
+     "note": ""
+    },
+    "2023-12": {
+     "status": "ok",
+     "sha256": "947ea9b1c5dfa301f1d5ff89d28f3ee49bc73eef2cfa1f0dc4024048458eb60b",
+     "note": ""
+    },
+    "2024-01": {
+     "status": "ok",
+     "sha256": "21eeac04a76a7a35b10467e5e752fb2f8cff77cdeb57df6b50a23ce8d69bb190",
+     "note": ""
+    },
+    "2024-02": {
+     "status": "ok",
+     "sha256": "1407acbf8ad99911bdf582805699b7e85fdbc346dbe12618ce8b6369f0d8058d",
+     "note": ""
+    },
+    "2024-03": {
+     "status": "ok",
+     "sha256": "040b8e448e4243072b88b0d9908dfebed91bba943b75f4e831fa5337a2e1dab9",
+     "note": ""
+    },
+    "2024-04": {
+     "status": "ok",
+     "sha256": "6a41f002da0c8e3f60bd46c841ea4ed766fb195764ad3b6b10e4f508d29c2eb7",
+     "note": ""
+    },
+    "2024-05": {
+     "status": "ok",
+     "sha256": "42de617ed643def54b5a2c3fceb7cd2edec91aafaa01104a097b2ded5c5122d4",
+     "note": ""
+    }
+   }
+  }
+ }
+}

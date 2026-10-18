@@ -1,0 +1,83 @@
+{
+ "protocol": "docs/TREND_4H_RECHECK_PROTOCOL_2026-10-15.md",
+ "protocol_commit": "b048207",
+ "addendum_commit": "6ed43ad",
+ "protocol_check": {
+  "b048207": "ba3c558d865df45fc5d8e4daf3007f2ddd482e67686b8516d90856caeec2d605",
+  "6ed43ad_working_file": "35f2bd42905f66129587863966ea2c710900e3f0b9610aa470b4e7ef88ccad97",
+  "diff": "только вставка §7а"
+ },
+ "generated_utc": "2026-10-15 14:27:51",
+ "inputs_sha256": {
+  "backtests/frozen/ETHUSDT_UM_1m_early.csv": "bf1062cc730349853a4c94aafdb9bd4ccf5b20aca7e475e9dfa4456042eae2e3",
+  "backtests/frozen/ETHUSDT_UM_1m.csv": "1fd301a1a642541393f9b429f9004665d42fba40e88f7b170e2632754c0f6005",
+  "backtests/frozen/ETHUSDT_funding_full.csv": "8e08c5a40c1bc9c9e65a533c14849905c365172c425516ff6ca88b2e6ff41498",
+  "backtests/frozen/XRPUSDT_UM_1m_early.csv": "0ccd012439d8deaf75fe9275f52947185d826773717deb1b98994ee64f1c057b",
+  "backtests/frozen/XRPUSDT_UM_1m.csv": "1b0828b5ea0cd8cb8b6c25d07b0859b4f609f1d6622ee075e11b037c3cb46888",
+  "backtests/frozen/XRPUSDT_funding_full.csv": "17bca9881b6f720339f4b23a63dd285a72ce4a42571b220ab3d702b0b2f39c9c",
+  "backtests/frozen/BTCUSDT_UM_1m_early.csv": "579f9c3d722e206cf6f045b0e97f05d24b6682759bd31a76fd8c2509f7308200",
+  "backtests/frozen/BTCUSDT_UM_1m.csv": "8b39e6306c4d1c800d252c0417488a7c735c6a98f6170f047d3ba0e1ea56602f",
+  "backtests/frozen/BTCUSDT_funding_full.csv": "a07be02f67da85fd053cfa9a7776e982dc3632ef718202cdbc1bf458ae0165d1",
+  "research/trend_recheck/out/data_manifest.json": "8a2464cccd1a8dc0308078137498d195f8c2e0172b14ff2b3d9de4d288eca66a",
+  "docs/TREND_4H_RECHECK_PROTOCOL_2026-10-15.md": "35f2bd42905f66129587863966ea2c710900e3f0b9610aa470b4e7ef88ccad97"
+ },
+ "inputs_7a_daily_archives_sha256": {
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-02-26.zip": "b0ab75e80659453a51ff5473ca94b41b8fe3d2394651b8db17853d4f3fa30e36",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-02-27.zip": "7283b18bb4999177417451a54239b32bfc5f535ec6d2d4595faa61b1dbb9ba9b",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-02-28.zip": "8a56566f2d89c70572c9740868ec91de7c48e2677521f8a814628ea834fa04d6",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-04-01.zip": "018c6366274843d1041d7facf0a2c0ec014455d86c958fd3d90db0e9bca7a4b0",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-04-02.zip": "73073095f35fe004bfa61122cf5acce1db53a210e055abaad12c9f0048021e72",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-02-25.zip": "2a981d4f502f752ff8d410c12f6f071af3d01165fec59f8dcc1b18a768dcd7a0",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-03-01.zip": "6dc47c8c7daae89c93ba8bdd1b4ea9aee250066b62ce760bbeed8fd4add59591",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-03-31.zip": "c3459db2cb0d800d84f8c6bda4ded3ccb593797174431cb737d4047eaf882697",
+  "backtests/um_daily/XRPUSDT/XRPUSDT-1m-2022-04-03.zip": "527c210d854ee9c07f52464eaae50eceeb4047091f48050b7a9df9dd491b3138"
+ },
+ "live_inputs": {
+  "state/trend_signals.jsonl": "f9b535544cec0dc4e39e16283baebbae6d9e254a7986768baab0ae114ecdc7a5",
+  "backtests/frozen/ETHUSDT_1m_2y.csv": {
+   "snapshot_sha256": "eb1f811ffbd1b286c23c4c46da48bfcad10d2b0ef9539c762bd3cde4e6c70eb2",
+   "rows_used": 1271280
+  },
+  "backtests/frozen/XRPUSDT_1m_2y.csv": {
+   "snapshot_sha256": "fa011ba00b791cb405834043ad585fe608f077695db87a4fd4ba2aa3ed5591da",
+   "rows_used": 1271280
+  }
+ },
+ "scripts_sha256": {
+  "research/trend_recheck/replay.py": "7839c3bb2097f355653f16767d528e814da88ec165ed89308e382818515f2eff",
+  "research/trend_recheck/stats.py": "c7ebd6ffd87ca7004bb737cc9a1e97addbf63ba3d173b728782219ecd8392409",
+  "research/trend_recheck/run.py": "377808351d49e2df27850b297b6ce6640418f642cb69b6eb338ad1ee166d65b9",
+  "research/trend_recheck/live_check.py": "0424f13f39b345fd98e3166c28240ed847c49470a54d21dd56c7b243b41af561",
+  "research/trend_recheck/report.py": "3bb50f89e5e8ba8448dedbffb4290fa48cf24b1170ffc9709eabfde64d8d258c",
+  "research/trend_recheck/selfcheck.py": "d83369479a5f19d3fdffb33134dca4385f85389669e540c66a7fe420ab587729",
+  "research/trend_recheck/xrp_fill.py": "eb7150097a6064c97b492e31f591389bd1c64bcc6cbda8b6ac6a28537d95bfd1",
+  "research/trend_recheck/fetch_um_daily.py": "43632ee93308bb9b3740284219cd7b7c53f57365d1ae68942e29e10ffd354c4b",
+  "research/trend_recheck/build_early.py": "856b5fd0865297aba6e9d7fe6595d2e070d012aa46e4923a2da906258f132882",
+  "tools/trend_state.py": "dc73f7a8ac0221ae0a99dd9a75528d98d720de3fa2509a1f1624f8cbb4b1da64",
+  "scripts/ohlc_grid.py": "7267d68a7eb7db9a654541419f11c996a1913e18b14b141a3e050da06f3a7aee",
+  "tests/research_trend/tr_fx.py": "9e94234aad05303360fc08e4ddb2ef3181593d611bc0a8665faa793f4438fae3",
+  "tests/research_trend/test_tr_execution.py": "b980974d27155ca90f5e9e7614d678ea6a47188f8382777d6f838914a48bc7d5",
+  "tests/research_trend/test_tr_stats_data.py": "e099e72d440200d5ed249b268d645a600a26e3a62269583687bc399332e3ca72",
+  "tests/research_trend/test_tr_fill.py": "030c79dee065423c7f91c01554c1e9b6b530927de783db4c17728e2a0c8c0d93"
+ },
+ "outputs_sha256": {
+  "research/trend_recheck/out/ledger_base_ETHUSDT.csv": "269d42a92302571c7fcb3d2375d59140ab3c5345f1c0e0bac5f82d927bcab8ad",
+  "research/trend_recheck/out/events_base_ETHUSDT.csv": "bf7bfeed03c632e0526fdfa377baaedc72e437642bd2bd0b542188f769caabcb",
+  "research/trend_recheck/out/ledger_base_XRPUSDT.csv": "f49b9652064b25482d8e1fe2eb65323dcb63555650c950c252409b02030d830d",
+  "research/trend_recheck/out/events_base_XRPUSDT.csv": "d3e716dfb6e4299e1419175781cf9b94445b2c74749ac368d71928ec08ef5ee2",
+  "research/trend_recheck/out/ledger_base_BTCUSDT.csv": "a78059ff1a2cdc7b2cdaab6c6f37818fa72b76e21ec5192d9e8d6ddb4d90d20e",
+  "research/trend_recheck/out/events_base_BTCUSDT.csv": "5de393944ef27c6088cbbb07122dbe26cdfd6b1eeb80d3111e8d76ac0d0c891c",
+  "research/trend_recheck/out/ledger_variants.csv": "90fae0aba1bfcfcad67dd22b6c00f75da02669d1961da8082113bd149cb11ed4",
+  "research/trend_recheck/out/ledger_base_XRPUSDT_filled7a.csv": "9befc0a7774d60624478e5860c57570ac33b15ad6fbf8bae2d96d9cc432c41c2",
+  "research/trend_recheck/out/ledger_variants_XRPUSDT_filled7a.csv": "b865f92ada9b6c3b140f6daed3fa98838e1b8fce12b83cfe4c411003371a0dc7",
+  "research/trend_recheck/out/c1_reps.csv": "4f7f2504c9923b1a462817b55e4322827f8c555c959df1bbdc47ca428bf9cc58",
+  "research/trend_recheck/out/c1_reps_filled7a.csv": "0babbad5ca10b2af71ace87a4532750854e7d55954b876c594a78bd9ca35b71d",
+  "research/trend_recheck/out/live_vs_backtest.csv": "1c6cfb923a790e6e08db9d3aa49d80c92812ccea6ac7ee98b5addbebc01bf63c",
+  "research/trend_recheck/out/backtest_unmatched_live_window.csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "research/trend_recheck/out/um_daily_fetch.json": "0911299488206174cbafeacc85f5aa15e11792b398ce6fbead9ed5d70002dff9",
+  "research/trend_recheck/out/selfcheck.json": "0967daf89be0321ed7ea51f465e5a0cac06ba3a00876ded571fc0ffe696eaf34",
+  "research/trend_recheck/out/summary.json": "9b370855bda260a26a59d8779cac50b3b594d5738f703ab1c308838b37583437",
+  "docs/TREND_4H_RECHECK_RESULTS_2026-10-15.md": "ed1c4a09b602bc43921768218ae4cf9f3a1de0aa09d96c46d09e9ba2dae730f9"
+ },
+ "status": "Не квалифицирована"
+}

@@ -1,0 +1,41 @@
+{
+ "symbol": "BTCUSDT",
+ "file": "backtests/frozen/BTCUSDT_funding_full.csv",
+ "sha256": "a07be02f67da85fd053cfa9a7776e982dc3632ef718202cdbc1bf458ae0165d1",
+ "rows": 7775,
+ "request_from_utc": "2019-09-01 00:00:00.000",
+ "request_to_utc": "2026-10-14 20:13:59.999",
+ "first_utc": "2019-09-10 08:00:00.000",
+ "last_utc": "2026-10-14 16:00:00.002",
+ "first_ms": 1568102400000,
+ "last_ms": 1791993600002,
+ "um_last_minute_utc": "2026-10-14 20:13:00.000",
+ "intervals_hours": {
+  "8.0": 7774
+ },
+ "intervals_8h": 7774,
+ "intervals_other": 0,
+ "other_list": [],
+ "gaps_over_8h": 0,
+ "gaps_list": [],
+ "jitter_ms_from_hour": {
+  "max": 47,
+  "exact_hour": 4401,
+  "nonzero": 3374
+ },
+ "missing_markPrice": 4536,
+ "missing_markPrice_first_utc": "2019-09-10 08:00:00.000",
+ "missing_markPrice_last_utc": "2023-10-31 00:00:00.001",
+ "missing_rate": 0,
+ "vs_existing_funding_csv": {
+  "file": "backtests/frozen/BTCUSDT_funding.csv",
+  "sha256": "8b9aa7a42bcc3ca3d34dc5ed2160baf548d32d94deb51110ca856e34df4bb7a5",
+  "rows": 2691,
+  "common": 2691,
+  "identical": 2691,
+  "numeric_equal_format_diff": 0,
+  "different": 0,
+  "only_in_existing": 0,
+  "only_in_existing_inside_new_range": 0
+ }
+}
