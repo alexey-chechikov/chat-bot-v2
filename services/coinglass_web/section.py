@@ -59,24 +59,29 @@ def section(now: datetime | None = None) -> str:
         vs = f" · {lq['vs_7d']:.2f}× к средней за 7 дн." if lq.get("vs_7d") else ""
         lines.append(f"• ликвидации 24 ч (все биржи): лонги ${lq['long_24h'] / 1e6:.1f}M / шорты "
                      f"${lq['short_24h'] / 1e6:.1f}M{vs}")
-    # исход вчерашнего утреннего (первого за день) снимка на 24 ч
+    # исход вчерашнего снимка 07:00 Варшавы (правила v1: сильнейшие зоны, полная сетка минут, эмпирическая база)
     p = DIR / "outcomes.jsonl"
-    outs = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x] if p.exists() else []
-    yday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    first = sorted((o for o in outs if o["ts"][:10] == yday and o["horizon"] == "24h"), key=lambda o: o["ts"])
-    if first:
-        o = first[0]
-        word = {"upper": "сверху (зона шортов)", "lower": "снизу (зона лонгов)", "both": "обе в одну минуту",
+    outs = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.exists() else []
+    yday = (now.astimezone(outcomes.WARSAW) - timedelta(days=1)).strftime("%Y-%m-%d")
+    mine = [o for o in outs if o.get("rules") == outcomes.RULES and o.get("outcome") != "missing"
+            and datetime.fromisoformat(o["captured"]).astimezone(outcomes.WARSAW).strftime("%Y-%m-%d") == yday
+            and datetime.fromisoformat(o["captured"]).astimezone(outcomes.WARSAW).hour == 7]
+    if mine:
+        o = mine[0]
+        word = {"upper": "верхняя (зона шортов)", "lower": "нижняя (зона лонгов)", "both": "обе в одном часе",
                 "none": "ни одна"}[o["outcome"]]
-        lines.append(f"• вчерашнее утро: первой сработала {word}; по расстояниям шанс верхней был "
-                     f"{o['base_up'] * 100:.0f}%; цена за сутки {o['ret'] * 100:+.1f}%")
-    st = outcomes.stats("24h", daily=True)
-    if st["n"] == 0:
-        lines.append("• счёт зон: исходов ещё нет — копится (первый день — завтра)")
+        b = o.get("base") or {}
+        exp = (f" — по прошлым окнам при тех же расстояниях в ATR: верхняя {b['upper'] * 100:.0f}%, нижняя "
+               f"{b['lower'] * 100:.0f}%, ни одна {b['none'] * 100:.0f}%") if b else ""
+        lines.append(f"• вчера в 07:00: за сутки первой задета {word}{exp}; цена {o['ret_24h'] * 100:+.1f}%, "
+                     f"размах {o['range_24h'] * 100:.1f}%")
+    t = outcomes.table()
+    if t["n"] == 0:
+        lines.append("• таблица зон: исходов ещё нет — первый снимок 07:00 досверится через сутки")
     else:
-        verdict = ("зоны работают как магнит: верхняя срабатывает чаще ожидания" if st["differs"] and st["obs_up"] >
-                   st["base_up"] else "сильная зона срабатывает реже ожидания" if st["differs"] else
-                   f"пока не отличается от случайности{' (нужно n ≥ 30 дней)' if st['n'] < 30 else ''}")
-        lines.append(f"• счёт зон (утро → 24 ч): n {st['n']} дн., верхняя первой {st['obs_up'] * 100:.0f}% при "
-                     f"ожидании по расстояниям {st['base_up'] * 100:.0f}% — {verdict}")
+        lines.append("• таблица зон (снимки 07:00 → 24 ч, описательно): n {n} дн.; наблюдалось верхняя {ou:.0f}% / "
+                     "нижняя {ol:.0f}% / ни одна {on:.0f}%, ожидалось {eu:.0f}% / {el:.0f}% / {en:.0f}%".format(
+                         n=t["n"], ou=t["obs"]["upper"] * 100, ol=t["obs"]["lower"] * 100, on=t["obs"]["none"] * 100,
+                         eu=t["exp"]["upper"] * 100, el=t["exp"]["lower"] * 100, en=t["exp"]["none"] * 100)
+                     + ("" if t["n"] >= 30 else " — мало дней для выводов"))
     return "\n".join(lines)

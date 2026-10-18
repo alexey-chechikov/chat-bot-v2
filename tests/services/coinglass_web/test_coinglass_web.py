@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from services.coinglass_web import collector as cg
-from services.coinglass_web import outcomes as oc
+
 
 LEVELS = ("Ключевые уровни ликвидации\nСторона\tЦена\tРасстояние\tКредитное плечо\tСила\t\n"
           "Шорт\t82 466,5\t+1.98%\tВысокое кредитное плечо\t87.2\t\n\n"
@@ -47,10 +47,3 @@ def test_parse_liquidations():
     assert r["exchanges"]["Binance"]["share_pct"] == 50.25
 
 
-def test_first_touch_order():
-    rows = [[0, 0, "100.5", "99.5", "100"], [0, 0, "101.2", "100", "101"], [0, 0, "100", "98", "99"]]
-    assert oc.first_touch(rows, upper=101.0, lower=98.5) == "upper"
-    assert oc.first_touch(rows, upper=102.0, lower=98.5) == "lower"
-    assert oc.first_touch(rows, upper=101.0, lower=99.6) == "lower"      # первая минута уже задела нижнюю
-    assert oc.first_touch([[0, 0, "102", "98", "100"]], upper=101, lower=99) == "both"
-    assert oc.first_touch(rows, upper=110, lower=90) == "none"

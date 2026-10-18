@@ -109,7 +109,7 @@ def _page(br, url: str):
 def collect(shots_dir: Path | None, now: datetime) -> tuple[dict, dict]:
     """Один браузер на запуск: уровни и ликвидации — текстом, остальное — снимками. → (сырые тексты, сбои)."""
     from playwright.sync_api import sync_playwright
-    texts, fails = {}, {}
+    texts, fails, caps = {}, {}, {}
     with sync_playwright() as p:
         br = p.chromium.launch(headless=True)
         try:
@@ -120,6 +120,7 @@ def collect(shots_dir: Path | None, now: datetime) -> tuple[dict, dict]:
                     pg = _page(br, url)
                     pg.wait_for_function(f"() => {cond}", timeout=90_000)   # цифры подставляет JS
                     texts[key] = pg.evaluate("() => document.body.innerText")
+                    caps[key] = datetime.now(timezone.utc).isoformat(timespec="seconds")   # время получения (v1)
                     pg.close()
                 except Exception as exc:                        # noqa: BLE001
                     fails[key] = f"{type(exc).__name__}: {exc}"[:200]
@@ -138,7 +139,7 @@ def collect(shots_dir: Path | None, now: datetime) -> tuple[dict, dict]:
                         fails[key] = f"{type(exc).__name__}: {exc}"[:200]
         finally:
             br.close()
-    return texts, fails
+    return texts, fails, caps
 
 
 def prune(now: datetime, shots_days: int = 14, raw_days: int = 30) -> None:
@@ -162,8 +163,9 @@ def main() -> int:
     DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     prune(now)
-    texts, fails = collect(DIR / "shots" / f"{now:%Y%m%d}", now)
-    rec = {"ts": now.isoformat(timespec="seconds"), "symbol": "BTCUSDT"}
+    texts, fails, caps = collect(DIR / "shots" / f"{now:%Y%m%d}", now)
+    rec = {"ts": now.isoformat(timespec="seconds"), "symbol": "BTCUSDT",
+           **{f"{k}_captured": v for k, v in caps.items()}}
     for key, parser in (("levels", parse_levels), ("liquidations", parse_liquidations)):
         if key in texts:
             try:
