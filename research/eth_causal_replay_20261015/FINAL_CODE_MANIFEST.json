@@ -1,0 +1,27 @@
+{
+  "written_utc": "2026-10-15T21:32:36.790300+00:00",
+  "tests_passed": 17,
+  "preregistered_first_code_preserved": "CODE_MANIFEST_BEFORE_RESULTS.json",
+  "files": [
+    {
+      "file": "run_replay.py",
+      "sha256": "4c4f7e8204ee6e11c228a4dac2971d0361cf2754175f92f9d715b3e7ac8d88b1"
+    },
+    {
+      "file": "test_replay.py",
+      "sha256": "b9153e40af8cafc23a5f635ed2b4c06ff445e81739e05d889efbd2c9c13dbd57"
+    },
+    {
+      "file": "audit_against_legacy.py",
+      "sha256": "726f9a0acb5b54f2e25f2936c02802721e5f575a285c1e16c75f7948f0a5aeb8"
+    },
+    {
+      "file": "QA_AMENDMENT.md",
+      "sha256": "4c6b685e4d381d6c914a01f0ecb45fdc02388af03b007de80908b5cf9d8a8fe0"
+    },
+    {
+      "file": "AUDIT_NOTES.md",
+      "sha256": "adfac2d62d62c318053608660c37e1b1258b1a938660a6c3324e39c7d42e5b67"
+    }
+  ]
+}

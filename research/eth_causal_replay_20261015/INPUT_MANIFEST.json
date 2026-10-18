@@ -1,0 +1,42 @@
+{
+  "frozen_before_new_replay_results": true,
+  "written_utc": "2026-10-15T21:23:06.679829+00:00",
+  "assumptions_sha256": "3ea8d895f70ab4534744133af1b8e7e3cc8d31c4eb80425c57293750f70867a7",
+  "files": [
+    {
+      "file": "execution_focus_20261015/ETH_EXECUTION_FROZEN_PROTOCOL_2026-10-15.md",
+      "bytes": 19235,
+      "sha256": "5cc8aa93f242452eb6e356c499ff3a6ae017a7ec6ec0bc3e87fa24182571556d"
+    },
+    {
+      "file": "execution_focus_20261015/eth_diagnostic.py",
+      "bytes": 11855,
+      "sha256": "554d99adf29ca474858be11ffe4458c50fd9c428e3ebb26f62bc82244839f674"
+    },
+    {
+      "file": "expectancy_20261006/intraday/run_intraday.py",
+      "bytes": 15156,
+      "sha256": "df78bb89aaddc9d4c7bfa57d9aa3c8eec92cb1fd21dcb81ce641df9be296c6c3"
+    },
+    {
+      "file": "expectancy_20261006/intraday/validate_fresh.py",
+      "bytes": 5940,
+      "sha256": "0addc81cddaa1eb03ba2075c6dbf41dbce85da6a66180c4fc1df6f59dc07d521"
+    },
+    {
+      "file": "expectancy_20261006/intraday/fresh_trades_ETHUSDT_intraday_impulse_follow_z2.5_h120.csv",
+      "bytes": 49534,
+      "sha256": "8622db644296a0002210bfa52d746ce9e6c913aca45e1364adb0a15a58a6f985"
+    },
+    {
+      "file": "expectancy_20261006/public_data/binance_futures_ETHUSDT_1m.csv",
+      "bytes": 24139891,
+      "sha256": "352556b14ffcc1e3d6811e96c823c57c8ee9633002385701d78226cfd9f5f3c8"
+    },
+    {
+      "file": "expectancy_20261006/public_data/binance_futures_ETHUSDT_funding.csv",
+      "bytes": 170034,
+      "sha256": "46bb8603c2988336deb0ed7eb75477a2cc0981b848b3816aa21e44920bdd449a"
+    }
+  ]
+}

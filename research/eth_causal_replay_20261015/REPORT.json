@@ -1,0 +1,268 @@
+{
+  "as_of": "2026-10-15",
+  "status": "diagnostic_not_validated",
+  "source": "Previously viewed Binance USD-M May-Oct 2026, ETH only",
+  "signal_audit": {
+    "onsets": 223,
+    "selected_full_horizon": 174,
+    "excluded_end_horizon": 0,
+    "expected_ledger_rows": 174,
+    "exact_signal_timestamp_side_match": true,
+    "data_rows": 218880,
+    "start": "2026-05-07 00:00:00+00:00",
+    "end": "2026-10-06 00:00:00+00:00"
+  },
+  "quantity": "continuous diagnostic; no historical tick/step metadata verified",
+  "not_maker_or_WEEX": true,
+  "OOS": false,
+  "scenarios": [
+    {
+      "scenario": "static_all_in_4bp",
+      "source_candidates": 174,
+      "completed": 174,
+      "status_counts": {
+        "completed": 174
+      },
+      "reason_counts": {
+        "time": 110,
+        "stop": 45,
+        "target": 19
+      },
+      "net_total_usd": 56.58616076757136,
+      "net_mean_usd_per_source_candidate": 0.3252078205032837,
+      "net_mean_return_pct_completed": 0.03252078205032839,
+      "net_mean_R": 0.03252078205032837,
+      "raw_gross_total_usd": 126.18616076757138,
+      "slippage_total_usd": 0.0,
+      "fees_total_usd": 0.0,
+      "flat_all_in_cost_total_usd": 69.6,
+      "funding_total_usd": 0.0,
+      "funding_upper_total_usd": 0.0,
+      "ambiguous_funding_events": 0,
+      "PF": 1.100358793491131,
+      "monthly_block_CI95_mean_net_pct": [
+        -0.06266520646084828,
+        0.14227491568994147
+      ],
+      "max_DD_liquidation_point_usd": 76.52311150355649,
+      "max_DD_minute_close_usd": 76.52311150355649,
+      "max_loss_trade_usd": 9.400000000000084,
+      "minimum_research_equity_1000": 977.7539273725582,
+      "capital_1000_breached": false,
+      "best_three": [
+        {
+          "candidate": 145,
+          "signal_time": 1789130700000,
+          "side": 1,
+          "reason": "target",
+          "net_usd": 17.600000000000097
+        },
+        {
+          "candidate": 82,
+          "signal_time": 1784033100000,
+          "side": 1,
+          "reason": "target",
+          "net_usd": 17.60000000000007
+        },
+        {
+          "candidate": 35,
+          "signal_time": 1780639200000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.600000000000065
+        }
+      ],
+      "after_remove_best_three_total_usd": 3.7861607675711184,
+      "after_remove_best_three_mean_return_pct": 0.0022141291038427595,
+      "planned_max_stop_risk_usd": 9.4
+    },
+    {
+      "scenario": "static_all_in_8bp",
+      "source_candidates": 174,
+      "completed": 174,
+      "status_counts": {
+        "completed": 174
+      },
+      "reason_counts": {
+        "time": 110,
+        "stop": 45,
+        "target": 19
+      },
+      "net_total_usd": -13.01383923242868,
+      "net_mean_usd_per_source_candidate": -0.07479217949671656,
+      "net_mean_return_pct_completed": -0.007479217949671639,
+      "net_mean_R": -0.007479217949671639,
+      "raw_gross_total_usd": 126.18616076757138,
+      "slippage_total_usd": 0.0,
+      "fees_total_usd": 0.0,
+      "flat_all_in_cost_total_usd": 139.2,
+      "funding_total_usd": 0.0,
+      "funding_upper_total_usd": 0.0,
+      "ambiguous_funding_events": 0,
+      "PF": 0.9783229120814294,
+      "monthly_block_CI95_mean_net_pct": [
+        -0.10266520646084827,
+        0.10227491568994142
+      ],
+      "max_DD_liquidation_point_usd": 105.87529730387264,
+      "max_DD_minute_close_usd": 105.87529730387264,
+      "max_loss_trade_usd": 9.800000000000084,
+      "minimum_research_equity_1000": 967.7539273725582,
+      "capital_1000_breached": false,
+      "best_three": [
+        {
+          "candidate": 145,
+          "signal_time": 1789130700000,
+          "side": 1,
+          "reason": "target",
+          "net_usd": 17.200000000000095
+        },
+        {
+          "candidate": 82,
+          "signal_time": 1784033100000,
+          "side": 1,
+          "reason": "target",
+          "net_usd": 17.200000000000067
+        },
+        {
+          "candidate": 35,
+          "signal_time": 1780639200000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.200000000000063
+        }
+      ],
+      "after_remove_best_three_total_usd": -64.61383923242886,
+      "after_remove_best_three_mean_return_pct": -0.03778587089615722,
+      "planned_max_stop_risk_usd": 9.8
+    },
+    {
+      "scenario": "decomposed_fee1bp_slip1bp",
+      "source_candidates": 174,
+      "completed": 174,
+      "status_counts": {
+        "completed": 174
+      },
+      "reason_counts": {
+        "time": 109,
+        "stop": 46,
+        "target": 19
+      },
+      "net_total_usd": 52.13155486673638,
+      "net_mean_usd_per_source_candidate": 0.2996066371651516,
+      "net_mean_return_pct_completed": 0.029960663716515144,
+      "net_mean_R": 0.029960663716515155,
+      "raw_gross_total_usd": 122.12558052319889,
+      "slippage_total_usd": 34.788436885910585,
+      "fees_total_usd": 34.7884356646594,
+      "flat_all_in_cost_total_usd": 0.0,
+      "funding_total_usd": -0.4171531058925598,
+      "funding_upper_total_usd": -0.31705892445293565,
+      "ambiguous_funding_events": 1,
+      "PF": 1.091653888185784,
+      "monthly_block_CI95_mean_net_pct": [
+        -0.0740113107942369,
+        0.14618251050232214
+      ],
+      "max_DD_liquidation_point_usd": 86.1524170374064,
+      "max_DD_minute_close_usd": 86.1524170374064,
+      "max_loss_trade_usd": 9.366847267707449,
+      "minimum_research_equity_1000": 978.7283192154963,
+      "capital_1000_breached": false,
+      "best_three": [
+        {
+          "candidate": 130,
+          "signal_time": 1787932800000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.759815802562194
+        },
+        {
+          "candidate": 54,
+          "signal_time": 1782196200000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.70693159516339
+        },
+        {
+          "candidate": 56,
+          "signal_time": 1782315900000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.704017899104862
+        }
+      ],
+      "after_remove_best_three_total_usd": -1.0392104300941583,
+      "after_remove_best_three_mean_return_pct": -0.0006077253977158322,
+      "planned_max_stop_risk_usd": 9.4
+    },
+    {
+      "scenario": "decomposed_fee1bp_slip3bp",
+      "source_candidates": 174,
+      "completed": 174,
+      "status_counts": {
+        "completed": 174
+      },
+      "reason_counts": {
+        "time": 109,
+        "stop": 47,
+        "target": 18
+      },
+      "net_total_usd": -31.21883614859256,
+      "net_mean_usd_per_source_candidate": -0.17941859855512965,
+      "net_mean_return_pct_completed": -0.017941859855512953,
+      "net_mean_R": -0.017941859855512953,
+      "raw_gross_total_usd": 108.32009353263899,
+      "slippage_total_usd": 104.36519216453402,
+      "fees_total_usd": 34.78839413857912,
+      "flat_all_in_cost_total_usd": 0.0,
+      "funding_total_usd": -0.38534337811832453,
+      "funding_upper_total_usd": -0.2649253355055674,
+      "ambiguous_funding_events": 2,
+      "PF": 0.9484795768019466,
+      "monthly_block_CI95_mean_net_pct": [
+        -0.11703578568097175,
+        0.09230580704465803
+      ],
+      "max_DD_liquidation_point_usd": 118.81354568739744,
+      "max_DD_minute_close_usd": 118.81354568739744,
+      "max_loss_trade_usd": 9.565013720390136,
+      "minimum_research_equity_1000": 962.0907492649256,
+      "capital_1000_breached": false,
+      "best_three": [
+        {
+          "candidate": 130,
+          "signal_time": 1787932800000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.56340741106123
+        },
+        {
+          "candidate": 54,
+          "signal_time": 1782196200000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.510512623646864
+        },
+        {
+          "candidate": 56,
+          "signal_time": 1782315900000,
+          "side": -1,
+          "reason": "target",
+          "net_usd": 17.50759834467446
+        }
+      ],
+      "after_remove_best_three_total_usd": -83.80035452797495,
+      "after_remove_best_three_mean_return_pct": -0.04900605527951759,
+      "planned_max_stop_risk_usd": 9.8
+    }
+  ],
+  "limitations": [
+    "Same selected and previously inspected signal/data window; no independent holdout.",
+    "OHLC uncertain intraminute ordering uses conservative stop-first; funding ambiguity bounded.",
+    "No order book, fill/no-fill, queue, partials, network latency or real venue transfer proof.",
+    "Constant risk budget and notional cap; no leverage, compounding or actual account state.",
+    "1000 research capital is accounting only; no full cross-asset portfolio or daily risk overlay.",
+    "Monthly bootstrap CI descriptive after selection, not multiplicity-adjusted confirmation."
+  ]
+}

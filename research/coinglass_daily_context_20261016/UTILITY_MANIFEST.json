@@ -1,0 +1,35 @@
+{
+  "scope": "utility-owned files only; no root real inputs/evidence/archive contents enumerated",
+  "files": [
+    {
+      "file": "archive_daily.py",
+      "sha256": "f3cd2bf93aa95ed78fc059b4f838b62dc2c2bff763e7dcff5aad6c5ec9fcdd3d",
+      "bytes": 19766
+    },
+    {
+      "file": "test_archive_daily.py",
+      "sha256": "9c57776d15cd2dde4b060b06d1e2f4f7b26856bbc5afe415504aeac7636073fe",
+      "bytes": 12186
+    },
+    {
+      "file": "README.md",
+      "sha256": "80fc10f8f63cc7badc3906f50cb46c79d1c08ab1d941c5d89e8a0fd18e2fef3f",
+      "bytes": 4751
+    },
+    {
+      "file": "ASSUMPTIONS.md",
+      "sha256": "027fb9179445601fc2f6fc134e2e5f31291aa06c9e34c4c9eb4a706f28f8c2ed",
+      "bytes": 3274
+    },
+    {
+      "file": "synthetic_example.json",
+      "sha256": "900099aeed9481b625c02b476bc80792292c4de924cc184a786a008ff52abcfe",
+      "bytes": 1265
+    },
+    {
+      "file": "qa.json",
+      "sha256": "8ce6095042a46649df1da6323fdc6ca6bde5dd63d84e1f46bb95d27e25a18949",
+      "bytes": 574
+    }
+  ]
+}
