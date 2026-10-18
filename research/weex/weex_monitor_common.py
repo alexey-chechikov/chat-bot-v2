@@ -7,6 +7,9 @@
   «ручной»), если номер ордера не найден в реестре бота (orderId из журнала и учёта). Номер из реестра при чужом
   clientOrderId — противоречие → неизвестен. Те же правила — для элемента списка открытых ордеров (cid_owner).
 - Время из учёта/журнала: число (сек или мс), ISO-строка или словарь с «ts».
+- Несколько сеток на одном символе (15.10, B34/B49/B89 рядом с BTC): префикс сетки = b7g + её знак (engine.cid_tag).
+  Свой префикс — бот ЭТОЙ сетки; префикс другой сетки — OTHER (не своя, не ручная, не неизвестная: сделки и ордера
+  соседки в сверку сетки не идут и сиротами не считаются); b7g со знаком ни одной сетки — владелец неизвестен.
 """
 from __future__ import annotations
 
@@ -19,7 +22,20 @@ from pathlib import Path
 HANDOVER = "передано оператору"
 TRADE_FIELDS = ("id", "orderId", "positionSide", "side", "price", "qty", "time")
 WINDOW_MS = 6 * 86_400_000
-BOT, MANUAL = "bot", "manual"
+BOT, MANUAL, OTHER = "bot", "manual", "other"      # OTHER — ордер другой сетки бота (b7g + чужой знак)
+# 15.10: лимит WEEX — 500 веса за 10 с на IP (заголовок X-USED-WEIGHT-10S), IP общий с живым циклом сеток. Четыре сетки
+# BTC за неделю — тысячи сделок: деление окон шло бы десятками запросов подряд (сделки вес 5) и могло упереться в 429
+# (бан IP на 10 с — проходы живых сеток падали бы). Пауза между запросами сделок/деталей: ≤ 40 запросов за 10 с.
+PACE_SEC = 0.25
+_last_call = [0.0]
+
+
+def _pace() -> None:
+    if PACE_SEC > 0:
+        wait = _last_call[0] + PACE_SEC - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+    _last_call[0] = time.monotonic()
 
 
 class ReadError(RuntimeError):
@@ -94,6 +110,7 @@ def fetch_trades(c, sym: str, start_ms: int, end_ms: int | None = None,
     incomplete: list[tuple[int, int]] = []
 
     def get(a: int, b: int) -> list[dict]:
+        _pace()
         try:
             r = c.user_trades(sym, start_ms=a, end_ms=b)
         except Exception as e:                                   # noqa: BLE001
@@ -115,6 +132,20 @@ def fetch_trades(c, sym: str, start_ms: int, end_ms: int | None = None,
     return list({str(t["id"]): t for t in out}.values()), incomplete
 
 
+def grid_registry(eg, name: str) -> set[str]:
+    """Реестр ордеров сетки name по её ЖИВЫМ учёту и журналу (только чтение); файлов нет/не читаются — пусто."""
+    _, sp, jp = eg.grid_files(name)
+    try:
+        st = json.loads(Path(sp).read_text(encoding="utf-8")) if Path(sp).exists() else None
+    except (OSError, ValueError):
+        st = None
+    try:
+        journal, _ = read_journal(jp)
+    except OSError:
+        journal = []
+    return own_order_ids(st if isinstance(st, dict) else None, journal)
+
+
 def own_order_ids(st: dict | None, journal: list[dict]) -> set[str]:
     """Реестр собственных ордеров бота: order_id записей журнала + курсоры/ссылки учёта (order_fills, fee_book,
     вход, тейки, strays, рыночное закрытие)."""
@@ -129,28 +160,62 @@ def own_order_ids(st: dict | None, journal: list[dict]) -> set[str]:
     return ids
 
 
-def cid_owner(cid, oid, prefix: str, registry: set | frozenset = frozenset()) -> str | None:
-    """BOT | MANUAL | None по clientOrderId ордера с ПРОВЕРЕННЫМ orderId — правила в шапке модуля."""
+def cid_owner(cid, oid, prefix: str, registry: set | frozenset = frozenset(), others=(),
+              family: str | None = None) -> str | None:
+    """BOT | OTHER | MANUAL | None по clientOrderId ордера с ПРОВЕРЕННЫМ orderId — правила в шапке модуля.
+    prefix — префикс СВОЕЙ сетки (b7g+знак); others — префиксы других сеток; family — общий префикс бота (b7g): ордер
+    с ним, но без знака известной сетки — владелец неизвестен. others/family не заданы — прежнее правило (одна сетка)."""
     oid = str(oid)
     if isinstance(cid, str) and cid.startswith(prefix):
         return BOT
+    if isinstance(cid, str) and any(cid.startswith(p) for p in others):
+        return None if oid in registry else OTHER
+    if isinstance(cid, str) and family and cid.startswith(family):
+        return None
     if isinstance(cid, str) and cid.strip():
         return None if oid in registry else MANUAL
     return BOT if oid in registry else None
 
 
-def order_owner(c, oid, prefix: str, registry: set | frozenset = frozenset(), cache: dict | None = None) -> str | None:
-    """BOT | MANUAL | None (владелец не установлен) по детали ордера — правила в шапке модуля."""
+def order_owner(c, oid, prefix: str, registry: set | frozenset = frozenset(), cache: dict | None = None,
+                others=(), family: str | None = None, other_registry: set | frozenset = frozenset()) -> str | None:
+    """BOT | OTHER | MANUAL | None (владелец не установлен) по детали ордера — правила в шапке модуля.
+    other_registry — номера ордеров ДРУГИХ сеток символа (их журналы и учёт): номер только там, а не в своём реестре —
+    OTHER без запроса детали (за неделю четырёх сеток BTC — тысячи ордеров соседок; деталь каждой — лишний вес запросов)."""
     oid = str(oid)
     if cache is not None and oid in cache:
         return cache[oid]
-    try:
-        info = c.order_info(oid)
-    except Exception:                                            # noqa: BLE001
-        info = None
-    matched = isinstance(info, dict) and str(info.get("orderId")) == oid
-    # деталь не прочитана/чужой orderId — владелец только по реестру бота (номер ордера из сделки биржи)
-    res = cid_owner(info.get("clientOrderId") if matched else None, oid, prefix, registry)
+    if oid in other_registry and oid not in registry:
+        res = OTHER
+    else:
+        _pace()
+        try:
+            info = c.order_info(oid)
+        except Exception:                                        # noqa: BLE001
+            info = None
+        matched = isinstance(info, dict) and str(info.get("orderId")) == oid
+        # деталь не прочитана/чужой orderId — владелец только по реестру бота (номер ордера из сделки биржи)
+        res = cid_owner(info.get("clientOrderId") if matched else None, oid, prefix, registry, others, family)
     if cache is not None:
         cache[oid] = res
     return res
+
+
+def owner_prefixes(tags: dict, name: str, family: str) -> tuple[str, tuple[str, ...]]:
+    """(свой префикс, префиксы других сеток) по {сетка: знак} (engine.grid_tags). Знак сетки не установлен — ValueError
+    с причиной (свои ордера не определить — проверка не выполняется)."""
+    tag = tags.get(name)
+    if not tag:
+        raise ValueError(f"знак ордеров сетки {name} не установлен (конфиг не читается или cid_tag негоден)")
+    clash = sorted(n for n, t in tags.items() if n != name and t and t.upper() == tag.upper())
+    if clash:                                       # как engine.check_tag: сетка с таким знаком стоит (GridHalt)
+        raise ValueError(f"знак ордеров «{tag}» сетки {name} совпадает со знаком сетки {', '.join(clash)}")
+    return family + tag, tuple(family + t for n, t in tags.items() if n != name and t)
+
+
+def grid_of_cid(cid, tags: dict, family: str) -> str | None:
+    """Имя сетки по clientOrderId (family + знак сетки); не ордер бота или знак ни одной сетки — None."""
+    if not isinstance(cid, str) or not cid.startswith(family) or len(cid) <= len(family):
+        return None
+    ch = cid[len(family)]
+    return next((n for n, t in tags.items() if t == ch), None)

@@ -1,19 +1,27 @@
-"""Сверка живой сетки с биржей (только чтение): ордера сетки, позиции, сделки с комиссией, начисления."""
+"""Сверка живой сетки BTC с биржей (только чтение): ордера сетки, позиции, сделки с комиссией, начисления.
+15.10: на BTCUSDT несколько сеток (BTC, B34, B49, B89) — «ордера сетки» здесь только живой BTC (b7g + её знак), прочие
+сетки бота — отдельным числом."""
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from services.weex_api.client import FUTURES, WeexClient  # noqa: E402
+from services.weex_grid import engine as eg  # noqa: E402
 
+tag = eg.grid_tags(["BTC"])["BTC"]
+if not tag:
+    print("знак ордеров сетки BTC не установлен (конфиг не читается или cid_tag негоден) — проверка не выполнена")
+    sys.exit(2)
+own = eg.PREFIX + tag
 c = WeexClient()
 c.sync_time()
 bid, ask = c.book("BTCUSDT")
 print("цена", bid, ask)
 oo = c.open_orders("BTCUSDT")
-mine = [o for o in oo if str(o.get("clientOrderId", "")).startswith("b7g")]
-print(f"открытых ордеров всего {len(oo)}, из них сетки {len(mine)}:")
+mine = [o for o in oo if str(o.get("clientOrderId", "")).startswith(own)]
+others = [o for o in oo if str(o.get("clientOrderId", "")).startswith(eg.PREFIX) and o not in mine]
+print(f"открытых ордеров всего {len(oo)}, из них сетки BTC ({own}) {len(mine)}, других сеток бота {len(others)}:")
 for o in mine:
     print("  ", o["positionSide"], o["side"], o["price"], o["origQty"], "reduceOnly" if o["reduceOnly"] else "вход")
 pos = c.futures_positions()

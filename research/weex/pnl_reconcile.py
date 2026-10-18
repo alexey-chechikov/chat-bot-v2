@@ -5,7 +5,11 @@
 деньги по исполнениям + остаток по текущей цене против учёта бота, отдельно ДО и ПОСЛЕ комиссий.
 Не сверяет фандинг и полный капитал счёта (там ручные позиции) — это отдельная задача.
 
-    .venv/bin/python3 research/weex/pnl_reconcile.py [BTC|ETH|XAU]     (по умолчанию BTC)
+    .venv/bin/python3 research/weex/pnl_reconcile.py [BTC|ETH|XAU|B34|B49|B89]     (по умолчанию BTC)
+
+Несколько сеток на символе (15.10: BTC и B34/B49/B89 на BTCUSDT): своя сетка — clientOrderId b7g + её знак; сделки
+соседних сеток (b7g + их знак; номер ордера из их журнала/учёта — без запроса детали) в сверку не идут и печатаются
+одним числом; b7g со знаком ни одной сетки — владелец неизвестен (код 2).
 
 Какие стороны (разбор GPT 13.10 §3 Q3): все, которыми бот КОГДА-ЛИБО владел — из cfg.sides, из журнала и из учёта
 (realized/fees/счётчики/остатки), плюс переданные и любая сторона со сделками бота на бирже, а не только текущие
@@ -46,8 +50,20 @@ def main() -> None:
         sys.exit(2)
     name = args[0] if args else "BTC"
     cfg_path, state_path, journal_path = eg.grid_files(name)
-    cfg = json.loads(cfg_path.read_text())
+    cfg = eg.peek_config(name)
+    if cfg is None:
+        print(f"{name}: конфиг {cfg_path.name} не читается — сверка не выполнена")
+        sys.exit(2)
     sym = cfg["symbol"]
+    tags = eg.grid_tags()
+    try:
+        own, others = mc.owner_prefixes(tags, name, eg.PREFIX)
+    except ValueError as e:
+        print(f"{name}: {e} — сверка не выполнена")
+        sys.exit(2)
+    # соседи по символу: их номера ордеров — без запроса детали (OTHER)
+    peers = [n for n in eg.GRIDS if n != name and (eg.peek_config(n) or {}).get("symbol") == sym]
+    other_reg = set().union(*[mc.grid_registry(eg, n) for n in peers]) if peers else set()
     if not state_path.exists() or not journal_path.exists():
         print(f"{name}: живого учёта/журнала нет (сетка холостая) — сверять нечего")
         sys.exit(2)
@@ -79,13 +95,16 @@ def main() -> None:
         sys.exit(2)
     registry = mc.own_order_ids(st, journal)
     cache: dict = {}
-    owner = {str(t["orderId"]): mc.order_owner(c, t["orderId"], eg.PREFIX, registry, cache) for t in trades}
+    owner = {str(t["orderId"]): mc.order_owner(c, t["orderId"], own, registry, cache, others=others, family=eg.PREFIX,
+                                               other_registry=other_reg) for t in trades}
     unread = [oid for oid, w in owner.items() if w is None]
     grid = [t for t in trades if owner[str(t["orderId"])] == mc.BOT]
     manual = [t for t in trades if owner[str(t["orderId"])] == mc.MANUAL]
+    other = [t for t in trades if owner[str(t["orderId"])] == mc.OTHER]
     print(f"{name} {sym}: цена {mid:,.4f}; сделок с {str(first)[:16]}: {len(trades)} (сетки {len(grid)}, ручных "
-          f"{len(manual)}" + (f", владелец не установлен у {len(unread)} ордеров — нет clientOrderId/детали"
-                              if unread else "") + ")")
+          f"{len(manual)}" + (f", других сеток {len(other)}" if other else "")
+          + (f", владелец не установлен у {len(unread)} ордеров — нет clientOrderId/детали или знак b7g без сетки"
+             if unread else "") + ")")
     for t in manual:
         print("  ручная:", t["side"], t["positionSide"], t["price"], t["qty"])
     # стороны бота: когда-либо владел по журналу/учёту/sides, переданные, и любая сторона со сделками бота на бирже

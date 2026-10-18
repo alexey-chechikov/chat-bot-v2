@@ -115,10 +115,11 @@ class WeexClient:
     def _open_pages(self, path: str, symbol: str, first_page: int) -> list[dict]:
         """Постраничный список открытых ордеров. Неполный ответ — WeexIncomplete, а не обрезанный список
         (13.10, разбор GPT: после 10 полных страниц по 100 список молча считался полным): все MAX_PAGES страниц
-        полные или страница — не список (объект ошибки превращался в «список» из его ключей)."""
+        полные или страница — не список (объект ошибки превращался в «список» из его ключей; 15.10, разбор GPT P1:
+        null и {} через «or []» становились пустым полным списком — документация WEEX: ответ — массив)."""
         out = []
         for page in range(first_page, first_page + MAX_PAGES):
-            chunk = self.get(FUTURES, path, {"symbol": symbol, "limit": 100, "page": page}) or []
+            chunk = self.get(FUTURES, path, {"symbol": symbol, "limit": 100, "page": page})
             if not isinstance(chunk, list):
                 raise WeexIncomplete(f"{path} {symbol}: страница {page} — не список ({str(chunk)[:120]})")
             out.extend(chunk)
@@ -133,13 +134,18 @@ class WeexClient:
     def order_history(self, symbol: str, limit: int = 100, page: int = 0,
                       start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
         """Ордера символа (вес 10), с окном по времени и постранично — поиск ордера по clientOrderId,
-        когда ответ на постановку потерян."""
+        когда ответ на постановку потерян. Ответ WEEX — массив ордеров (документация; чтение со счёта 13.10).
+        Не массив (null, {}, объект ошибки) — WeexIncomplete, а не «пустая полная история» (15.10, разбор GPT P1:
+        «or []» превращал такой ответ в доказательство, что ордер не дошёл, и после TTL ставился второй вход)."""
         p = {"symbol": symbol, "limit": limit, "page": page}
         if start_ms is not None:
             p["startTime"] = int(start_ms)
         if end_ms is not None:
             p["endTime"] = int(end_ms)
-        return self.get(FUTURES, "/capi/v3/order/history", p) or []
+        r = self.get(FUTURES, "/capi/v3/order/history", p)
+        if not isinstance(r, list):
+            raise WeexIncomplete(f"/capi/v3/order/history {symbol}: страница {page} — не список ({str(r)[:120]})")
+        return r
 
     def order_info(self, order_id: str | int) -> dict:
         return self.get(FUTURES, "/capi/v3/order", {"orderId": order_id})

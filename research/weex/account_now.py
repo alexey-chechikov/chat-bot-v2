@@ -21,6 +21,13 @@ card_now.py баланса не показывает. Здесь:
      сделка бота в секунду записи передачи считается «до» только если её ордер учтён журналом до передачи. Записей
      передачи — не больше одной; записи нет, а сделки бота на стороне есть — результат неизвестен (код 2): границы
      передачи нет.
+  Несколько сеток на символе (15.10: BTC и B34/B49/B89): своя сетка — b7g + её знак; ордер или сделка ДРУГОЙ сетки бота
+  на переданной оператору стороне — тоже ПРОБЛЕМА (бот на стороне оператора), отдельной строкой; режим SMA одного
+  символа печатается один раз; конфиг сетки, ещё не созданный циклом, берётся из шаблона (сетка холостая — пропуск).
+  5) общая позиция стороны против суммы лотов ВСЕХ живых сеток символа: позиция на бирже МЕНЬШЕ суммы — часть общей
+     позиции закрыта не сетками (вручную?) или учёт отстал от исполнения — код 2, перепроверить через 10–20 с (каждая
+     сетка сама сверяет позицию только со СВОИМИ лотами и такого не видит: её тейк/закрытие по режиму могут закрыть
+     контракты соседки); больше суммы — ручное или неучтённое, печатается.
 
     .venv/bin/python3 research/weex/account_now.py      (код 1 — проблема, 2 — не прочитано/не подтверждено)
 """
@@ -97,6 +104,7 @@ def regime_line(sym: str, n: int, c) -> tuple[str, str]:
         return rows
 
     eg._REGIME_CACHE.pop((sym, n), None)              # проверить сейчас, а не взять решение из кэша процесса
+    eg._REGIME_CACHE.pop(("fail", sym, n), None)      # и не пропуск после недавнего сбоя
     up = eg.regime_up(sym, n, now=now, fetch=fetch)
     if up is None or not seen:
         return "bad", (f"SMA{n}: ПРОБЛЕМА — режим неизвестен (дневки не прочитаны, не вчерашние, с пропуском дня или "
@@ -118,8 +126,9 @@ def regime_line(sym: str, n: int, c) -> tuple[str, str]:
 
 
 def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path: Path, c,
-                   size_of: dict) -> tuple[bool, bool]:
-    """(проблема, не прочитано) по сторонам, переданным оператору."""
+                   size_of: dict, own: str = eg.PREFIX, others: tuple = ()) -> tuple[bool, bool]:
+    """(проблема, не прочитано) по сторонам, переданным оператору. own — префикс ордеров этой сетки (b7g+знак), others —
+    префиксы других сеток: их ордера/сделки на переданной стороне — тоже бот на стороне оператора (ПРОБЛЕМА)."""
     sides = cfg.get("sides") or []
     released = [s for s in (cfg.get("release_sides") or []) if s in eg.DIR and s not in sides]
     if not released:
@@ -134,8 +143,10 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
     first_ts = journal[0].get("ts") if journal else None
     # открытые ордера переданной стороны: владелец по clientOrderId, без него — по реестру бота, иначе неизвестен
     on_side = [o for o in c.open_orders(sym) if o.get("positionSide") in released]
-    who_open = [(o, mc.cid_owner(o.get("clientOrderId"), o.get("orderId"), eg.PREFIX, registry)) for o in on_side]
+    who_open = [(o, mc.cid_owner(o.get("clientOrderId"), o.get("orderId"), own, registry, others, eg.PREFIX))
+                for o in on_side]
     mine = [o for o, w in who_open if w == mc.BOT]
+    open_other = [o for o, w in who_open if w == mc.OTHER]
     open_unk = [o for o, w in who_open if w is None]
     algo = [a for a in (c.open_algo_orders(sym) or []) if str(a.get("clientAlgoId", "")).startswith("b7")
             and a.get("positionSide") in released]
@@ -155,13 +166,16 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
         t0 = mc.epoch_ms(recs[0].get("ts")) if recs else None
         booked_before = {str(r["order_id"]) for r in journal if r.get("order_id") not in (None, "") and t0 is not None
                          and (mc.epoch_ms(r.get("ts")) or 0) <= t0}
-        bot_after, last_bot, n_unread = [], None, 0
+        bot_after, last_bot, n_unread, other_fills = [], None, 0, []
         for t in fills:
             if t.get("positionSide") != s:
                 continue
-            who = mc.order_owner(c, t["orderId"], eg.PREFIX, registry, cache)
+            who = mc.order_owner(c, t["orderId"], own, registry, cache, others=others, family=eg.PREFIX)
             if who is None:
                 n_unread += 1
+                continue
+            if who == mc.OTHER:
+                other_fills.append(t)                    # другая сетка бота на стороне оператора — за всё время
                 continue
             if who != mc.BOT:
                 continue
@@ -170,9 +184,10 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
             if t0 is not None and (tt >= t0 + 1000 or (tt >= t0 and str(t["orderId"]) not in booked_before)):
                 bot_after.append(t)
         n_ord = len([o for o in mine if o.get("positionSide") == s])
+        n_ord_other = len([o for o in open_other if o.get("positionSide") == s])
         n_ord_unk = len([o for o in open_unk if o.get("positionSide") == s])
         n_algo = len([a for a in algo if a.get("positionSide") == s])
-        bad = bool(len(recs) > 1 or n_ord or n_algo or bot_after)
+        bad = bool(len(recs) > 1 or n_ord or n_algo or bot_after or n_ord_other or other_fills)
         no_boundary = not recs and last_bot is not None
         side_unread = bool(n_unread or n_ord_unk or incomplete or read_err or no_boundary)
         problem |= bad
@@ -192,6 +207,8 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
               f"{len(bot_after) if recs else 'н/д'}"
               + (f"; последняя сделка бота на стороне {datetime.fromtimestamp(last_bot / 1000):%m-%d %H:%M}"
                  if last_bot and not recs else "")
+              + (f"; ДРУГИЕ СЕТКИ БОТА на стороне: ордеров {n_ord_other}, сделок {len(other_fills)}"
+                 if n_ord_other or other_fills else "")
               + (f"; владелец не установлен у {n_unread} сделок (нет clientOrderId/детали)" if n_unread else "")
               + (f"; открытых ордеров без владельца {n_ord_unk} (нет clientOrderId)" if n_ord_unk else "")
               + (f"; история сделок НЕ ПРОЧИТАНА — {read_err}" if read_err else "")
@@ -216,16 +233,30 @@ def main() -> None:
         print("позиция", p.get("symbol"), p.get("side"), "объём", p["size"],
               "средняя", round(float(p.get("openValue") or 0) / size, 4), "PnL", p.get("unrealizePnl"),
               "фандинг", p.get("cumFundingFee"))
+    tags = eg.grid_tags()
+    regimes_done: set = set()
+    lots_by: dict[tuple, dict[str, float]] = {}       # (символ, сторона) → {сетка: объём лотов}
     for name in eg.GRIDS:
         cfg_path, st_path, journal = eg.grid_files(name)
-        cfg = json.loads(cfg_path.read_text())
+        cfg = eg.peek_config(name)                   # нет файла (цикл ещё не создал) — шаблон: сетка холостая
+        if cfg is None:
+            print(f"{name}: конфиг {cfg_path.name} не читается — ПРОБЛЕМА (сетка стоит)")
+            problem = True
+            continue
         sym = cfg["symbol"]
         st = json.loads(st_path.read_text()) if st_path.exists() else None
         leftovers = bool(st) and any(st.get(s, {}).get(k) for s in ("LONG", "SHORT") for k in LEFTOVER_KEYS)
         led_live = not cfg.get("dry_run") or leftovers
         if not led_live:
             continue
-        if int(cfg.get("regime_sma") or 0) > 0:
+        try:
+            own, others = mc.owner_prefixes(tags, name, eg.PREFIX)
+        except ValueError as e:
+            print(f"{name} {sym}: ПРОБЛЕМА — {e}; сетка стоит (GridHalt)")
+            problem = True
+            continue
+        if int(cfg.get("regime_sma") or 0) > 0 and (sym, int(cfg["regime_sma"])) not in regimes_done:
+            regimes_done.add((sym, int(cfg["regime_sma"])))      # 4 сетки BTC с SMA100 — один режим, одна строка
             level, text = regime_line(sym, int(cfg["regime_sma"]), c)
             problem |= level == "bad"
             unread |= level == "check"
@@ -237,10 +268,24 @@ def main() -> None:
         problem |= level == "bad"
         unread |= level == "check"
         print(f"{name} {sym}: ведётся живьём ({mode}) → {verdict}")
-        p, u = check_released(name, sym, cfg, st, Path(journal), c, size_of)
+        p, u = check_released(name, sym, cfg, st, Path(journal), c, size_of, own, others)
         problem |= p
         unread |= u
-    print("ИТОГ:", "ЕСТЬ ПРОБЛЕМА" if problem else ("НЕ ВСЁ ПРОЧИТАНО — перепроверить" if unread else "ок"))
+        for s in ("LONG", "SHORT"):
+            q = sum(float(l.get("qty") or 0) for l in ((st or {}).get(s) or {}).get("lots") or [])
+            if q > 0:
+                lots_by.setdefault((sym, s), {})[name] = q
+    for (sym, s), per in sorted(lots_by.items()):
+        tot, pos = sum(per.values()), size_of.get((sym, s), 0.0)
+        parts = ", ".join(f"{n} {q:g}" for n, q in per.items())
+        if pos < tot - 1e-6:
+            unread = True
+            print(f"{sym} {s}: позиция на бирже {pos:g} МЕНЬШЕ суммы лотов сеток {tot:g} ({parts}) — часть общей позиции "
+                  f"закрыта не сетками или учёт отстал; перепроверить через 10–20 с")
+        else:
+            print(f"{sym} {s}: позиция на бирже {pos:g}, лотов сеток {tot:g} ({parts})"
+                  + (f"; сверх лотов {pos - tot:g} — ручное или неучтённое" if pos > tot + 1e-6 else ""))
+    print("ИТОГ:","ЕСТЬ ПРОБЛЕМА" if problem else ("НЕ ВСЁ ПРОЧИТАНО — перепроверить" if unread else "ок"))
     sys.exit(1 if problem else (2 if unread else 0))
 
 

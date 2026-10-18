@@ -80,17 +80,21 @@ def build_send_fn(telegram_app: Any, emitter: str):
     _no_prefix = {"ALT_GUARD"}
 
     def _send(text: str, *, meta: dict | None = None,
-                reply_markup: Any = None) -> None:
+                reply_markup: Any = None) -> bool:
+        """True — доставлено хотя бы в один чат. 2026-10-15 (разбор GPT, P2 доставка): результат send_with_retry
+        раньше выбрасывался, и вызывающий не мог отличить недоставленное сообщение от доставленного (сетка WEEX
+        считала эскалацию отправленной и молчала час). Вызовы, игнорирующие результат, работают как раньше."""
         try:
             if emitter not in _no_prefix:
                 sev = classify_severity(emitter, text, meta)
                 text = with_prefix(sev, text)
         except Exception:
             logger.exception("channel_router.prefix_failed emitter=%s", emitter)
-        send_with_retry(
+        res = send_with_retry(
             bot, target_chat_ids, text,
             where=f"channel_router.{emitter}.{channel.lower()}",
             reply_markup=reply_markup,
         )
+        return bool(res) and any(res.values())
 
     return _send
