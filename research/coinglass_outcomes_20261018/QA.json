@@ -1,0 +1,44 @@
+{
+  "schema": "coinglass-outcome-repair-qa-v1",
+  "status": "SYNTHETIC_QA_PASSED_REVIEW_CANDIDATE_NOT_ACTIVATED",
+  "created_at_utc": "2026-10-18 16:00:35 UTC",
+  "tests_run": 83,
+  "passed": 82,
+  "skipped": 1,
+  "failures": 0,
+  "errors": 0,
+  "command": "python -X utf8 -B -m unittest -q test_evaluator test_history_fetch qa_independent.test_integrity_independent",
+  "output": "----------------------------------------------------------------------\r\nRan 83 tests in 3.539s\r\n\r\nOK (skipped=1)\r\n",
+  "source_sha256": {
+    "evaluator.py": "a09e18a51f72c0cf35ed5925e177c7cf2d610b1ba3d4e8338bff0c21b7071ab5",
+    "history_fetch.py": "9bc7093be641371e15b2abe539609a387e8cf00d54dff90560278bb0658e3327",
+    "test_evaluator.py": "c5d01bf36b3985622785d90486d3eca8b94aef246c6078727b94f94d7a48c41d",
+    "test_history_fetch.py": "3d03e6942781b76ea39a9d85ad04380b25ad888256417dc939937ded352b5c96",
+    "qa_independent/test_integrity_independent.py": "8af740168232b426ec8eeed547df5a25aaee70f66c5e1bdd40d29d1433c0ba32",
+    "qa_independent/run_qa.py": "3049ed6ba2b2c66ae9dc5af88a8cae8f781d433cb93990686c026c6e06b5a8be"
+  },
+  "real_market_requests": 0,
+  "real_archive_evaluations": 0,
+  "automation_changed": false,
+  "bots_changed": false,
+  "limitations": [
+    "Native Windows symlink test skipped for missing privilege; mocked reparse/path tests passed.",
+    "Independent QA_RESULTS.json pins its own earlier evaluator revision. The complete 83-test suite was rerun on the final source revision pinned by this QA.json.",
+    "Synthetic tests do not validate actual API availability, actual market outcomes, narrative hypotheses, execution or profitability.",
+    "Within-response collector conflicts exclude the entire candle conservatively even when OHLC match; cross-history flow-only conflicts preserve unchanged price.",
+    "Real collection and automation replacement await independent reading review."
+  ],
+  "adjacent_checks": {
+    "weex_followup": {
+      "cases": 10,
+      "exit_code": 0,
+      "output": "{\"cases\": 10, \"all_assertions_passed\": true, \"results\": \"results.json\", \"production_imports\": 0, \"network_calls\": 0}\r\n",
+      "meaning": "Assertions reproduce fixes and remaining defects; not safety PASS."
+    },
+    "replay_synthetic": {
+      "tests": 6,
+      "exit_code": 0,
+      "output": "----------------------------------------------------------------------\r\nRan 6 tests in 0.049s\r\n\r\nOK\r\n"
+    }
+  }
+}

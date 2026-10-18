@@ -1,0 +1,65 @@
+{
+  "commit": "2959c7acae99d06d9274578f931a6e35a20785c6",
+  "files": [
+    {
+      "path": "audit_followup_offline.py",
+      "bytes": 12077,
+      "sha256": "27bcb06f9647e803186455f8cf16331b1b359a2109f397477ae4708711ea6cbd"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1168,
+      "sha256": "59c3688bc670de5af234774b85a1adda696b22f7be0eea938209c4a1128b745a"
+    },
+    {
+      "path": "REPORT.md",
+      "bytes": 15612,
+      "sha256": "0d4010daf210400f1591687e0f4e79041523674625856f222ab084ebae198944"
+    },
+    {
+      "path": "results.json",
+      "bytes": 3053,
+      "sha256": "062303fbddfa99a7db34600d00b6158087825d33a356b5fb1a054d9c43015f02"
+    },
+    {
+      "path": "SOURCE_PINS.json",
+      "bytes": 1269,
+      "sha256": "fb4ea29bdb197d74bd5e0b430957101d4c26dd3a8ae95f0e2b709f8d74d4e5d9"
+    },
+    {
+      "path": "sources/research__weex__compare_start_snapshot.py.txt",
+      "bytes": 3950,
+      "sha256": "1b551ab3b483123f88a7e7ff821fc5650e7d0c36df9e3f5447ce6685fa3aa671"
+    },
+    {
+      "path": "sources/services__weex_api__client.py.txt",
+      "bytes": 12765,
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23"
+    },
+    {
+      "path": "sources/services__weex_grid__engine.py.txt",
+      "bytes": 150198,
+      "sha256": "f02b2cb7ae528402f5d2fbbd3231c7cda88b66c033d90b74f1a828109c67eb59"
+    },
+    {
+      "path": "sources/services__weex_grid__loop.py.txt",
+      "bytes": 25818,
+      "sha256": "12668db38da83773afa971c164b26090ca9558f0ee9a60ab1b73bdcbab723390"
+    },
+    {
+      "path": "sources/services__weex_grid__portfolio.py.txt",
+      "bytes": 5114,
+      "sha256": "f91d033310e96126da5a7e1e449bd9295eb22dec8b1440ca6076d1b02900b8d9"
+    },
+    {
+      "path": "sources/tests__services__weex_grid__test_weex_gpt1018.py.txt",
+      "bytes": 6511,
+      "sha256": "521cc47d975999d24595ba0f96b914b6ffdc3c84f58567ecea5d115ee15a6475"
+    },
+    {
+      "path": "VERIFIED_SOURCES.json",
+      "bytes": 1951,
+      "sha256": "99f7b8e478b08fbd9c583a225ac40bde53f6918518db54fbcb81051c1e2f3010"
+    }
+  ]
+}

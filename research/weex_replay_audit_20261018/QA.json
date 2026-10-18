@@ -1,0 +1,14 @@
+{
+  "created_utc": "2026-10-18T15:51:46.837474+00:00",
+  "scope": "synthetic offline verifier regressions; no trading model",
+  "tests_run": 6,
+  "failures": 0,
+  "errors": 0,
+  "success": true,
+  "stdout": "test_archive_rejects_parent_path (test_verify_replay.ReplayQualityTests.test_archive_rejects_parent_path) ... ok\ntest_archive_rejects_symlink (test_verify_replay.ReplayQualityTests.test_archive_rejects_symlink) ... ok\ntest_depth_gap_resnapshot_staleness_and_new_session (test_verify_replay.ReplayQualityTests.test_depth_gap_resnapshot_staleness_and_new_session) ... ok\ntest_json_levels_reject_nonfinite_negative_quantity_or_wrong_shape (test_verify_replay.ReplayQualityTests.test_json_levels_reject_nonfinite_negative_quantity_or_wrong_shape) ... ok\ntest_missing_initial_snapshot_is_excluded_without_false_recorder_failure (test_verify_replay.ReplayQualityTests.test_missing_initial_snapshot_is_excluded_without_false_recorder_failure) ... ok\ntest_span_clipping_preserves_half_open_day_boundary (test_verify_replay.ReplayQualityTests.test_span_clipping_preserves_half_open_day_boundary) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.049s\n\nOK\n",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "sources": {
+    "verify_replay.py": "2138e4bfcdfd775c359ee41c7dabecca87ea966cf2316c05e2b3f468d04e03a7",
+    "test_verify_replay.py": "6e77a2aca44011324fcd9c72787d2449fa613cd33b13fb5d6daca9aba9eb52b4"
+  }
+}

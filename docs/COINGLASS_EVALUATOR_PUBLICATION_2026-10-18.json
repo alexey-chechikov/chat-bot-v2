@@ -1,0 +1,217 @@
+{
+  "schema": "research-publication-allowlist-v1",
+  "created_at_utc": "2026-10-18T16:00:55.7328484Z",
+  "reviewed_source_commit": "2959c7acae99d06d9274578f931a6e35a20785c6",
+  "self_excluded": true,
+  "private_inputs_included": false,
+  "raw_release_assets_included": false,
+  "production_files_changed": false,
+  "activation": "NOT_ACTIVATED",
+  "files": [
+    {
+      "path": "docs/COINGLASS_EVALUATOR_AND_WEEX_REVIEW_2026-10-18.md",
+      "bytes": 14689,
+      "sha256": "2843b620dc749539d537f524ac9f139ff656477bccdf0fec1349e7ca1f71050a"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/.gitattributes",
+      "bytes": 74,
+      "sha256": "cf8d71da0d8d13d0f4bf31de972a0357401077ca28918e8065b2e472f3695f18"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/.gitignore",
+      "bytes": 20,
+      "sha256": "94e8e70ea7f42be858f927964c68ef42501f2bc6509708d53baa01486a5f58fa"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/evaluator.py",
+      "bytes": 32457,
+      "sha256": "a09e18a51f72c0cf35ed5925e177c7cf2d610b1ba3d4e8338bff0c21b7071ab5"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/FETCH_README.md",
+      "bytes": 7103,
+      "sha256": "404d0044e5c65848d4d264df6ff0467514a1eb13fcf0a51ba029658d3ea5cea9"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/history_fetch.py",
+      "bytes": 30701,
+      "sha256": "9bc7093be641371e15b2abe539609a387e8cf00d54dff90560278bb0658e3327"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/IMPLEMENTATION_CONTRACT.md",
+      "bytes": 6323,
+      "sha256": "023c44aec315804acc04161773b9bf317f6ed05764425ebd5c529efeb84f0c4d"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/qa_independent/QA_REPORT.md",
+      "bytes": 2748,
+      "sha256": "8050af6fb2f95ad1d89b780871b10d17a7d85b24b25e4775ae862cf5488dfc5f"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/qa_independent/QA_RESULTS.json",
+      "bytes": 3190,
+      "sha256": "caf49375f5298f71c7949d559bee23423dc9bacb359dab34c3ea705a725882ab"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/qa_independent/run_qa.py",
+      "bytes": 1305,
+      "sha256": "3049ed6ba2b2c66ae9dc5af88a8cae8f781d433cb93990686c026c6e06b5a8be"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/qa_independent/test_integrity_independent.py",
+      "bytes": 9943,
+      "sha256": "8af740168232b426ec8eeed547df5a25aaee70f66c5e1bdd40d29d1433c0ba32"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/QA.json",
+      "bytes": 2498,
+      "sha256": "373041c2441d3b307342191563f9f677d77b41b367a8f80387c329d9356367c0"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/README.md",
+      "bytes": 11682,
+      "sha256": "76beb0e710f623e68fa52176260bcd60b98f9da267264e185c11e6947c7caf85"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/test_evaluator.py",
+      "bytes": 19096,
+      "sha256": "c5d01bf36b3985622785d90486d3eca8b94aef246c6078727b94f94d7a48c41d"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/test_history_fetch.py",
+      "bytes": 22034,
+      "sha256": "3d03e6942781b76ea39a9d85ad04380b25ad888256417dc939937ded352b5c96"
+    },
+    {
+      "path": "research/coinglass_outcomes_20261018/VERIFIED_FILES.json",
+      "bytes": 2775,
+      "sha256": "0e43fafe6f6276af1e12a1f1b7acc2fa8bb0b761fb558e34f821bfad8dd9f519"
+    },
+    {
+      "path": "research/liq_pressure_proxy_20261018/G0_DECISION_2026-10-18.md",
+      "bytes": 2024,
+      "sha256": "b7688c87f687e5cda84802c6c0b24ff647f0492bc8b1bd81f0ccee35a8464a92"
+    },
+    {
+      "path": "research/weex_followup_20261018/.gitattributes",
+      "bytes": 62,
+      "sha256": "9bc4c3814ce4d8787d34ca53e6417a83cc3aa1c60a0604c968f039ce39fb859d"
+    },
+    {
+      "path": "research/weex_followup_20261018/audit_followup_offline.py",
+      "bytes": 12077,
+      "sha256": "27bcb06f9647e803186455f8cf16331b1b359a2109f397477ae4708711ea6cbd"
+    },
+    {
+      "path": "research/weex_followup_20261018/BUNDLE_SHA256.json",
+      "bytes": 2140,
+      "sha256": "c2841eb6f3b357ad73c6df6c64fde4ae8369fda2529c90b0d428b9448cd3d1f5"
+    },
+    {
+      "path": "research/weex_followup_20261018/README.md",
+      "bytes": 1168,
+      "sha256": "59c3688bc670de5af234774b85a1adda696b22f7be0eea938209c4a1128b745a"
+    },
+    {
+      "path": "research/weex_followup_20261018/REPORT.md",
+      "bytes": 15612,
+      "sha256": "0d4010daf210400f1591687e0f4e79041523674625856f222ab084ebae198944"
+    },
+    {
+      "path": "research/weex_followup_20261018/results.json",
+      "bytes": 3053,
+      "sha256": "062303fbddfa99a7db34600d00b6158087825d33a356b5fb1a054d9c43015f02"
+    },
+    {
+      "path": "research/weex_followup_20261018/SOURCE_PINS.json",
+      "bytes": 1269,
+      "sha256": "fb4ea29bdb197d74bd5e0b430957101d4c26dd3a8ae95f0e2b709f8d74d4e5d9"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/research__weex__compare_start_snapshot.py.txt",
+      "bytes": 3950,
+      "sha256": "1b551ab3b483123f88a7e7ff821fc5650e7d0c36df9e3f5447ce6685fa3aa671"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/services__weex_api__client.py.txt",
+      "bytes": 12765,
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/services__weex_grid__engine.py.txt",
+      "bytes": 150198,
+      "sha256": "f02b2cb7ae528402f5d2fbbd3231c7cda88b66c033d90b74f1a828109c67eb59"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/services__weex_grid__loop.py.txt",
+      "bytes": 25818,
+      "sha256": "12668db38da83773afa971c164b26090ca9558f0ee9a60ab1b73bdcbab723390"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/services__weex_grid__portfolio.py.txt",
+      "bytes": 5114,
+      "sha256": "f91d033310e96126da5a7e1e449bd9295eb22dec8b1440ca6076d1b02900b8d9"
+    },
+    {
+      "path": "research/weex_followup_20261018/sources/tests__services__weex_grid__test_weex_gpt1018.py.txt",
+      "bytes": 6511,
+      "sha256": "521cc47d975999d24595ba0f96b914b6ffdc3c84f58567ecea5d115ee15a6475"
+    },
+    {
+      "path": "research/weex_followup_20261018/VERIFIED_SOURCES.json",
+      "bytes": 1951,
+      "sha256": "99f7b8e478b08fbd9c583a225ac40bde53f6918518db54fbcb81051c1e2f3010"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/.gitattributes",
+      "bytes": 62,
+      "sha256": "9bc4c3814ce4d8787d34ca53e6417a83cc3aa1c60a0604c968f039ce39fb859d"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/.gitignore",
+      "bytes": 20,
+      "sha256": "94e8e70ea7f42be858f927964c68ef42501f2bc6509708d53baa01486a5f58fa"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/AUDIT_RU.md",
+      "bytes": 5992,
+      "sha256": "bb5b9b4b475cbdcb3e83124c5f7fa81d4449693b273202758c9d49f5ed974dd6"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/BUNDLE_SHA256.json",
+      "bytes": 1613,
+      "sha256": "c84706cb4c1a69f7fa920e9ff275a191187a5989be3582056211034526036ff7"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/QA.json",
+      "bytes": 1518,
+      "sha256": "8fbf6b287071b3cbabfeb00506d0ac8ffd30e19337b767128b9ccb9b3ef35a27"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/README.md",
+      "bytes": 4730,
+      "sha256": "a60512ef9ac7821e7d23366babd8492e823677e5cbfbe4698ccd3d6da04e0c25"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/report.json",
+      "bytes": 72976,
+      "sha256": "4876a97b1c29c210c833e46d764eeff5298a253b14c6e1a551a78528f3e2c27c"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/SOURCE_PROVENANCE.json",
+      "bytes": 536,
+      "sha256": "5d696ec6329fffb220f5f4d8b5a7ac8fb0a381666e5f2732cb6a0b562e5dddca"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/test_verify_replay.py",
+      "bytes": 5862,
+      "sha256": "6e77a2aca44011324fcd9c72787d2449fa613cd33b13fb5d6daca9aba9eb52b4"
+    },
+    {
+      "path": "research/weex_replay_audit_20261018/verify_replay.py",
+      "bytes": 29804,
+      "sha256": "2138e4bfcdfd775c359ee41c7dabecca87ea966cf2316c05e2b3f468d04e03a7"
+    }
+  ]
+}

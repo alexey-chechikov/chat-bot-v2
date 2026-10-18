@@ -1,0 +1,119 @@
+{
+  "source_commit": "2959c7acae99d06d9274578f931a6e35a20785c6",
+  "mode": "synthetic_selected_AST_only",
+  "production_imports": 0,
+  "network_calls": 0,
+  "account_access": false,
+  "cases": [
+    {
+      "name": "place_shape_guard",
+      "classification": "FIX_VERIFIED",
+      "details": {
+        "unknown_shapes_kept_pending": 7,
+        "explicit_false_releases": true
+      }
+    },
+    {
+      "name": "missing_trade_order_id",
+      "classification": "FIX_VERIFIED",
+      "details": {
+        "complete": false,
+        "pending_retained_after_TTL": true
+      }
+    },
+    {
+      "name": "foreign_fee_reenters_late_settlement",
+      "classification": "REMAINING_DEFECT",
+      "details": {
+        "correct_immediate_fee": 0.01,
+        "after_late_settlement": 7.01,
+        "foreign_fee": 7
+      }
+    },
+    {
+      "name": "null_late_fee_response_prunes_cursor",
+      "classification": "REMAINING_DEFECT",
+      "details": {
+        "cursor_pruned": true,
+        "issue_count": 0,
+        "partial_fee_previously_known": 0.01
+      }
+    },
+    {
+      "name": "fee_100_row_cap_not_detected",
+      "classification": "REMAINING_LIMIT",
+      "details": {
+        "returned_fee": 100.0,
+        "possible_true_101_fill_fee": 101,
+        "issue_count": 0,
+        "actual_live_truncation_not_observed": true
+      }
+    },
+    {
+      "name": "reserved_explicit_tags",
+      "classification": "FIX_VERIFIED",
+      "details": {
+        "rejected": [
+          "L",
+          "S",
+          "l",
+          "s"
+        ]
+      }
+    },
+    {
+      "name": "history_end_exclusive_midpoint",
+      "classification": "FIX_VERIFIED",
+      "details": {
+        "found_midpoint_order": true,
+        "live_endpoint_contract_not_checked": true
+      }
+    },
+    {
+      "name": "fair_cursor_open",
+      "classification": "ACKNOWLEDGED_REMAINING_DEFECT",
+      "details": {
+        "attempts": 10,
+        "detail_requests": 200,
+        "own_21st_visited": false,
+        "foreign_cache_size": 0
+      }
+    },
+    {
+      "name": "orphan_filled_mass_missing_within_same_grid",
+      "classification": "REMAINING_DEFECT",
+      "details": {
+        "scope": "generic_grid_with_both_sides_enabled_without_regime_closure",
+        "cap": 350,
+        "old_order_total": 300,
+        "recorded_old_remaining_room_used": 200,
+        "adopted_old_fill_lot": 100,
+        "new_other_side_order": 100,
+        "actual_total": 400,
+        "live_occurrence_not_checked": true
+      }
+    },
+    {
+      "name": "runner_sequential_free_refresh",
+      "classification": "FIX_VERIFIED",
+      "details": {
+        "calls": [
+          [
+            "A",
+            300
+          ],
+          [
+            "B",
+            200
+          ],
+          [
+            "C",
+            100
+          ]
+        ],
+        "parallel_counterexample_removed": true,
+        "all_orphan_risk_not_proved_closed": true
+      }
+    }
+  ]
+}

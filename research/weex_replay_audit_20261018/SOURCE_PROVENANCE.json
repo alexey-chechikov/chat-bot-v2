@@ -1,0 +1,10 @@
+{
+  "declared_recorder_commit": "f9c82644762512c6099d220e578b965c30c1ca4a",
+  "source_url": "https://github.com/alexey-chechikov/chat-bot-v2/blob/f9c82644762512c6099d220e578b965c30c1ca4a/services/weex_book/recorder.py",
+  "git_blob_sha1": "0f45bac09f283c1e909c1e5ef1cbd7ad3a116acc",
+  "sha256": "884100932f9550eb057f46358d013a688f164a29aac2582a5c20a639862e704e",
+  "bytes": 13192,
+  "byte_identity_verified_against_github_blob": true,
+  "source_read_only_never_imported": true,
+  "does_not_verify_live_capture_commit": true
+}

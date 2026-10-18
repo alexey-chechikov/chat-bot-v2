@@ -1,0 +1,57 @@
+{
+  "schema": "weex-public-replay-audit-bundle-v1",
+  "created_utc": "2026-10-18T15:53:03.059953+00:00",
+  "publish_allowlist": [
+    ".gitignore",
+    "verify_replay.py",
+    "test_verify_replay.py",
+    "report.json",
+    "README.md",
+    "AUDIT_RU.md",
+    "QA.json",
+    "SOURCE_PROVENANCE.json"
+  ],
+  "raw_assets_and_intervals_local_only": true,
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 20,
+      "sha256": "94e8e70ea7f42be858f927964c68ef42501f2bc6509708d53baa01486a5f58fa"
+    },
+    {
+      "path": "verify_replay.py",
+      "bytes": 29804,
+      "sha256": "2138e4bfcdfd775c359ee41c7dabecca87ea966cf2316c05e2b3f468d04e03a7"
+    },
+    {
+      "path": "test_verify_replay.py",
+      "bytes": 5862,
+      "sha256": "6e77a2aca44011324fcd9c72787d2449fa613cd33b13fb5d6daca9aba9eb52b4"
+    },
+    {
+      "path": "report.json",
+      "bytes": 72976,
+      "sha256": "4876a97b1c29c210c833e46d764eeff5298a253b14c6e1a551a78528f3e2c27c"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4730,
+      "sha256": "a60512ef9ac7821e7d23366babd8492e823677e5cbfbe4698ccd3d6da04e0c25"
+    },
+    {
+      "path": "AUDIT_RU.md",
+      "bytes": 5992,
+      "sha256": "bb5b9b4b475cbdcb3e83124c5f7fa81d4449693b273202758c9d49f5ed974dd6"
+    },
+    {
+      "path": "QA.json",
+      "bytes": 1518,
+      "sha256": "8fbf6b287071b3cbabfeb00506d0ac8ffd30e19337b767128b9ccb9b3ef35a27"
+    },
+    {
+      "path": "SOURCE_PROVENANCE.json",
+      "bytes": 536,
+      "sha256": "5d696ec6329fffb220f5f4d8b5a7ac8fb0a381666e5f2732cb6a0b562e5dddca"
+    }
+  ]
+}

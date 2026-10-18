@@ -1,0 +1,36 @@
+{
+  "commit": "2959c7acae99d06d9274578f931a6e35a20785c6",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "sources": [
+    {
+      "path": "services/weex_grid/engine.py",
+      "filename": "services__weex_grid__engine.py.txt",
+      "git_blob_sha1": "fb7fec3266f904702b590f0794164e6754250df6"
+    },
+    {
+      "path": "services/weex_grid/loop.py",
+      "filename": "services__weex_grid__loop.py.txt",
+      "git_blob_sha1": "29429356360d5a64e755c9f3d95312c2dd858079"
+    },
+    {
+      "path": "services/weex_grid/portfolio.py",
+      "filename": "services__weex_grid__portfolio.py.txt",
+      "git_blob_sha1": "a7b3993b4ab085dfaa1d32f665cf38566bbec36a"
+    },
+    {
+      "path": "services/weex_api/client.py",
+      "filename": "services__weex_api__client.py.txt",
+      "git_blob_sha1": "0e8e7dccc6b48ee36ab0b207d370eb144108f69f"
+    },
+    {
+      "path": "research/weex/compare_start_snapshot.py",
+      "filename": "research__weex__compare_start_snapshot.py.txt",
+      "git_blob_sha1": "6f20dda1667e7153d5343140f53ae471e4fa50ce"
+    },
+    {
+      "path": "tests/services/weex_grid/test_weex_gpt1018.py",
+      "filename": "tests__services__weex_grid__test_weex_gpt1018.py.txt",
+      "git_blob_sha1": "cae2b60160668200f92b2502f18305e36315931e"
+    }
+  ]
+}

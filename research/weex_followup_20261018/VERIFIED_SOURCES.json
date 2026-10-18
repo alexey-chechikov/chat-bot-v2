@@ -1,0 +1,48 @@
+{
+  "commit": "2959c7acae99d06d9274578f931a6e35a20785c6",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "sources": [
+    {
+      "path": "services/weex_grid/engine.py",
+      "filename": "services__weex_grid__engine.py.txt",
+      "git_blob_sha1": "fb7fec3266f904702b590f0794164e6754250df6",
+      "sha256": "f02b2cb7ae528402f5d2fbbd3231c7cda88b66c033d90b74f1a828109c67eb59",
+      "bytes": 150198
+    },
+    {
+      "path": "services/weex_grid/loop.py",
+      "filename": "services__weex_grid__loop.py.txt",
+      "git_blob_sha1": "29429356360d5a64e755c9f3d95312c2dd858079",
+      "sha256": "12668db38da83773afa971c164b26090ca9558f0ee9a60ab1b73bdcbab723390",
+      "bytes": 25818
+    },
+    {
+      "path": "services/weex_grid/portfolio.py",
+      "filename": "services__weex_grid__portfolio.py.txt",
+      "git_blob_sha1": "a7b3993b4ab085dfaa1d32f665cf38566bbec36a",
+      "sha256": "f91d033310e96126da5a7e1e449bd9295eb22dec8b1440ca6076d1b02900b8d9",
+      "bytes": 5114
+    },
+    {
+      "path": "services/weex_api/client.py",
+      "filename": "services__weex_api__client.py.txt",
+      "git_blob_sha1": "0e8e7dccc6b48ee36ab0b207d370eb144108f69f",
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23",
+      "bytes": 12765
+    },
+    {
+      "path": "research/weex/compare_start_snapshot.py",
+      "filename": "research__weex__compare_start_snapshot.py.txt",
+      "git_blob_sha1": "6f20dda1667e7153d5343140f53ae471e4fa50ce",
+      "sha256": "1b551ab3b483123f88a7e7ff821fc5650e7d0c36df9e3f5447ce6685fa3aa671",
+      "bytes": 3950
+    },
+    {
+      "path": "tests/services/weex_grid/test_weex_gpt1018.py",
+      "filename": "tests__services__weex_grid__test_weex_gpt1018.py.txt",
+      "git_blob_sha1": "cae2b60160668200f92b2502f18305e36315931e",
+      "sha256": "521cc47d975999d24595ba0f96b914b6ffdc3c84f58567ecea5d115ee15a6475",
+      "bytes": 6511
+    }
+  ]
+}

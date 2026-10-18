@@ -1,0 +1,94 @@
+{
+  "schema": "coinglass-outcome-repair-manifest-v1",
+  "created_at_utc": "2026-10-18T16:00:36.4339896Z",
+  "activation": "REVIEW_CANDIDATE_NOT_ACTIVATED",
+  "self_excluded": true,
+  "publish_allowlist": [
+    ".gitattributes",
+    ".gitignore",
+    "IMPLEMENTATION_CONTRACT.md",
+    "README.md",
+    "FETCH_README.md",
+    "evaluator.py",
+    "history_fetch.py",
+    "test_evaluator.py",
+    "test_history_fetch.py",
+    "QA.json",
+    "qa_independent/QA_REPORT.md",
+    "qa_independent/QA_RESULTS.json",
+    "qa_independent/run_qa.py",
+    "qa_independent/test_integrity_independent.py"
+  ],
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 74,
+      "sha256": "cf8d71da0d8d13d0f4bf31de972a0357401077ca28918e8065b2e472f3695f18"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 20,
+      "sha256": "94e8e70ea7f42be858f927964c68ef42501f2bc6509708d53baa01486a5f58fa"
+    },
+    {
+      "path": "IMPLEMENTATION_CONTRACT.md",
+      "bytes": 6323,
+      "sha256": "023c44aec315804acc04161773b9bf317f6ed05764425ebd5c529efeb84f0c4d"
+    },
+    {
+      "path": "README.md",
+      "bytes": 11682,
+      "sha256": "76beb0e710f623e68fa52176260bcd60b98f9da267264e185c11e6947c7caf85"
+    },
+    {
+      "path": "FETCH_README.md",
+      "bytes": 7103,
+      "sha256": "404d0044e5c65848d4d264df6ff0467514a1eb13fcf0a51ba029658d3ea5cea9"
+    },
+    {
+      "path": "evaluator.py",
+      "bytes": 32457,
+      "sha256": "a09e18a51f72c0cf35ed5925e177c7cf2d610b1ba3d4e8338bff0c21b7071ab5"
+    },
+    {
+      "path": "history_fetch.py",
+      "bytes": 30701,
+      "sha256": "9bc7093be641371e15b2abe539609a387e8cf00d54dff90560278bb0658e3327"
+    },
+    {
+      "path": "test_evaluator.py",
+      "bytes": 19096,
+      "sha256": "c5d01bf36b3985622785d90486d3eca8b94aef246c6078727b94f94d7a48c41d"
+    },
+    {
+      "path": "test_history_fetch.py",
+      "bytes": 22034,
+      "sha256": "3d03e6942781b76ea39a9d85ad04380b25ad888256417dc939937ded352b5c96"
+    },
+    {
+      "path": "QA.json",
+      "bytes": 2498,
+      "sha256": "373041c2441d3b307342191563f9f677d77b41b367a8f80387c329d9356367c0"
+    },
+    {
+      "path": "qa_independent/QA_REPORT.md",
+      "bytes": 2748,
+      "sha256": "8050af6fb2f95ad1d89b780871b10d17a7d85b24b25e4775ae862cf5488dfc5f"
+    },
+    {
+      "path": "qa_independent/QA_RESULTS.json",
+      "bytes": 3190,
+      "sha256": "caf49375f5298f71c7949d559bee23423dc9bacb359dab34c3ea705a725882ab"
+    },
+    {
+      "path": "qa_independent/run_qa.py",
+      "bytes": 1305,
+      "sha256": "3049ed6ba2b2c66ae9dc5af88a8cae8f781d433cb93990686c026c6e06b5a8be"
+    },
+    {
+      "path": "qa_independent/test_integrity_independent.py",
+      "bytes": 9943,
+      "sha256": "8af740168232b426ec8eeed547df5a25aaee70f66c5e1bdd40d29d1433c0ba32"
+    }
+  ]
+}

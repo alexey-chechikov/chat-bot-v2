@@ -1,0 +1,18 @@
+{
+  "created_at_ms": 1792338824739,
+  "synthetic_only": true,
+  "real_network_requests": 0,
+  "real_archive_reads": 0,
+  "tests_run": 15,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "successful": true,
+  "source_sha256": {
+    "evaluator.py": "b1ed86430804442c8c1afa17f67931ef7b5d784b7141fddc02f018e602f601e6",
+    "history_fetch.py": "9bc7093be641371e15b2abe539609a387e8cf00d54dff90560278bb0658e3327",
+    "qa_independent/test_integrity_independent.py": "8af740168232b426ec8eeed547df5a25aaee70f66c5e1bdd40d29d1433c0ba32",
+    "qa_independent/run_qa.py": "3049ed6ba2b2c66ae9dc5af88a8cae8f781d433cb93990686c026c6e06b5a8be"
+  },
+  "output": "test_actual_1m_interval_cannot_be_admitted_with_legacy_15m_label (test_integrity_independent.Admission.test_actual_1m_interval_cannot_be_admitted_with_legacy_15m_label) ... ok\ntest_actual_eth_symbol_cannot_be_admitted_with_legacy_btc_label (test_integrity_independent.Admission.test_actual_eth_symbol_cannot_be_admitted_with_legacy_btc_label) ... ok\ntest_changed_optional_flow_revision_does_not_conflict_price (test_integrity_independent.Admission.test_changed_optional_flow_revision_does_not_conflict_price) ... ok\ntest_control_compatible_actual_extended_settings (test_integrity_independent.Admission.test_control_compatible_actual_extended_settings) ... ok\ntest_frozen_object_must_agree_with_its_hash (test_integrity_independent.Admission.test_frozen_object_must_agree_with_its_hash) ... ok\ntest_missing_optional_flow_revision_does_not_conflict_price (test_integrity_independent.Admission.test_missing_optional_flow_revision_does_not_conflict_price) ... ok\ntest_price_revision_still_is_conflict (test_integrity_independent.Admission.test_price_revision_still_is_conflict) ... ok\ntest_url_query_symbol_cannot_contradict_definition (test_integrity_independent.Admission.test_url_query_symbol_cannot_contradict_definition) ... ok\ntest_real_collector_abi_with_fake_network_has_exact_price_and_OI (test_integrity_independent.CollectorIntegration.test_real_collector_abi_with_fake_network_has_exact_price_and_OI) ... ok\ntest_real_collector_clock_failure_bundle_is_not_price_input (test_integrity_independent.CollectorIntegration.test_real_collector_clock_failure_bundle_is_not_price_input) ... ok\ntest_control_original_input_sha_matches (test_integrity_independent.FrozenInputFiles.test_control_original_input_sha_matches) ... ok\ntest_daily_mutated_before_first_supplement_is_refused (test_integrity_independent.FrozenInputFiles.test_daily_mutated_before_first_supplement_is_refused) ... ok\ntest_future_daily_input_relative_to_analysis_is_refused (test_integrity_independent.FrozenInputFiles.test_future_daily_input_relative_to_analysis_is_refused) ... ok\ntest_history_input_sha_mutation_refused_on_first_admission (test_integrity_independent.FrozenInputFiles.test_history_input_sha_mutation_refused_on_first_admission) ... ok\ntest_missing_frozen_daily_input_cannot_be_silently_substituted (test_integrity_independent.FrozenInputFiles.test_missing_frozen_daily_input_cannot_be_silently_substituted) ... ok\n\n----------------------------------------------------------------------\nRan 15 tests in 0.506s\n\nOK\n"
+}

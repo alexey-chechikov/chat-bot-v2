@@ -1,0 +1,2155 @@
+{
+  "schema": "weex-public-replay-quality-v1",
+  "created_utc": "2026-10-18T15:52:02.148114+00:00",
+  "release_url": "https://github.com/alexey-chechikov/chat-bot-v2/releases/tag/data-weex-book-20261015-20261018",
+  "archive": {
+    "file": "weex_book_v2_20261015_20261018.tar.xz",
+    "bytes": 134350888,
+    "sha256": "a6c4585ec59aa12e5d4cb27d0b747b8b258b0efb2644afb055677c26834b5191",
+    "hash_verified": true
+  },
+  "external_manifest": {
+    "file": "weex_book_v2_manifest.json",
+    "sha256": "193b9516761b164c7fbe05610c1d6306de42be475461d9901a0cea7b22486c08",
+    "hash_verified": true
+  },
+  "internal_manifest_equals_external": true,
+  "all_24_internal_csv_hashes_verified": true,
+  "safe_stream_extraction": true,
+  "archive_members": [
+    {
+      "name": "weex_book_v2",
+      "bytes": 0,
+      "type": "5"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261015_depth.csv",
+      "bytes": 85633297,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261015_events.csv",
+      "bytes": 449,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261015_trades2.csv",
+      "bytes": 56385338,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261016_depth.csv",
+      "bytes": 70042535,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261016_events.csv",
+      "bytes": 449,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261016_trades2.csv",
+      "bytes": 52931655,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261017_depth.csv",
+      "bytes": 45794028,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261017_events.csv",
+      "bytes": 895,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261017_trades2.csv",
+      "bytes": 48859278,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261018_depth.csv",
+      "bytes": 23623526,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261018_events.csv",
+      "bytes": 525,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/BTCUSDT_20261018_trades2.csv",
+      "bytes": 24690055,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261015_depth.csv",
+      "bytes": 89119815,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261015_events.csv",
+      "bytes": 449,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261015_trades2.csv",
+      "bytes": 58945442,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261016_depth.csv",
+      "bytes": 74431579,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261016_events.csv",
+      "bytes": 449,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261016_trades2.csv",
+      "bytes": 55168954,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261017_depth.csv",
+      "bytes": 48933863,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261017_events.csv",
+      "bytes": 718,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261017_trades2.csv",
+      "bytes": 51126053,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261018_depth.csv",
+      "bytes": 24791244,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261018_events.csv",
+      "bytes": 525,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/ETHUSDT_20261018_trades2.csv",
+      "bytes": 25413962,
+      "type": "0"
+    },
+    {
+      "name": "weex_book_v2/manifest.json",
+      "bytes": 8061,
+      "type": "0"
+    }
+  ],
+  "verified_files": [
+    {
+      "file": "BTCUSDT_20261015_depth.csv",
+      "bytes": 85633297,
+      "sha256": "260446e2572f6bfc596c3594e4d2a15a8ef367f1683b9bfd32a72bc886625c7b"
+    },
+    {
+      "file": "BTCUSDT_20261015_events.csv",
+      "bytes": 449,
+      "sha256": "2d049b0ec07634d9a11dc4e74b39f98317f2984475dd6077324c57278f4efd84"
+    },
+    {
+      "file": "BTCUSDT_20261015_trades2.csv",
+      "bytes": 56385338,
+      "sha256": "629a43808f91ee9b26b06d518a2cd23812c26d1a54d0d79e39662015a25b1ec8"
+    },
+    {
+      "file": "BTCUSDT_20261016_depth.csv",
+      "bytes": 70042535,
+      "sha256": "6f4fc9432a13f9a98e972b330c87c18ffefd746628cb60f1115d0a335efa54c7"
+    },
+    {
+      "file": "BTCUSDT_20261016_events.csv",
+      "bytes": 449,
+      "sha256": "19134ce5eda39b4ccb3e95669b18314474e0c7a1d006356fc1c79ef9906c4a84"
+    },
+    {
+      "file": "BTCUSDT_20261016_trades2.csv",
+      "bytes": 52931655,
+      "sha256": "f491ea1fdb32f5ec79db0ce5be80fe83d2bcfd92d385d964f46bc2bcaba7f247"
+    },
+    {
+      "file": "BTCUSDT_20261017_depth.csv",
+      "bytes": 45794028,
+      "sha256": "e6240d80141741ce90ad16b9c0c24b320b460c434be04d200be29792d835206f"
+    },
+    {
+      "file": "BTCUSDT_20261017_events.csv",
+      "bytes": 895,
+      "sha256": "20e010ecdd239226ada812c99d428c1029821d2771133fae83f56c0ed55968f7"
+    },
+    {
+      "file": "BTCUSDT_20261017_trades2.csv",
+      "bytes": 48859278,
+      "sha256": "c7de389e29e3efdb52f9ba23036f10c07035a52efa5e166049a56344bcdba33d"
+    },
+    {
+      "file": "BTCUSDT_20261018_depth.csv",
+      "bytes": 23623526,
+      "sha256": "408c678deaa517b32a80ca976dbd7a063bbe99a9c0973f9dd96a09d79cf0e934"
+    },
+    {
+      "file": "BTCUSDT_20261018_events.csv",
+      "bytes": 525,
+      "sha256": "a27096eb7bbd50c13e16161d7b0f478ceec22263968b4717e85777c7ae13ae50"
+    },
+    {
+      "file": "BTCUSDT_20261018_trades2.csv",
+      "bytes": 24690055,
+      "sha256": "572233970b8f9cc391a7c58facf134c4c58b254057f16ad6579f09597c7d625c"
+    },
+    {
+      "file": "ETHUSDT_20261015_depth.csv",
+      "bytes": 89119815,
+      "sha256": "83349b583126e596e316fe4bc5d9e0294dd3f40c7a50f0dbccf0610103807ac0"
+    },
+    {
+      "file": "ETHUSDT_20261015_events.csv",
+      "bytes": 449,
+      "sha256": "f54aa78b7ac2cd26f511d90679a4a3d43255542fa61fe52ddba23080d366833b"
+    },
+    {
+      "file": "ETHUSDT_20261015_trades2.csv",
+      "bytes": 58945442,
+      "sha256": "f2c5dee6a4944d2098127b0b13624bcf001b53581fb3a6263dd4cf85a2607a26"
+    },
+    {
+      "file": "ETHUSDT_20261016_depth.csv",
+      "bytes": 74431579,
+      "sha256": "244940a68d38d5e48ed3e52b64e75f31d1e4c1349a0fcf74f7c1c63441fce7ac"
+    },
+    {
+      "file": "ETHUSDT_20261016_events.csv",
+      "bytes": 449,
+      "sha256": "b0e6ed6e7d3e41bd9edd5f0145b6154ec8df94da80c5e8df6cb9633527d4c755"
+    },
+    {
+      "file": "ETHUSDT_20261016_trades2.csv",
+      "bytes": 55168954,
+      "sha256": "d6080b9f0cf8d2c93ac5687b595cbd3089d83ee39501cf13433c131ad657914f"
+    },
+    {
+      "file": "ETHUSDT_20261017_depth.csv",
+      "bytes": 48933863,
+      "sha256": "a0c8f0b910c5f0702866a91e3e720c09e2975b931f3bd3c5123a4f5600f5a56b"
+    },
+    {
+      "file": "ETHUSDT_20261017_events.csv",
+      "bytes": 718,
+      "sha256": "67548e815a5f13c93a58a4fe59a0b942abffae04cd9fc77ccc4c4c874ff6cd4b"
+    },
+    {
+      "file": "ETHUSDT_20261017_trades2.csv",
+      "bytes": 51126053,
+      "sha256": "8bee2170feaadb612c9c4c9035ba81327b6d0b95c615c90d18a3009bc0b75be8"
+    },
+    {
+      "file": "ETHUSDT_20261018_depth.csv",
+      "bytes": 24791244,
+      "sha256": "015a47ec4c80c338f64e0b45b0375feb0829dc0dd99ab052a2c686f0200a0e8d"
+    },
+    {
+      "file": "ETHUSDT_20261018_events.csv",
+      "bytes": 525,
+      "sha256": "7b0e53e44691a8b90d9caae1a751874724c5fa5255f80811278e77fc23a65255"
+    },
+    {
+      "file": "ETHUSDT_20261018_trades2.csv",
+      "bytes": 25413962,
+      "sha256": "4791d86a3d91bbafac8a8e65dc8ad6471a173b57350da7c6185b3246f71a990b"
+    }
+  ],
+  "csv_files": [
+    {
+      "file": "BTCUSDT_20261015_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172483,
+      "rows": 172483,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261015_events.csv",
+      "kind": "events",
+      "declared_rows": 7,
+      "rows": 7,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261015_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 492400,
+      "rows": 492400,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261016_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172380,
+      "rows": 172380,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261016_events.csv",
+      "kind": "events",
+      "declared_rows": 7,
+      "rows": 7,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261016_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 462129,
+      "rows": 462129,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261017_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172369,
+      "rows": 172369,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261017_events.csv",
+      "kind": "events",
+      "declared_rows": 15,
+      "rows": 15,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261017_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 426606,
+      "rows": 426606,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261018_depth.csv",
+      "kind": "depth",
+      "declared_rows": 85558,
+      "rows": 85558,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261018_events.csv",
+      "kind": "events",
+      "declared_rows": 9,
+      "rows": 9,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "BTCUSDT_20261018_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 215473,
+      "rows": 215473,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261015_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172483,
+      "rows": 172483,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261015_events.csv",
+      "kind": "events",
+      "declared_rows": 7,
+      "rows": 7,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261015_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 518789,
+      "rows": 518789,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261016_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172376,
+      "rows": 172376,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261016_events.csv",
+      "kind": "events",
+      "declared_rows": 7,
+      "rows": 7,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261016_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 485642,
+      "rows": 485642,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261017_depth.csv",
+      "kind": "depth",
+      "declared_rows": 172369,
+      "rows": 172369,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261017_events.csv",
+      "kind": "events",
+      "declared_rows": 12,
+      "rows": 12,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261017_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 450166,
+      "rows": 450166,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261018_depth.csv",
+      "kind": "depth",
+      "declared_rows": 85557,
+      "rows": 85557,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261018_events.csv",
+      "kind": "events",
+      "declared_rows": 9,
+      "rows": 9,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    },
+    {
+      "file": "ETHUSDT_20261018_trades2.csv",
+      "kind": "trades2",
+      "declared_rows": 223767,
+      "rows": 223767,
+      "header_exact": true,
+      "last_line_terminated": true,
+      "parse_errors": 0,
+      "row_count_matches": true
+    }
+  ],
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "events": {
+        "rows": 38,
+        "counts": {
+          "disconnect": 13,
+          "connect": 11,
+          "snapshot": 12,
+          "gap": 1,
+          "resync": 1
+        },
+        "receive_time_backwards_in_source_order": 0,
+        "timeline": [
+          {
+            "recv_utc": "2026-10-15T01:59:07.510+00:00",
+            "session": "1792021215055",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-15T01:59:14.017+00:00",
+            "session": "1792029552518",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-15T01:59:14.273+00:00",
+            "session": "1792029552518",
+            "event": "snapshot",
+            "detail": "u=17131092123"
+          },
+          {
+            "recv_utc": "2026-10-15T06:11:44.519+00:00",
+            "session": "1792029552518",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-15T06:12:40.202+00:00",
+            "session": "1792044745154",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-15T06:13:13.136+00:00",
+            "session": "1792044788408",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-15T06:13:13.393+00:00",
+            "session": "1792044788408",
+            "event": "snapshot",
+            "detail": "u=17133674146"
+          },
+          {
+            "recv_utc": "2026-10-16T00:20:20.001+00:00",
+            "session": "1792044788408",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-16T00:20:54.474+00:00",
+            "session": "1792110025035",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-16T00:22:31.113+00:00",
+            "session": "1792110148894",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-16T00:22:31.394+00:00",
+            "session": "1792110148894",
+            "event": "snapshot",
+            "detail": "u=17141871673"
+          },
+          {
+            "recv_utc": "2026-10-16T01:55:51.031+00:00",
+            "session": "1792110148894",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-16T01:56:14.265+00:00",
+            "session": "1792115773142",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-16T01:56:14.551+00:00",
+            "session": "1792115773142",
+            "event": "snapshot",
+            "detail": "u=17142466748"
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:28.758+00:00",
+            "session": "1792115773142",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:35.253+00:00",
+            "session": "1792203213789",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:35.505+00:00",
+            "session": "1792203213789",
+            "event": "snapshot",
+            "detail": "u=17151571151"
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:19.126+00:00",
+            "session": "1792203213789",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:25.077+00:00",
+            "session": "1792204164191",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:25.335+00:00",
+            "session": "1792204164191",
+            "event": "snapshot",
+            "detail": "u=17151647046"
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:29.319+00:00",
+            "session": "1792204164191",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:35.224+00:00",
+            "session": "1792205134351",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:35.477+00:00",
+            "session": "1792205134351",
+            "event": "snapshot",
+            "detail": "u=17151730405"
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:00.036+00:00",
+            "session": "1792205134351",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:44.082+00:00",
+            "session": "1792223080184",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:44.340+00:00",
+            "session": "1792223080184",
+            "event": "snapshot",
+            "detail": "u=17153106998"
+          },
+          {
+            "recv_utc": "2026-10-17T18:55:23.111+00:00",
+            "session": "1792223080184",
+            "event": "gap",
+            "detail": "ждали U=17156278923, пришло U=17156278965"
+          },
+          {
+            "recv_utc": "2026-10-17T18:55:23.111+00:00",
+            "session": "1792223080184",
+            "event": "resync",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T18:55:23.368+00:00",
+            "session": "1792223080184",
+            "event": "snapshot",
+            "detail": "u=17156279906"
+          },
+          {
+            "recv_utc": "2026-10-18T10:29:58.686+00:00",
+            "session": "1792319388518",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T10:30:18.171+00:00",
+            "session": "1792319417125",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T10:30:18.428+00:00",
+            "session": "1792319417125",
+            "event": "snapshot",
+            "detail": "u=17160972962"
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:03.305+00:00",
+            "session": "1792321192875",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:22.164+00:00",
+            "session": "1792321220692",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:22.420+00:00",
+            "session": "1792321220692",
+            "event": "snapshot",
+            "detail": "u=17161111774"
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:24.474+00:00",
+            "session": "1792323717606",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:35.658+00:00",
+            "session": "1792323754484",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:35.912+00:00",
+            "session": "1792323754484",
+            "event": "snapshot",
+            "detail": "u=17161315275"
+          }
+        ]
+      },
+      "depth": {
+        "rows": 602790,
+        "snapshots": 12,
+        "delta_rows": 602778,
+        "applied_0": 25,
+        "applied_1": 602765,
+        "applied_flag_disagreements": 0,
+        "sequence_breaks": 0,
+        "applied_1_unreplayable_without_snapshot_context": 14279,
+        "unreplayable_delta_rows": 14304,
+        "recv_backwards": 0,
+        "event_E_backwards": 2,
+        "nonempty_book_rows": 588486,
+        "crossed_or_locked_book_rows": 0,
+        "empty_book_rows": 14304,
+        "max_payload_bid_levels": 30,
+        "max_payload_ask_levels": 30,
+        "max_reconstructed_bid_levels": 15,
+        "max_reconstructed_ask_levels": 15,
+        "max_recv_gap_ms": 198968,
+        "stale_gaps_over_2s": 8299,
+        "first_snapshot_utc": "2026-10-15T01:59:14.273+00:00",
+        "last_snapshot_utc": "2026-10-18T11:42:35.912+00:00",
+        "sessions": [
+          "1792021215055",
+          "1792029552518",
+          "1792044788408",
+          "1792110148894",
+          "1792115773142",
+          "1792203213789",
+          "1792204164191",
+          "1792205134351",
+          "1792223080184",
+          "1792319417125",
+          "1792321220692",
+          "1792323754484"
+        ],
+        "sequence_break_examples": [
+          {
+            "recv_utc": "2026-10-15T00:01:30.796+00:00",
+            "U": 17130219906,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 17130219939,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 17130220092,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 17130220124,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 17130220185,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 17130220214,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 17130220367,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 17130220393,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 17130220473,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 17130220502,
+            "previous_u": null,
+            "recorded_applied": 1
+          }
+        ],
+        "raw_delta_chain_breaks_after_applied_row": 1,
+        "first_recv_utc": "2026-10-15T00:01:30.796+00:00",
+        "last_recv_utc": "2026-10-18T12:02:14.466+00:00",
+        "first_event_E_utc": "2026-10-15T00:00:00.244+00:00",
+        "last_event_E_utc": "2026-10-18T12:01:27.245+00:00",
+        "recv_minus_E_ms_min": -118,
+        "recv_minus_E_ms_max": 299482,
+        "clock_difference_is_not_provider_lag": true,
+        "valid_span_count": 8101,
+        "sequence_only_span_count": 12,
+        "receive_gap_ms": {
+          "count": 602789,
+          "min": 0,
+          "max": 198968,
+          "p50": 1,
+          "p90": 510,
+          "p95": 544,
+          "p99": 12582
+        },
+        "exchange_E_gap_ms": {
+          "count": 602789,
+          "min": -999,
+          "max": 180081,
+          "p50": 500,
+          "p90": 502,
+          "p95": 503,
+          "p99": 504
+        },
+        "recv_minus_E_ms_distribution": {
+          "count": 602790,
+          "min": -118,
+          "max": 299482,
+          "p50": 11957,
+          "p90": 80104,
+          "p95": 108374,
+          "p99": 138130
+        },
+        "same_millisecond_receive_pairs": 256065
+      },
+      "trades": {
+        "rows": 1596608,
+        "missing_id_rows": 0,
+        "duplicate_id_rows": 0,
+        "duplicate_examples": [],
+        "nonpositive_or_nonfinite_price_quantity_rows": 0,
+        "recv_backwards": 0,
+        "T_backwards": 544466,
+        "T_backwards_with_same_E_recv_session": 544465,
+        "max_recv_gap_ms": 186071,
+        "m_raw_values": {
+          "False": 852009,
+          "True": 744599
+        },
+        "sessions": [
+          "1792021215055",
+          "1792029552518",
+          "1792044788408",
+          "1792110148894",
+          "1792115773142",
+          "1792203213789",
+          "1792204164191",
+          "1792205134351",
+          "1792223080184",
+          "1792319417125",
+          "1792321220692",
+          "1792323754484"
+        ],
+        "unique_trade_ids": 1596608,
+        "first_T_utc": "2026-10-15T00:00:00.160+00:00",
+        "last_T_utc": "2026-10-18T12:01:27.220+00:00",
+        "first_recv_utc": "2026-10-15T00:01:30.789+00:00",
+        "last_recv_utc": "2026-10-18T12:01:48.862+00:00",
+        "trade_message_batch_id_not_recorded": true,
+        "aggressor_semantics_independently_verified": false,
+        "trade_id_gaps_do_not_establish_missing_trades": true,
+        "full_trade_feed_completeness_not_proven": true
+      },
+      "primary_windows": {
+        "2026-10-16": {
+          "clock": "unverified recorder receive clock, UTC",
+          "requested_ms": 86400000,
+          "valid_depth_ms": 32356238,
+          "valid_fraction": 0.37449349537037036,
+          "valid_span_count": 2462,
+          "max_valid_contiguous_ms": 61819,
+          "start_prewarmed": true,
+          "start_receive_silence_under_2s": false,
+          "following_30min_valid_ms": 756557,
+          "following_30min_fully_valid": false,
+          "uninterrupted_full_utc_day": false,
+          "sequence_only_valid_ms": 86245087,
+          "sequence_only_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:20:20.001+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+              "duration_ms": 131393
+            },
+            {
+              "start_utc": "2026-10-16T01:55:51.031+00:00",
+              "end_utc_exclusive": "2026-10-16T01:56:14.551+00:00",
+              "duration_ms": 23520
+            }
+          ],
+          "sequence_only_following_30min_valid_ms": 1800000,
+          "freshness_sensitivity_valid_ms": {
+            "5000": 39285465,
+            "30000": 74326129
+          },
+          "exchange_event_E_sequence_ms": 86188549,
+          "exchange_event_E_sequence_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:19:55.744+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.358+00:00",
+              "duration_ms": 155614
+            },
+            {
+              "start_utc": "2026-10-16T01:55:18.745+00:00",
+              "end_utc_exclusive": "2026-10-16T01:56:14.582+00:00",
+              "duration_ms": 55837
+            }
+          ],
+          "exchange_event_E_is_not_receive_time_coverage": true,
+          "freshness_2s_exclusion_count": 2463,
+          "largest_10_freshness_2s_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:38:11.055+00:00",
+              "end_utc_exclusive": "2026-10-16T00:41:28.023+00:00",
+              "duration_ms": 196968
+            },
+            {
+              "start_utc": "2026-10-16T00:19:57.771+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+              "duration_ms": 153623
+            },
+            {
+              "start_utc": "2026-10-16T06:53:05.512+00:00",
+              "end_utc_exclusive": "2026-10-16T06:54:57.142+00:00",
+              "duration_ms": 111630
+            },
+            {
+              "start_utc": "2026-10-16T03:13:32.621+00:00",
+              "end_utc_exclusive": "2026-10-16T03:15:16.501+00:00",
+              "duration_ms": 103880
+            },
+            {
+              "start_utc": "2026-10-16T03:29:42.355+00:00",
+              "end_utc_exclusive": "2026-10-16T03:31:20.102+00:00",
+              "duration_ms": 97747
+            },
+            {
+              "start_utc": "2026-10-16T19:20:19.332+00:00",
+              "end_utc_exclusive": "2026-10-16T19:21:55.298+00:00",
+              "duration_ms": 95966
+            },
+            {
+              "start_utc": "2026-10-16T09:30:47.793+00:00",
+              "end_utc_exclusive": "2026-10-16T09:32:22.633+00:00",
+              "duration_ms": 94840
+            },
+            {
+              "start_utc": "2026-10-16T02:08:53.062+00:00",
+              "end_utc_exclusive": "2026-10-16T02:10:26.450+00:00",
+              "duration_ms": 93388
+            },
+            {
+              "start_utc": "2026-10-16T22:31:40.426+00:00",
+              "end_utc_exclusive": "2026-10-16T22:33:12.841+00:00",
+              "duration_ms": 92415
+            },
+            {
+              "start_utc": "2026-10-16T00:15:15.771+00:00",
+              "end_utc_exclusive": "2026-10-16T00:16:47.385+00:00",
+              "duration_ms": 91614
+            }
+          ]
+        },
+        "2026-10-17": {
+          "clock": "unverified recorder receive clock, UTC",
+          "requested_ms": 86400000,
+          "valid_depth_ms": 33351305,
+          "valid_fraction": 0.386010474537037,
+          "valid_span_count": 2317,
+          "max_valid_contiguous_ms": 61508,
+          "start_prewarmed": true,
+          "start_receive_silence_under_2s": false,
+          "following_30min_valid_ms": 671150,
+          "following_30min_fully_valid": false,
+          "uninterrupted_full_utc_day": false,
+          "sequence_only_valid_ms": 86336325,
+          "sequence_only_exclusions": [
+            {
+              "start_utc": "2026-10-17T02:13:28.758+00:00",
+              "end_utc_exclusive": "2026-10-17T02:13:35.505+00:00",
+              "duration_ms": 6747
+            },
+            {
+              "start_utc": "2026-10-17T02:29:19.126+00:00",
+              "end_utc_exclusive": "2026-10-17T02:29:25.335+00:00",
+              "duration_ms": 6209
+            },
+            {
+              "start_utc": "2026-10-17T02:45:29.319+00:00",
+              "end_utc_exclusive": "2026-10-17T02:45:35.477+00:00",
+              "duration_ms": 6158
+            },
+            {
+              "start_utc": "2026-10-17T07:44:00.036+00:00",
+              "end_utc_exclusive": "2026-10-17T07:44:44.340+00:00",
+              "duration_ms": 44304
+            },
+            {
+              "start_utc": "2026-10-17T18:55:23.111+00:00",
+              "end_utc_exclusive": "2026-10-17T18:55:23.368+00:00",
+              "duration_ms": 257
+            }
+          ],
+          "sequence_only_following_30min_valid_ms": 1800000,
+          "freshness_sensitivity_valid_ms": {
+            "5000": 39987010,
+            "30000": 73909610
+          },
+          "exchange_event_E_sequence_ms": 86170010,
+          "exchange_event_E_sequence_exclusions": [
+            {
+              "start_utc": "2026-10-17T02:12:25.744+00:00",
+              "end_utc_exclusive": "2026-10-17T02:13:35.585+00:00",
+              "duration_ms": 69841
+            },
+            {
+              "start_utc": "2026-10-17T02:27:48.744+00:00",
+              "end_utc_exclusive": "2026-10-17T02:29:25.405+00:00",
+              "duration_ms": 96661
+            },
+            {
+              "start_utc": "2026-10-17T02:45:29.243+00:00",
+              "end_utc_exclusive": "2026-10-17T02:45:35.570+00:00",
+              "duration_ms": 6327
+            },
+            {
+              "start_utc": "2026-10-17T07:43:59.745+00:00",
+              "end_utc_exclusive": "2026-10-17T07:44:44.312+00:00",
+              "duration_ms": 44567
+            },
+            {
+              "start_utc": "2026-10-17T18:55:10.745+00:00",
+              "end_utc_exclusive": "2026-10-17T18:55:23.339+00:00",
+              "duration_ms": 12594
+            }
+          ],
+          "exchange_event_E_is_not_receive_time_coverage": true,
+          "freshness_2s_exclusion_count": 2317,
+          "largest_10_freshness_2s_exclusions": [
+            {
+              "start_utc": "2026-10-17T22:13:53.799+00:00",
+              "end_utc_exclusive": "2026-10-17T22:15:40.483+00:00",
+              "duration_ms": 106684
+            },
+            {
+              "start_utc": "2026-10-17T01:07:44.771+00:00",
+              "end_utc_exclusive": "2026-10-17T01:09:23.707+00:00",
+              "duration_ms": 98936
+            },
+            {
+              "start_utc": "2026-10-17T03:31:32.303+00:00",
+              "end_utc_exclusive": "2026-10-17T03:33:10.208+00:00",
+              "duration_ms": 97905
+            },
+            {
+              "start_utc": "2026-10-17T15:51:06.368+00:00",
+              "end_utc_exclusive": "2026-10-17T15:52:42.031+00:00",
+              "duration_ms": 95663
+            },
+            {
+              "start_utc": "2026-10-17T21:36:26.342+00:00",
+              "end_utc_exclusive": "2026-10-17T21:37:55.053+00:00",
+              "duration_ms": 88711
+            },
+            {
+              "start_utc": "2026-10-17T04:46:56.861+00:00",
+              "end_utc_exclusive": "2026-10-17T04:48:21.667+00:00",
+              "duration_ms": 84806
+            },
+            {
+              "start_utc": "2026-10-17T08:13:28.970+00:00",
+              "end_utc_exclusive": "2026-10-17T08:14:53.638+00:00",
+              "duration_ms": 84668
+            },
+            {
+              "start_utc": "2026-10-17T02:49:23.478+00:00",
+              "end_utc_exclusive": "2026-10-17T02:50:47.922+00:00",
+              "duration_ms": 84444
+            },
+            {
+              "start_utc": "2026-10-17T17:11:12.100+00:00",
+              "end_utc_exclusive": "2026-10-17T17:12:35.143+00:00",
+              "duration_ms": 83043
+            },
+            {
+              "start_utc": "2026-10-17T00:25:15.849+00:00",
+              "end_utc_exclusive": "2026-10-17T00:26:38.692+00:00",
+              "duration_ms": 82843
+            }
+          ]
+        }
+      },
+      "sequence_only_spans": [
+        {
+          "start_utc": "2026-10-15T01:59:14.273+00:00",
+          "end_utc_exclusive": "2026-10-15T06:11:44.519+00:00",
+          "duration_ms": 15150246
+        },
+        {
+          "start_utc": "2026-10-15T06:13:13.393+00:00",
+          "end_utc_exclusive": "2026-10-16T00:20:20.001+00:00",
+          "duration_ms": 65226608
+        },
+        {
+          "start_utc": "2026-10-16T00:22:31.394+00:00",
+          "end_utc_exclusive": "2026-10-16T01:55:51.031+00:00",
+          "duration_ms": 5599637
+        },
+        {
+          "start_utc": "2026-10-16T01:56:14.551+00:00",
+          "end_utc_exclusive": "2026-10-17T02:13:28.758+00:00",
+          "duration_ms": 87434207
+        },
+        {
+          "start_utc": "2026-10-17T02:13:35.505+00:00",
+          "end_utc_exclusive": "2026-10-17T02:29:19.126+00:00",
+          "duration_ms": 943621
+        },
+        {
+          "start_utc": "2026-10-17T02:29:25.335+00:00",
+          "end_utc_exclusive": "2026-10-17T02:45:29.319+00:00",
+          "duration_ms": 963984
+        },
+        {
+          "start_utc": "2026-10-17T02:45:35.477+00:00",
+          "end_utc_exclusive": "2026-10-17T07:44:00.036+00:00",
+          "duration_ms": 17904559
+        },
+        {
+          "start_utc": "2026-10-17T07:44:44.340+00:00",
+          "end_utc_exclusive": "2026-10-17T18:55:23.111+00:00",
+          "duration_ms": 40238771
+        },
+        {
+          "start_utc": "2026-10-17T18:55:23.368+00:00",
+          "end_utc_exclusive": "2026-10-18T10:29:58.686+00:00",
+          "duration_ms": 56075318
+        },
+        {
+          "start_utc": "2026-10-18T10:30:18.428+00:00",
+          "end_utc_exclusive": "2026-10-18T11:00:03.305+00:00",
+          "duration_ms": 1784877
+        },
+        {
+          "start_utc": "2026-10-18T11:00:22.420+00:00",
+          "end_utc_exclusive": "2026-10-18T11:42:24.474+00:00",
+          "duration_ms": 2522054
+        },
+        {
+          "start_utc": "2026-10-18T11:42:35.912+00:00",
+          "end_utc_exclusive": "2026-10-18T12:02:14.466+00:00",
+          "duration_ms": 1178554
+        }
+      ],
+      "exchange_event_E_sequence_spans": [
+        {
+          "start_utc": "2026-10-15T01:59:14.196+00:00",
+          "end_utc_exclusive": "2026-10-15T06:10:50.244+00:00",
+          "duration_ms": 15096048
+        },
+        {
+          "start_utc": "2026-10-15T06:13:13.269+00:00",
+          "end_utc_exclusive": "2026-10-16T00:19:55.744+00:00",
+          "duration_ms": 65202475
+        },
+        {
+          "start_utc": "2026-10-16T00:22:31.358+00:00",
+          "end_utc_exclusive": "2026-10-16T01:55:18.745+00:00",
+          "duration_ms": 5567387
+        },
+        {
+          "start_utc": "2026-10-16T01:56:14.582+00:00",
+          "end_utc_exclusive": "2026-10-17T02:12:25.744+00:00",
+          "duration_ms": 87371162
+        },
+        {
+          "start_utc": "2026-10-17T02:13:35.585+00:00",
+          "end_utc_exclusive": "2026-10-17T02:27:48.744+00:00",
+          "duration_ms": 853159
+        },
+        {
+          "start_utc": "2026-10-17T02:29:25.405+00:00",
+          "end_utc_exclusive": "2026-10-17T02:45:29.243+00:00",
+          "duration_ms": 963838
+        },
+        {
+          "start_utc": "2026-10-17T02:45:35.570+00:00",
+          "end_utc_exclusive": "2026-10-17T07:43:59.745+00:00",
+          "duration_ms": 17904175
+        },
+        {
+          "start_utc": "2026-10-17T07:44:44.312+00:00",
+          "end_utc_exclusive": "2026-10-17T18:55:10.745+00:00",
+          "duration_ms": 40226433
+        },
+        {
+          "start_utc": "2026-10-17T18:55:23.339+00:00",
+          "end_utc_exclusive": "2026-10-18T10:27:18.244+00:00",
+          "duration_ms": 55914905
+        },
+        {
+          "start_utc": "2026-10-18T10:30:18.325+00:00",
+          "end_utc_exclusive": "2026-10-18T10:57:39.245+00:00",
+          "duration_ms": 1640920
+        },
+        {
+          "start_utc": "2026-10-18T11:00:22.332+00:00",
+          "end_utc_exclusive": "2026-10-18T11:39:48.744+00:00",
+          "duration_ms": 2366412
+        },
+        {
+          "start_utc": "2026-10-18T11:42:35.885+00:00",
+          "end_utc_exclusive": "2026-10-18T12:01:27.245+00:00",
+          "duration_ms": 1131360
+        }
+      ],
+      "largest_10_stale_gaps": [
+        {
+          "start_utc": "2026-10-16T00:38:11.055+00:00",
+          "end_utc_exclusive": "2026-10-16T00:41:28.023+00:00",
+          "duration_ms": 196968
+        },
+        {
+          "start_utc": "2026-10-18T11:39:50.780+00:00",
+          "end_utc_exclusive": "2026-10-18T11:42:35.912+00:00",
+          "duration_ms": 165132
+        },
+        {
+          "start_utc": "2026-10-18T10:57:41.718+00:00",
+          "end_utc_exclusive": "2026-10-18T11:00:22.420+00:00",
+          "duration_ms": 160702
+        },
+        {
+          "start_utc": "2026-10-18T10:27:38.938+00:00",
+          "end_utc_exclusive": "2026-10-18T10:30:18.428+00:00",
+          "duration_ms": 159490
+        },
+        {
+          "start_utc": "2026-10-16T00:19:57.771+00:00",
+          "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+          "duration_ms": 153623
+        },
+        {
+          "start_utc": "2026-10-15T06:11:10.492+00:00",
+          "end_utc_exclusive": "2026-10-15T06:13:13.393+00:00",
+          "duration_ms": 122901
+        },
+        {
+          "start_utc": "2026-10-18T00:06:08.549+00:00",
+          "end_utc_exclusive": "2026-10-18T00:08:03.616+00:00",
+          "duration_ms": 115067
+        },
+        {
+          "start_utc": "2026-10-15T16:49:32.161+00:00",
+          "end_utc_exclusive": "2026-10-15T16:51:26.721+00:00",
+          "duration_ms": 114560
+        },
+        {
+          "start_utc": "2026-10-16T06:53:05.512+00:00",
+          "end_utc_exclusive": "2026-10-16T06:54:57.142+00:00",
+          "duration_ms": 111630
+        },
+        {
+          "start_utc": "2026-10-18T06:28:38.209+00:00",
+          "end_utc_exclusive": "2026-10-18T06:30:26.916+00:00",
+          "duration_ms": 108707
+        }
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "events": {
+        "rows": 35,
+        "counts": {
+          "disconnect": 13,
+          "connect": 11,
+          "snapshot": 11
+        },
+        "receive_time_backwards_in_source_order": 0,
+        "timeline": [
+          {
+            "recv_utc": "2026-10-15T01:59:07.515+00:00",
+            "session": "1792021215055",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-15T01:59:14.017+00:00",
+            "session": "1792029552518",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-15T01:59:14.274+00:00",
+            "session": "1792029552518",
+            "event": "snapshot",
+            "detail": "u=15431702450"
+          },
+          {
+            "recv_utc": "2026-10-15T06:11:44.519+00:00",
+            "session": "1792029552518",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-15T06:12:40.202+00:00",
+            "session": "1792044745154",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-15T06:13:13.136+00:00",
+            "session": "1792044788408",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-15T06:13:13.394+00:00",
+            "session": "1792044788408",
+            "event": "snapshot",
+            "detail": "u=15434518210"
+          },
+          {
+            "recv_utc": "2026-10-16T00:20:20.004+00:00",
+            "session": "1792044788408",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-16T00:20:54.474+00:00",
+            "session": "1792110025035",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-16T00:22:31.113+00:00",
+            "session": "1792110148894",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-16T00:22:31.394+00:00",
+            "session": "1792110148894",
+            "event": "snapshot",
+            "detail": "u=15441164072"
+          },
+          {
+            "recv_utc": "2026-10-16T01:55:51.031+00:00",
+            "session": "1792110148894",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-16T01:56:14.266+00:00",
+            "session": "1792115773142",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-16T01:56:14.551+00:00",
+            "session": "1792115773142",
+            "event": "snapshot",
+            "detail": "u=15441559110"
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:28.759+00:00",
+            "session": "1792115773142",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:35.253+00:00",
+            "session": "1792203213789",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:13:35.506+00:00",
+            "session": "1792203213789",
+            "event": "snapshot",
+            "detail": "u=15448823042"
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:19.126+00:00",
+            "session": "1792203213789",
+            "event": "disconnect",
+            "detail": "'NoneType' object has no attribute 'resume_reading'"
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:25.077+00:00",
+            "session": "1792204164191",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:29:25.336+00:00",
+            "session": "1792204164191",
+            "event": "snapshot",
+            "detail": "u=15448869661"
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:29.320+00:00",
+            "session": "1792204164191",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:35.224+00:00",
+            "session": "1792205134351",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T02:45:35.478+00:00",
+            "session": "1792205134351",
+            "event": "snapshot",
+            "detail": "u=15448919658"
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:00.036+00:00",
+            "session": "1792205134351",
+            "event": "disconnect",
+            "detail": "no close frame received or sent"
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:44.082+00:00",
+            "session": "1792223080184",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-17T07:44:44.342+00:00",
+            "session": "1792223080184",
+            "event": "snapshot",
+            "detail": "u=15449855109"
+          },
+          {
+            "recv_utc": "2026-10-18T10:29:59.142+00:00",
+            "session": "1792319388518",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T10:30:18.171+00:00",
+            "session": "1792319417125",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T10:30:18.433+00:00",
+            "session": "1792319417125",
+            "event": "snapshot",
+            "detail": "u=15455710888"
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:03.308+00:00",
+            "session": "1792321192875",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:22.164+00:00",
+            "session": "1792321220692",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T11:00:22.426+00:00",
+            "session": "1792321220692",
+            "event": "snapshot",
+            "detail": "u=15455810040"
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:24.481+00:00",
+            "session": "1792323717606",
+            "event": "disconnect",
+            "detail": "timed out during opening handshake"
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:35.658+00:00",
+            "session": "1792323754484",
+            "event": "connect",
+            "detail": ""
+          },
+          {
+            "recv_utc": "2026-10-18T11:42:35.917+00:00",
+            "session": "1792323754484",
+            "event": "snapshot",
+            "detail": "u=15455953315"
+          }
+        ]
+      },
+      "depth": {
+        "rows": 602785,
+        "snapshots": 11,
+        "delta_rows": 602774,
+        "applied_0": 0,
+        "applied_1": 602785,
+        "applied_flag_disagreements": 0,
+        "sequence_breaks": 0,
+        "applied_1_unreplayable_without_snapshot_context": 14278,
+        "unreplayable_delta_rows": 14278,
+        "recv_backwards": 0,
+        "event_E_backwards": 0,
+        "nonempty_book_rows": 588507,
+        "crossed_or_locked_book_rows": 0,
+        "empty_book_rows": 14278,
+        "max_payload_bid_levels": 30,
+        "max_payload_ask_levels": 30,
+        "max_reconstructed_bid_levels": 15,
+        "max_reconstructed_ask_levels": 15,
+        "max_recv_gap_ms": 180474,
+        "stale_gaps_over_2s": 7575,
+        "first_snapshot_utc": "2026-10-15T01:59:14.274+00:00",
+        "last_snapshot_utc": "2026-10-18T11:42:35.917+00:00",
+        "sessions": [
+          "1792021215055",
+          "1792029552518",
+          "1792044788408",
+          "1792110148894",
+          "1792115773142",
+          "1792203213789",
+          "1792204164191",
+          "1792205134351",
+          "1792223080184",
+          "1792319417125",
+          "1792321220692",
+          "1792323754484"
+        ],
+        "sequence_break_examples": [
+          {
+            "recv_utc": "2026-10-15T00:01:30.797+00:00",
+            "U": 15431053944,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 15431054222,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 15431054314,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.801+00:00",
+            "U": 15431054428,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 15431054442,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 15431054536,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.802+00:00",
+            "U": 15431054593,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 15431054617,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 15431054648,
+            "previous_u": null,
+            "recorded_applied": 1
+          },
+          {
+            "recv_utc": "2026-10-15T00:01:30.803+00:00",
+            "U": 15431054699,
+            "previous_u": null,
+            "recorded_applied": 1
+          }
+        ],
+        "raw_delta_chain_breaks_after_applied_row": 0,
+        "first_recv_utc": "2026-10-15T00:01:30.797+00:00",
+        "last_recv_utc": "2026-10-18T12:02:39.007+00:00",
+        "first_event_E_utc": "2026-10-15T00:00:00.328+00:00",
+        "last_event_E_utc": "2026-10-18T12:01:27.326+00:00",
+        "recv_minus_E_ms_min": -118,
+        "recv_minus_E_ms_max": 299399,
+        "clock_difference_is_not_provider_lag": true,
+        "valid_span_count": 7392,
+        "sequence_only_span_count": 11,
+        "receive_gap_ms": {
+          "count": 602784,
+          "min": 0,
+          "max": 180474,
+          "p50": 1,
+          "p90": 504,
+          "p95": 528,
+          "p99": 11500
+        },
+        "exchange_E_gap_ms": {
+          "count": 602784,
+          "min": 3,
+          "max": 180498,
+          "p50": 500,
+          "p90": 502,
+          "p95": 504,
+          "p99": 506
+        },
+        "recv_minus_E_ms_distribution": {
+          "count": 602785,
+          "min": -118,
+          "max": 299399,
+          "p50": 11976,
+          "p90": 80216,
+          "p95": 108477,
+          "p99": 138234
+        },
+        "same_millisecond_receive_pairs": 257206
+      },
+      "trades": {
+        "rows": 1678364,
+        "missing_id_rows": 0,
+        "duplicate_id_rows": 0,
+        "duplicate_examples": [],
+        "nonpositive_or_nonfinite_price_quantity_rows": 0,
+        "recv_backwards": 0,
+        "T_backwards": 581595,
+        "T_backwards_with_same_E_recv_session": 581595,
+        "max_recv_gap_ms": 180693,
+        "m_raw_values": {
+          "True": 783167,
+          "False": 895197
+        },
+        "sessions": [
+          "1792021215055",
+          "1792029552518",
+          "1792044788408",
+          "1792110148894",
+          "1792115773142",
+          "1792203213789",
+          "1792204164191",
+          "1792205134351",
+          "1792223080184",
+          "1792319417125",
+          "1792321220692",
+          "1792323754484"
+        ],
+        "unique_trade_ids": 1678364,
+        "first_T_utc": "2026-10-15T00:00:00.114+00:00",
+        "last_T_utc": "2026-10-18T12:01:27.432+00:00",
+        "first_recv_utc": "2026-10-15T00:01:30.798+00:00",
+        "last_recv_utc": "2026-10-18T12:02:51.986+00:00",
+        "trade_message_batch_id_not_recorded": true,
+        "aggressor_semantics_independently_verified": false,
+        "trade_id_gaps_do_not_establish_missing_trades": true,
+        "full_trade_feed_completeness_not_proven": true
+      },
+      "primary_windows": {
+        "2026-10-16": {
+          "clock": "unverified recorder receive clock, UTC",
+          "requested_ms": 86400000,
+          "valid_depth_ms": 31797631,
+          "valid_fraction": 0.36802813657407407,
+          "valid_span_count": 2246,
+          "max_valid_contiguous_ms": 58474,
+          "start_prewarmed": true,
+          "start_receive_silence_under_2s": false,
+          "following_30min_valid_ms": 751758,
+          "following_30min_fully_valid": false,
+          "uninterrupted_full_utc_day": false,
+          "sequence_only_valid_ms": 86245090,
+          "sequence_only_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:20:20.004+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+              "duration_ms": 131390
+            },
+            {
+              "start_utc": "2026-10-16T01:55:51.031+00:00",
+              "end_utc_exclusive": "2026-10-16T01:56:14.551+00:00",
+              "duration_ms": 23520
+            }
+          ],
+          "sequence_only_following_30min_valid_ms": 1800000,
+          "freshness_sensitivity_valid_ms": {
+            "5000": 38031136,
+            "30000": 72423582
+          },
+          "exchange_event_E_sequence_ms": 86188215,
+          "exchange_event_E_sequence_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:19:55.827+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.359+00:00",
+              "duration_ms": 155532
+            },
+            {
+              "start_utc": "2026-10-16T01:55:18.329+00:00",
+              "end_utc_exclusive": "2026-10-16T01:56:14.582+00:00",
+              "duration_ms": 56253
+            }
+          ],
+          "exchange_event_E_is_not_receive_time_coverage": true,
+          "freshness_2s_exclusion_count": 2247,
+          "largest_10_freshness_2s_exclusions": [
+            {
+              "start_utc": "2026-10-16T00:19:57.854+00:00",
+              "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+              "duration_ms": 153540
+            },
+            {
+              "start_utc": "2026-10-16T00:37:29.388+00:00",
+              "end_utc_exclusive": "2026-10-16T00:39:58.054+00:00",
+              "duration_ms": 148666
+            },
+            {
+              "start_utc": "2026-10-16T00:40:00.054+00:00",
+              "end_utc_exclusive": "2026-10-16T00:42:05.836+00:00",
+              "duration_ms": 125782
+            },
+            {
+              "start_utc": "2026-10-16T15:53:40.834+00:00",
+              "end_utc_exclusive": "2026-10-16T15:55:34.583+00:00",
+              "duration_ms": 113749
+            },
+            {
+              "start_utc": "2026-10-16T11:28:01.360+00:00",
+              "end_utc_exclusive": "2026-10-16T11:29:44.356+00:00",
+              "duration_ms": 102996
+            },
+            {
+              "start_utc": "2026-10-16T22:32:21.638+00:00",
+              "end_utc_exclusive": "2026-10-16T22:34:01.555+00:00",
+              "duration_ms": 99917
+            },
+            {
+              "start_utc": "2026-10-16T14:18:14.952+00:00",
+              "end_utc_exclusive": "2026-10-16T14:19:50.148+00:00",
+              "duration_ms": 95196
+            },
+            {
+              "start_utc": "2026-10-16T18:16:44.410+00:00",
+              "end_utc_exclusive": "2026-10-16T18:18:19.325+00:00",
+              "duration_ms": 94915
+            },
+            {
+              "start_utc": "2026-10-16T04:24:13.354+00:00",
+              "end_utc_exclusive": "2026-10-16T04:25:42.661+00:00",
+              "duration_ms": 89307
+            },
+            {
+              "start_utc": "2026-10-16T03:30:35.381+00:00",
+              "end_utc_exclusive": "2026-10-16T03:32:04.268+00:00",
+              "duration_ms": 88887
+            }
+          ]
+        },
+        "2026-10-17": {
+          "clock": "unverified recorder receive clock, UTC",
+          "requested_ms": 86400000,
+          "valid_depth_ms": 32874036,
+          "valid_fraction": 0.3804865277777778,
+          "valid_span_count": 2116,
+          "max_valid_contiguous_ms": 58216,
+          "start_prewarmed": true,
+          "start_receive_silence_under_2s": false,
+          "following_30min_valid_ms": 663191,
+          "following_30min_fully_valid": false,
+          "uninterrupted_full_utc_day": false,
+          "sequence_only_valid_ms": 86336579,
+          "sequence_only_exclusions": [
+            {
+              "start_utc": "2026-10-17T02:13:28.759+00:00",
+              "end_utc_exclusive": "2026-10-17T02:13:35.506+00:00",
+              "duration_ms": 6747
+            },
+            {
+              "start_utc": "2026-10-17T02:29:19.126+00:00",
+              "end_utc_exclusive": "2026-10-17T02:29:25.336+00:00",
+              "duration_ms": 6210
+            },
+            {
+              "start_utc": "2026-10-17T02:45:29.320+00:00",
+              "end_utc_exclusive": "2026-10-17T02:45:35.478+00:00",
+              "duration_ms": 6158
+            },
+            {
+              "start_utc": "2026-10-17T07:44:00.036+00:00",
+              "end_utc_exclusive": "2026-10-17T07:44:44.342+00:00",
+              "duration_ms": 44306
+            }
+          ],
+          "sequence_only_following_30min_valid_ms": 1800000,
+          "freshness_sensitivity_valid_ms": {
+            "5000": 38813135,
+            "30000": 72715608
+          },
+          "exchange_event_E_sequence_ms": 86181937,
+          "exchange_event_E_sequence_exclusions": [
+            {
+              "start_utc": "2026-10-17T02:12:25.327+00:00",
+              "end_utc_exclusive": "2026-10-17T02:13:35.585+00:00",
+              "duration_ms": 70258
+            },
+            {
+              "start_utc": "2026-10-17T02:27:48.327+00:00",
+              "end_utc_exclusive": "2026-10-17T02:29:25.405+00:00",
+              "duration_ms": 97078
+            },
+            {
+              "start_utc": "2026-10-17T02:45:29.328+00:00",
+              "end_utc_exclusive": "2026-10-17T02:45:35.570+00:00",
+              "duration_ms": 6242
+            },
+            {
+              "start_utc": "2026-10-17T07:43:59.827+00:00",
+              "end_utc_exclusive": "2026-10-17T07:44:44.312+00:00",
+              "duration_ms": 44485
+            }
+          ],
+          "exchange_event_E_is_not_receive_time_coverage": true,
+          "freshness_2s_exclusion_count": 2116,
+          "largest_10_freshness_2s_exclusions": [
+            {
+              "start_utc": "2026-10-17T20:53:22.850+00:00",
+              "end_utc_exclusive": "2026-10-17T20:55:10.631+00:00",
+              "duration_ms": 107781
+            },
+            {
+              "start_utc": "2026-10-17T17:41:57.369+00:00",
+              "end_utc_exclusive": "2026-10-17T17:43:41.681+00:00",
+              "duration_ms": 104312
+            },
+            {
+              "start_utc": "2026-10-17T00:13:18.947+00:00",
+              "end_utc_exclusive": "2026-10-17T00:15:02.608+00:00",
+              "duration_ms": 103661
+            },
+            {
+              "start_utc": "2026-10-17T04:08:22.461+00:00",
+              "end_utc_exclusive": "2026-10-17T04:10:04.829+00:00",
+              "duration_ms": 102368
+            },
+            {
+              "start_utc": "2026-10-17T19:06:47.857+00:00",
+              "end_utc_exclusive": "2026-10-17T19:08:26.629+00:00",
+              "duration_ms": 98772
+            },
+            {
+              "start_utc": "2026-10-17T15:50:18.420+00:00",
+              "end_utc_exclusive": "2026-10-17T15:51:56.029+00:00",
+              "duration_ms": 97609
+            },
+            {
+              "start_utc": "2026-10-17T18:13:46.897+00:00",
+              "end_utc_exclusive": "2026-10-17T18:15:23.854+00:00",
+              "duration_ms": 96957
+            },
+            {
+              "start_utc": "2026-10-17T12:40:04.120+00:00",
+              "end_utc_exclusive": "2026-10-17T12:41:39.670+00:00",
+              "duration_ms": 95550
+            },
+            {
+              "start_utc": "2026-10-17T16:38:01.889+00:00",
+              "end_utc_exclusive": "2026-10-17T16:39:36.067+00:00",
+              "duration_ms": 94178
+            },
+            {
+              "start_utc": "2026-10-17T19:38:45.360+00:00",
+              "end_utc_exclusive": "2026-10-17T19:40:19.510+00:00",
+              "duration_ms": 94150
+            }
+          ]
+        }
+      },
+      "sequence_only_spans": [
+        {
+          "start_utc": "2026-10-15T01:59:14.274+00:00",
+          "end_utc_exclusive": "2026-10-15T06:11:44.519+00:00",
+          "duration_ms": 15150245
+        },
+        {
+          "start_utc": "2026-10-15T06:13:13.394+00:00",
+          "end_utc_exclusive": "2026-10-16T00:20:20.004+00:00",
+          "duration_ms": 65226610
+        },
+        {
+          "start_utc": "2026-10-16T00:22:31.394+00:00",
+          "end_utc_exclusive": "2026-10-16T01:55:51.031+00:00",
+          "duration_ms": 5599637
+        },
+        {
+          "start_utc": "2026-10-16T01:56:14.551+00:00",
+          "end_utc_exclusive": "2026-10-17T02:13:28.759+00:00",
+          "duration_ms": 87434208
+        },
+        {
+          "start_utc": "2026-10-17T02:13:35.506+00:00",
+          "end_utc_exclusive": "2026-10-17T02:29:19.126+00:00",
+          "duration_ms": 943620
+        },
+        {
+          "start_utc": "2026-10-17T02:29:25.336+00:00",
+          "end_utc_exclusive": "2026-10-17T02:45:29.320+00:00",
+          "duration_ms": 963984
+        },
+        {
+          "start_utc": "2026-10-17T02:45:35.478+00:00",
+          "end_utc_exclusive": "2026-10-17T07:44:00.036+00:00",
+          "duration_ms": 17904558
+        },
+        {
+          "start_utc": "2026-10-17T07:44:44.342+00:00",
+          "end_utc_exclusive": "2026-10-18T10:29:59.142+00:00",
+          "duration_ms": 96314800
+        },
+        {
+          "start_utc": "2026-10-18T10:30:18.433+00:00",
+          "end_utc_exclusive": "2026-10-18T11:00:03.308+00:00",
+          "duration_ms": 1784875
+        },
+        {
+          "start_utc": "2026-10-18T11:00:22.426+00:00",
+          "end_utc_exclusive": "2026-10-18T11:42:24.481+00:00",
+          "duration_ms": 2522055
+        },
+        {
+          "start_utc": "2026-10-18T11:42:35.917+00:00",
+          "end_utc_exclusive": "2026-10-18T12:02:39.007+00:00",
+          "duration_ms": 1203090
+        }
+      ],
+      "exchange_event_E_sequence_spans": [
+        {
+          "start_utc": "2026-10-15T01:59:14.196+00:00",
+          "end_utc_exclusive": "2026-10-15T06:10:50.328+00:00",
+          "duration_ms": 15096132
+        },
+        {
+          "start_utc": "2026-10-15T06:13:13.269+00:00",
+          "end_utc_exclusive": "2026-10-16T00:19:55.827+00:00",
+          "duration_ms": 65202558
+        },
+        {
+          "start_utc": "2026-10-16T00:22:31.359+00:00",
+          "end_utc_exclusive": "2026-10-16T01:55:18.329+00:00",
+          "duration_ms": 5566970
+        },
+        {
+          "start_utc": "2026-10-16T01:56:14.582+00:00",
+          "end_utc_exclusive": "2026-10-17T02:12:25.327+00:00",
+          "duration_ms": 87370745
+        },
+        {
+          "start_utc": "2026-10-17T02:13:35.585+00:00",
+          "end_utc_exclusive": "2026-10-17T02:27:48.327+00:00",
+          "duration_ms": 852742
+        },
+        {
+          "start_utc": "2026-10-17T02:29:25.405+00:00",
+          "end_utc_exclusive": "2026-10-17T02:45:29.328+00:00",
+          "duration_ms": 963923
+        },
+        {
+          "start_utc": "2026-10-17T02:45:35.570+00:00",
+          "end_utc_exclusive": "2026-10-17T07:43:59.827+00:00",
+          "duration_ms": 17904257
+        },
+        {
+          "start_utc": "2026-10-17T07:44:44.312+00:00",
+          "end_utc_exclusive": "2026-10-18T10:27:17.827+00:00",
+          "duration_ms": 96153515
+        },
+        {
+          "start_utc": "2026-10-18T10:30:18.325+00:00",
+          "end_utc_exclusive": "2026-10-18T10:57:38.828+00:00",
+          "duration_ms": 1640503
+        },
+        {
+          "start_utc": "2026-10-18T11:00:22.332+00:00",
+          "end_utc_exclusive": "2026-10-18T11:39:48.826+00:00",
+          "duration_ms": 2366494
+        },
+        {
+          "start_utc": "2026-10-18T11:42:35.885+00:00",
+          "end_utc_exclusive": "2026-10-18T12:01:27.326+00:00",
+          "duration_ms": 1131441
+        }
+      ],
+      "largest_10_stale_gaps": [
+        {
+          "start_utc": "2026-10-18T10:27:19.959+00:00",
+          "end_utc_exclusive": "2026-10-18T10:30:18.433+00:00",
+          "duration_ms": 178474
+        },
+        {
+          "start_utc": "2026-10-18T11:39:50.860+00:00",
+          "end_utc_exclusive": "2026-10-18T11:42:35.917+00:00",
+          "duration_ms": 165057
+        },
+        {
+          "start_utc": "2026-10-18T10:57:40.918+00:00",
+          "end_utc_exclusive": "2026-10-18T11:00:22.426+00:00",
+          "duration_ms": 161508
+        },
+        {
+          "start_utc": "2026-10-16T00:19:57.854+00:00",
+          "end_utc_exclusive": "2026-10-16T00:22:31.394+00:00",
+          "duration_ms": 153540
+        },
+        {
+          "start_utc": "2026-10-16T00:37:29.388+00:00",
+          "end_utc_exclusive": "2026-10-16T00:39:58.054+00:00",
+          "duration_ms": 148666
+        },
+        {
+          "start_utc": "2026-10-16T00:40:00.054+00:00",
+          "end_utc_exclusive": "2026-10-16T00:42:05.836+00:00",
+          "duration_ms": 125782
+        },
+        {
+          "start_utc": "2026-10-16T15:53:40.834+00:00",
+          "end_utc_exclusive": "2026-10-16T15:55:34.583+00:00",
+          "duration_ms": 113749
+        },
+        {
+          "start_utc": "2026-10-15T06:11:23.507+00:00",
+          "end_utc_exclusive": "2026-10-15T06:13:13.394+00:00",
+          "duration_ms": 109887
+        },
+        {
+          "start_utc": "2026-10-17T20:53:22.850+00:00",
+          "end_utc_exclusive": "2026-10-17T20:55:10.631+00:00",
+          "duration_ms": 107781
+        },
+        {
+          "start_utc": "2026-10-18T00:05:31.899+00:00",
+          "end_utc_exclusive": "2026-10-18T00:07:19.031+00:00",
+          "duration_ms": 107132
+        }
+      ]
+    }
+  ],
+  "recorder_commit_declared": "f9c82644762512c6099d220e578b965c30c1ca4a",
+  "quality_policy": {
+    "max_time_since_last_received_depth_ms": 2000,
+    "sequence": "U == previous u, recorder applied=0 always excluded; snapshot required after session/event reset",
+    "resets": [
+      "connect",
+      "disconnect",
+      "gap",
+      "resync",
+      "session change",
+      "sequence break"
+    ],
+    "coverage_clock": "recorder receive clock (accuracy not measured); no inferred provider lag",
+    "last_quote_extrapolated": false,
+    "invalid_rows_preserved_in_raw": true,
+    "two_days_are_not_two_independent_market_regimes": true
+  },
+  "limitations": [
+    "No exchange confirmation of contract quantity unit/multiplier, tick or quantity step; exported specs came from bot configs.",
+    "m_raw buyer-is-maker interpretation is declared by recorder but not independently confirmed in this audit.",
+    "Depth15 is partial L2, not an order-level queue. No order acknowledgements, cancellations or queue position are observed.",
+    "Capture connection windows and valid depth do not prove a complete trades census.",
+    "Receive clock NTP error is unmeasured; receive minus exchange timestamp mixes clock difference and transport.",
+    "The 2/5/30-second receive-silence tests limit time since a depth row arrived, not the true age of its market state; buffered rows may already describe an older market.",
+    "Messages arrive in bursts, with substantial receive-time silence even when exchange E advances regularly. Event-time continuity is not executable receive-time freshness.",
+    "No global receive ordinal/message batch identifier is stored. Cross-stream ties and exchange-time ordering within recorded trade batches cannot be resolved into an observed execution queue.",
+    "Day 18 is an intraday copy while capture continued; end-of-file is administrative censoring, not a disconnect.",
+    "No new fills, probabilities, trading/PnL result or live-state/deployment verification is calculated."
+  ],
+  "full_interval_details_local_only": "local/quality_details.json"
+}
