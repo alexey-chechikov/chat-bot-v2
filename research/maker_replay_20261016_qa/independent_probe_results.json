@@ -1,0 +1,43 @@
+{
+  "source_sha256": "524fe280965fdb775be766625adefa61a3e8156b19e4a31bd235dbfaf60e3e69",
+  "scope": "invented in-memory fixtures; not evidence any real episode hit this condition",
+  "stale_held_position": {
+    "now": 1501,
+    "position": 1.0,
+    "fresh": false,
+    "liquidating": true,
+    "risk_triggers": [
+      {
+        "reason": "stale_or_invalid_book",
+        "ms": 1501,
+        "inventory": 1.0
+      }
+    ],
+    "order_kind": "exit"
+  },
+  "first_fill_with_current_bid_below_stop": {
+    "now": 200,
+    "position": 1.0,
+    "fresh": true,
+    "bid": 99.0,
+    "stop": 99.75,
+    "liquidating": true,
+    "risk_triggers": [
+      {
+        "reason": "stop",
+        "ms": 200,
+        "inventory": 1.0
+      }
+    ],
+    "order_kind": null
+  },
+  "stop_cancel_late_fill_then_single_reduce_exit": {
+    "inventory_before_cancel_ack": 0.7,
+    "final_position": 0.0,
+    "buy_qty": 0.7,
+    "sell_qty": 0.7,
+    "exit_fills": 1,
+    "net_scenario": -0.7139300000000028,
+    "tp_submitted": false
+  }
+}

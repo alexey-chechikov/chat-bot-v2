@@ -1,0 +1,87 @@
+{
+  "version": "CG-SR1-manual-card-0.1",
+  "synthetic": true,
+  "snapshot_id": "SYNTHETIC-NOT-A-WEBSITE-CAPTURE",
+  "status": "READY_RESEARCH",
+  "setup": "LONG_RECLAIM",
+  "reasons": [],
+  "trade_permission": false,
+  "primary_admitted": false,
+  "conditions_passed": true,
+  "source_lag_status": "KNOWN",
+  "data_asof_ms": 1792110600000,
+  "entry": "100",
+  "stop": "95.9",
+  "target": "120",
+  "quantity": "5.980",
+  "signal": {
+    "start_ms": 1792109700000,
+    "close_ms": 1792110600000,
+    "low": "96",
+    "high": "101",
+    "close": "100"
+  },
+  "attempt_consumed": true,
+  "cost_reserve": "0.0008",
+  "research_risk_usdt": "25",
+  "notional_cap_usdt": "10000",
+  "flow": {
+    "used_as_filter": false,
+    "status": "NOT_PROVIDED"
+  },
+  "continuation": {
+    "status": "UNCONFIRMED",
+    "executable": false
+  },
+  "scope": "manual research card; declared provenance only; no orders/fills/profitability established",
+  "freeze_ms": 1792108800000,
+  "t0_ms": 1792108860000,
+  "deadline_ms": 1792123260000,
+  "exit_rule": "exit at the exact original deadline 1m-open; missing open is unknown, no late fill",
+  "source_lag_ms": 10000,
+  "lower_zone": [
+    "97",
+    "98"
+  ],
+  "upper_zone": [
+    "120",
+    "122"
+  ],
+  "frozen_spot": "100",
+  "scenarios": {
+    "LONG_RECLAIM": {
+      "condition": "полная UTC15m начинается >= t0; low < 97 и close > 98",
+      "target": "120",
+      "stop_rule": "low сигнала − 0.1 предыдущего ATR14, округлить вниз по tick"
+    },
+    "SHORT_RECLAIM": {
+      "condition": "полная UTC15m начинается >= t0; high > 122 и close < 120",
+      "target": "98",
+      "stop_rule": "high сигнала + 0.1 предыдущего ATR14, округлить вверх по tick"
+    }
+  },
+  "refusal_rules": [
+    "обе зоны в одной свече",
+    "нет закрытого reclaim",
+    "источник/quote неизвестен или устарел",
+    "попытка использована или позиция открыта",
+    "нет причинного ATR/нужной цены",
+    "направленная геометрия стопа/цели неверна",
+    "net RR с резервом 8bp < 2",
+    "срок истёк"
+  ],
+  "latest_closed_price": {
+    "close": "100",
+    "bar_close_ms": 1792110600000
+  },
+  "previous_atr14": "0.4",
+  "price_invalidation": {
+    "before_entry": "E строго выше S и ниже T; иначе NO_TRADE",
+    "after_entry": "LONG защитный стоп S=95.9: цена <= S; исходный срок не меняется"
+  },
+  "entry_received_ms": 1792110600000,
+  "net_rr_reserve8bp": "4.765550239234449760765550239",
+  "entry_notional": "598.000",
+  "planned_loss_with_reserve": "24.9964000",
+  "input_sha256": "c18a291ec4676fc44e66bd51600aca5489f3abf532ad3c51483509fa83f215cf"
+}

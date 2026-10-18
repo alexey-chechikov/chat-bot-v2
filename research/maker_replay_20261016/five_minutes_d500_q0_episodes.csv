@@ -1,0 +1,5 @@
+id,start_ms,first_fill_ms,cash_price,fees,turnover,max_inventory,fill_count,ambiguous_passive_fills,unknown_queue_orders,coverage_uncertain,truncated,unresolved,risk_triggers,end_ms,reason,net_scenario,scenario_cost_per_M,complete_before_boundary,full_15min_followup_available
+1,250.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],5750.0,no_fill,0.0,,True,False
+2,5906.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],11406.0,no_fill,0.0,,True,False
+3,11422.0,,0.0,0.0,0.0,0.0,0,0,0,False,False,False,[],16922.0,no_fill,0.0,,True,False
+4,17000.0,21234.0,0.08355442590888629,0.006008355442590889,60.083554425908886,0.012378433467983181,2,1,1,False,True,False,"[{""reason"": ""end_of_data"", ""ms"": 298984.0, ""inventory"": 0.012378433467983181}]",299984.0,end_of_data,0.0775460704662954,-1290.6372002661751,False,False

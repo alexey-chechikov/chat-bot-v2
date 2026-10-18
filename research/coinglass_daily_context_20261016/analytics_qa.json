@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "synthetic_tests": 24,
+  "utility_sha256": "2a71c2e64294b23b7e4efc7234dc76c959d82afcd5b7793b0710670978c51050",
+  "tests_sha256": "9fc1d82515a17cff10bb653a5a5cc11504fe96bfbc27c04ec8f753795adb4fa0",
+  "assumptions_sha256": "dbd779847248eaef42da7a3e66a2eb633251c320190039d8f0d06295352f4555",
+  "read_only_current_archive_metrics_match_independent_reference": true,
+  "read_only_current_input": "2026-10-16/run_1792162117321",
+  "real_analysis_written_by_this_qa": false,
+  "network_or_account_access": false,
+  "archive_or_protocol_or_manifest_changes": false,
+  "order_permission_always_false": true
+}

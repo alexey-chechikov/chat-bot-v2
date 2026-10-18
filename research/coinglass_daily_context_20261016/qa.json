@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "synthetic_tests": 21,
+  "real_collection_tests_run": false,
+  "network_or_account_access": false,
+  "scope": "offline archive utility verification only",
+  "utility_sha256": "f3cd2bf93aa95ed78fc059b4f838b62dc2c2bff763e7dcff5aad6c5ec9fcdd3d",
+  "tests_sha256": "9c57776d15cd2dde4b060b06d1e2f4f7b26856bbc5afe415504aeac7636073fe",
+  "evidence_root_junction_regression_red_before_fix": true,
+  "evidence_root_and_nested_symlink_guards_passed": true,
+  "atomic_synthetic_bundle_tests_passed": true,
+  "order_permission_always_false": true
+}

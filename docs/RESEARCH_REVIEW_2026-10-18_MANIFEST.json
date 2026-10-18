@@ -1,0 +1,212 @@
+{
+  "schema": "research-review-publication-v1",
+  "date_europe_warsaw": "2026-10-18",
+  "base_commit": "ea185c36a2d1bcd6b7c2275d957df51512b2dc29",
+  "scope": "Research code, tests, assumptions, existing aggregate backtest results and review index only",
+  "files": [
+    {
+      "path": "research/coinglass_daily_context_20261016/.gitignore",
+      "sha256": "5294f2d22829174574be382226e89fbd0b1088df121da7e362e0cb03175519bb",
+      "bytes": 39
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/ANALYTICS_ASSUMPTIONS.md",
+      "sha256": "dbd779847248eaef42da7a3e66a2eb633251c320190039d8f0d06295352f4555",
+      "bytes": 4622
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/analytics_daily.py",
+      "sha256": "2a71c2e64294b23b7e4efc7234dc76c959d82afcd5b7793b0710670978c51050",
+      "bytes": 40748
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/ANALYTICS_PROTOCOL.md",
+      "sha256": "a1d6b5e6972b9a02535a7db92e451eb2d37b53095de1d87870aab64c621385f1",
+      "bytes": 11378
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/analytics_qa.json",
+      "sha256": "4c9efce0ae03e49c6893b8377c833513df1a2cae8d41821f57f3c772203f103b",
+      "bytes": 637
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/ANALYTICS_README.md",
+      "sha256": "9ddcf4b0348257a180a85ebbba1520cc2ad6528172c8387cfbe70df8348637e8",
+      "bytes": 3534
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/ANALYTICS_RUN_VALIDATION.md",
+      "sha256": "c6d0c9e6cde92a0536b30bdf904ca6012938d31a2bdca24ae5cbbe6dd4dbb22e",
+      "bytes": 3784
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/archive_daily.py",
+      "sha256": "f3cd2bf93aa95ed78fc059b4f838b62dc2c2bff763e7dcff5aad6c5ec9fcdd3d",
+      "bytes": 19766
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/ASSUMPTIONS.md",
+      "sha256": "027fb9179445601fc2f6fc134e2e5f31291aa06c9e34c4c9eb4a706f28f8c2ed",
+      "bytes": 3274
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/DAILY_COLLECTION_PROTOCOL.md",
+      "sha256": "ebb197a4597855956049eedb28ff6268d9e5901128c39a55fa5781ebf94983bf",
+      "bytes": 12108
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/FETCH_PUBLIC_CONTEXT_VALIDATION.md",
+      "sha256": "8318d5ec81f2ed476883f9fe6b0f14899c7437a0e9dc860efcc9bd3444d09d49",
+      "bytes": 2681
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/FETCH_PUBLIC_CONTEXT.md",
+      "sha256": "80c84fc69149251a689ebc9af58b48edaef59866bf04d59dbf5b9571c0a63845",
+      "bytes": 10107
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/fetch_public_context.py",
+      "sha256": "74c979e12c7ac095053120be5b71a000650ab58dcb29f652e6c9b19fed495e98",
+      "bytes": 22347
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/qa.json",
+      "sha256": "8ce6095042a46649df1da6323fdc6ca6bde5dd63d84e1f46bb95d27e25a18949",
+      "bytes": 574
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/README.md",
+      "sha256": "80fc10f8f63cc7badc3906f50cb46c79d1c08ab1d941c5d89e8a0fd18e2fef3f",
+      "bytes": 4751
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/synthetic_example.json",
+      "sha256": "900099aeed9481b625c02b476bc80792292c4de924cc184a786a008ff52abcfe",
+      "bytes": 1265
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/test_analytics_daily.py",
+      "sha256": "9fc1d82515a17cff10bb653a5a5cc11504fe96bfbc27c04ec8f753795adb4fa0",
+      "bytes": 16205
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/test_archive_daily.py",
+      "sha256": "9c57776d15cd2dde4b060b06d1e2f4f7b26856bbc5afe415504aeac7636073fe",
+      "bytes": 12186
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/test_fetch_public_context.py",
+      "sha256": "4c26665d4bd75d37190d27f28b936bb6ebd1c973fe3310208076e6326e6d936c",
+      "bytes": 18584
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/UTILITY_MANIFEST.json",
+      "sha256": "d265b9af394cacf518dcc046cae91592e537ecfe9d9ab2fbf98e53cc3138835b",
+      "bytes": 1050
+    },
+    {
+      "path": "research/coinglass_daily_context_20261016/VERIFIED_FILES.json",
+      "sha256": "8b5e3e0a615e43f5aba3e7c1f5ef493768d8725cbd98ff2f63f71ff686c2e094",
+      "bytes": 2885
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/audit_against_legacy.py",
+      "sha256": "726f9a0acb5b54f2e25f2936c02802721e5f575a285c1e16c75f7948f0a5aeb8",
+      "bytes": 3319
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/AUDIT_NOTES.md",
+      "sha256": "adfac2d62d62c318053608660c37e1b1258b1a938660a6c3324e39c7d42e5b67",
+      "bytes": 3517
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/CODE_MANIFEST_BEFORE_RESULTS.json",
+      "sha256": "c6dbb988cd23ca0ec17a2d87d0e2b680455b4a393ce42424d2ad8c123849dc99",
+      "bytes": 389
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/DEADLINE_GAP_AUDIT.json",
+      "sha256": "055e639eef63842e7d919e62d7e930964919bf0466078066ecc3283e11628e77",
+      "bytes": 98
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/DEADLINE_PATCH_REPLAY_QA.json",
+      "sha256": "ebed48020bf28fca480325b0353994c1bfcc53263cd7f33502bc9c9f247bb1f9",
+      "bytes": 1674
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/FINAL_CODE_MANIFEST.json",
+      "sha256": "9b73b1c4a8c4c2a8a237cdc87d2835ccb52616020710284a9a913abf961dd76a",
+      "bytes": 846
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/INPUT_MANIFEST.json",
+      "sha256": "120a7179265fb1fa9998e5d345c5f0ec846ff9f8cc2a397772449e44c84bdeb3",
+      "bytes": 1620
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/LEGACY_COMPARISON_QA.json",
+      "sha256": "42b6c1cd93e9c0c00392e7d2372bffefafeceb72540f7a462092660ea18950e6",
+      "bytes": 2956
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/QA_AMENDMENT.md",
+      "sha256": "4c6b685e4d381d6c914a01f0ecb45fdc02388af03b007de80908b5cf9d8a8fe0",
+      "bytes": 1673
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/README_ASSUMPTIONS.md",
+      "sha256": "3ea8d895f70ab4534744133af1b8e7e3cc8d31c4eb80425c57293750f70867a7",
+      "bytes": 5112
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/REPORT.json",
+      "sha256": "8e4980c8751e8ad994df6614f160815755477d70ef4faebc18e9b2c1471ab662",
+      "bytes": 9067
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/REPORT.md",
+      "sha256": "cdb09e536177cf073cdfe1bc8f0b3aefceef08ec6c23de1df2ddddb43fe26672",
+      "bytes": 3051
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/ROOT_INDEPENDENT_QA.json",
+      "sha256": "8aab582c7b3c2a58a7c54b4e5048104c48b7dd23db9da113536335ab1e40f036",
+      "bytes": 1588
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/root_independent_qa.py",
+      "sha256": "98b4508355fcf9c1a9bfab88b8712a0f3a1efdcb6e492f468fbca1b94fe21050",
+      "bytes": 4771
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/run_replay.py",
+      "sha256": "4c4f7e8204ee6e11c228a4dac2971d0361cf2754175f92f9d715b3e7ac8d88b1",
+      "bytes": 17166
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/SIGNAL_AUDIT.json",
+      "sha256": "4f50f65282811effa5930ec5cb91a492621f049a77bb2ee692785aea0dabb95c",
+      "bytes": 266
+    },
+    {
+      "path": "research/eth_causal_replay_20261015/test_replay.py",
+      "sha256": "b9153e40af8cafc23a5f635ed2b4c06ff445e81739e05d889efbd2c9c13dbd57",
+      "bytes": 5791
+    }
+  ],
+  "daily_verified_pins_match": 15,
+  "eth_files_match_previously_published_zip": 17,
+  "new_tests_run_for_publication": 0,
+  "raw_coinglass_files_published": false,
+  "account_or_order_data_published": false,
+  "production_files_changed": false,
+  "old_zip_git_blob_sha1": "71018b57d6d12d02ea2ed05a4655fb4adda51db8",
+  "new_index": "docs/RESEARCH_REVIEW_2026-10-18.md",
+  "manifest_excludes_its_own_digest": true,
+  "additional_generated_files": [
+    "research/coinglass_daily_context_20261016/.gitattributes",
+    "research/eth_causal_replay_20261015/.gitattributes"
+  ],
+  "exact_source_bytes_preserved_by_scoped_gitattributes": true
+}

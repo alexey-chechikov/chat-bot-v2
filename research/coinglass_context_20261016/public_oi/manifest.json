@@ -1,0 +1,162 @@
+{
+  "source": "https://fapi.binance.com/futures/data/openInterestHist",
+  "period_ms": 900000,
+  "start_ms_inclusive": 1789689600000,
+  "end_ms_exclusive": 1792022400000,
+  "is_continuous_collector": false,
+  "historical_received_time": null,
+  "publication_lag_ms": null,
+  "code_sha256": "d2131126cb69d065ecaf9704d4916f01e262d7b2518d21b7be122aa05e9b51bc",
+  "assumptions_sha256": "c00f664d9d5e750883cdd2d64d3c0de32c7cbf945f7fcc92726a34a8ccdefbef",
+  "requests": [
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1789689600000&endTime=1790139599999",
+      "cache": "BTCUSDT_00.json",
+      "requested_start_ms": 1789689600000,
+      "requested_end_ms_exclusive": 1790139600000,
+      "requested_ms": 1792102118808,
+      "received_ms_this_run": 1792102119469,
+      "sha256": "3d87c547c1b8adf919ee74c8d73e1c74c278bf78458e7cdfda84d62e78431984",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1790139600000&endTime=1790589599999",
+      "cache": "BTCUSDT_01.json",
+      "requested_start_ms": 1790139600000,
+      "requested_end_ms_exclusive": 1790589600000,
+      "requested_ms": 1792102119472,
+      "received_ms_this_run": 1792102119772,
+      "sha256": "1ecbb78075446cbd85d9d5856d1d5d334b428aa65bedae9aa88d2b40ab19d2f0",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1790589600000&endTime=1791039599999",
+      "cache": "BTCUSDT_02.json",
+      "requested_start_ms": 1790589600000,
+      "requested_end_ms_exclusive": 1791039600000,
+      "requested_ms": 1792102119775,
+      "received_ms_this_run": 1792102120080,
+      "sha256": "c54ba09fc72411b629ebe50a7289831be7d8cf2ac46f3db9f7c1e4be2520f54e",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1791039600000&endTime=1791489599999",
+      "cache": "BTCUSDT_03.json",
+      "requested_start_ms": 1791039600000,
+      "requested_end_ms_exclusive": 1791489600000,
+      "requested_ms": 1792102120084,
+      "received_ms_this_run": 1792102120676,
+      "sha256": "0d8c7b3bc89828c47e6be2895533e9bc6c668b5e47b36ab4d68292ec4be6b90a",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1791489600000&endTime=1791939599999",
+      "cache": "BTCUSDT_04.json",
+      "requested_start_ms": 1791489600000,
+      "requested_end_ms_exclusive": 1791939600000,
+      "requested_ms": 1792102120679,
+      "received_ms_this_run": 1792102120984,
+      "sha256": "5b4d7679b9ec6094040b10ac50caf4478ee78b781592d68c7d726b361b2636c2",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=15m&limit=500&startTime=1791939600000&endTime=1792022399999",
+      "cache": "BTCUSDT_05.json",
+      "requested_start_ms": 1791939600000,
+      "requested_end_ms_exclusive": 1792022400000,
+      "requested_ms": 1792102120987,
+      "received_ms_this_run": 1792102121342,
+      "sha256": "ac4d20bdbea1df82eab189edab7f8b557fb2550c07a13182e53af63cd458daef",
+      "rows": 92
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1789689600000&endTime=1790139599999",
+      "cache": "ETHUSDT_00.json",
+      "requested_start_ms": 1789689600000,
+      "requested_end_ms_exclusive": 1790139600000,
+      "requested_ms": 1792102121351,
+      "received_ms_this_run": 1792102121661,
+      "sha256": "a9b6d648a44d6cf65d85f7423e47af91231920931dc80a452f68704492b0971e",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1790139600000&endTime=1790589599999",
+      "cache": "ETHUSDT_01.json",
+      "requested_start_ms": 1790139600000,
+      "requested_end_ms_exclusive": 1790589600000,
+      "requested_ms": 1792102121665,
+      "received_ms_this_run": 1792102122236,
+      "sha256": "c48a117802d28410324cb2571820fbb59c66362f7f83904879907f141264e769",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1790589600000&endTime=1791039599999",
+      "cache": "ETHUSDT_02.json",
+      "requested_start_ms": 1790589600000,
+      "requested_end_ms_exclusive": 1791039600000,
+      "requested_ms": 1792102122239,
+      "received_ms_this_run": 1792102122609,
+      "sha256": "57ec551391a56cc5ba8d15e65e23f2f45cdfa3af6e2d29c4e7fea96c998920b1",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1791039600000&endTime=1791489599999",
+      "cache": "ETHUSDT_03.json",
+      "requested_start_ms": 1791039600000,
+      "requested_end_ms_exclusive": 1791489600000,
+      "requested_ms": 1792102122612,
+      "received_ms_this_run": 1792102123000,
+      "sha256": "2738af2f852346ed9dd3a41423cf20ef2d70ed6ab0813919f93785b13eda0d14",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1791489600000&endTime=1791939599999",
+      "cache": "ETHUSDT_04.json",
+      "requested_start_ms": 1791489600000,
+      "requested_end_ms_exclusive": 1791939600000,
+      "requested_ms": 1792102123002,
+      "received_ms_this_run": 1792102123519,
+      "sha256": "4cef43492ac3102d7e1c590fa6c50a5ff762906d0d68607da6f96383be814e93",
+      "rows": 500
+    },
+    {
+      "url": "https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=15m&limit=500&startTime=1791939600000&endTime=1792022399999",
+      "cache": "ETHUSDT_05.json",
+      "requested_start_ms": 1791939600000,
+      "requested_end_ms_exclusive": 1792022400000,
+      "requested_ms": 1792102123522,
+      "received_ms_this_run": 1792102123922,
+      "sha256": "49f8b688b98e94f2d53382e814d23a7e3bb8bcb22178683c2710067589919a66",
+      "rows": 92
+    }
+  ],
+  "symbols": {
+    "BTCUSDT": {
+      "expected_points": 2592,
+      "observed_points": 2592,
+      "missing_count": 0,
+      "missing_timestamps": [],
+      "historical_received_time": null,
+      "publication_lag_ms": null,
+      "status": "COMPLETE_GRID",
+      "csv": "BTCUSDT_oi_15m.csv",
+      "sha256": "72bf2c37af7a4239711133f27d253b4bc052a5f784295aff8563a07d62fb06fa",
+      "first_timestamp": 1789689600000,
+      "last_timestamp": 1792021500000
+    },
+    "ETHUSDT": {
+      "expected_points": 2592,
+      "observed_points": 2592,
+      "missing_count": 0,
+      "missing_timestamps": [],
+      "historical_received_time": null,
+      "publication_lag_ms": null,
+      "status": "COMPLETE_GRID",
+      "csv": "ETHUSDT_oi_15m.csv",
+      "sha256": "91af277fe817b25766e13f3248abf3a8599d5ceda874d1b5100b733050c1e2f5",
+      "first_timestamp": 1789689600000,
+      "last_timestamp": 1792021500000
+    }
+  },
+  "errors": []
+}

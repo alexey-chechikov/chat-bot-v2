@@ -1,0 +1,10 @@
+{
+  "onsets": 223,
+  "selected_full_horizon": 174,
+  "excluded_end_horizon": 0,
+  "expected_ledger_rows": 174,
+  "exact_signal_timestamp_side_match": true,
+  "data_rows": 218880,
+  "start": "2026-05-07 00:00:00+00:00",
+  "end": "2026-10-06 00:00:00+00:00"
+}

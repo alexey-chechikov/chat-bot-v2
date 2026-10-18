@@ -1,0 +1,107 @@
+{
+  "current_source_sha256": "524fe280965fdb775be766625adefa61a3e8156b19e4a31bd235dbfaf60e3e69",
+  "report_source_sha256": "524fe280965fdb775be766625adefa61a3e8156b19e4a31bd235dbfaf60e3e69",
+  "scenarios": 12,
+  "actual_cost_per_M": null,
+  "filled_episodes": 9,
+  "closed_filled_before_boundary": 0,
+  "full15followup": 0,
+  "summary_rows": [
+    {
+      "stem": "five_minutes_d100_q0",
+      "fills": 2,
+      "turnover": 60.08578891552743,
+      "net": 0.0797803366358707,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "five_minutes_d100_q1",
+      "fills": 0,
+      "turnover": 0,
+      "net": 0,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "five_minutes_d500_q0",
+      "fills": 2,
+      "turnover": 60.083554425908886,
+      "net": 0.07754607046629403,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "five_minutes_d500_q1",
+      "fills": 2,
+      "turnover": 59.97138910812944,
+      "net": -0.03460803078137076,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "five_minutes_d1000_q0",
+      "fills": 2,
+      "turnover": 60.09087982566922,
+      "net": 0.08487073768665354,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "five_minutes_d1000_q1",
+      "fills": 0,
+      "turnover": 0,
+      "net": 0,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d100_q0",
+      "fills": 2,
+      "turnover": 59.993730253371524,
+      "net": -0.012269119653808502,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d100_q1",
+      "fills": 0,
+      "turnover": 0,
+      "net": 0,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d500_q0",
+      "fills": 2,
+      "turnover": 59.993730253371524,
+      "net": -0.012269119653808502,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d500_q1",
+      "fills": 2,
+      "turnover": 60.00479628103748,
+      "net": -0.0012041985906243724,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d1000_q0",
+      "fills": 2,
+      "turnover": 59.993730253371524,
+      "net": -0.012269119653808502,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    },
+    {
+      "stem": "old_chunk_common_prefix_d1000_q1",
+      "fills": 2,
+      "turnover": 60.00479628103748,
+      "net": -0.0012041985906243724,
+      "truncated_episodes": 1,
+      "closed_filled": 0
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+ms,episode,side,price,qty,liquidity,fee,receipt_after_virtual_ack_only,received_mid_markout_1s_bp,received_mid_markout_5s_bp,received_mid_markout_30s_bp,received_mid_markout_60s_bp
+21234.0,4,buy,2423.57,0.012378433467983181,passive,0.003,True,-0.7633367305254043,1.4235198488172403,-2.9089318649776237,-3.775422207736596
+299984.0,4,sell,2430.32,0.012378433467983181,forced_taker,0.0030083554425908887,False,,,,

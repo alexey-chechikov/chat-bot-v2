@@ -1,0 +1,38 @@
+{
+  "schema": "daily-as-seen-v1",
+  "timezone": "Europe/Warsaw",
+  "synthetic": true,
+  "collected_at_ms": 1792051200000,
+  "finished_at_ms": 1792051320000,
+  "quality_flags": ["invented_example_not_real_collection"],
+  "sources": [
+    {
+      "id": "invented_futures_aggregate",
+      "status": "PARTIAL",
+      "url": "https://example.test/public-futures",
+      "event_asof_ms": null,
+      "lag_status": "unknown",
+      "provider_lag_ms": null,
+      "market_scope": "futures",
+      "aggregation": "group_aggregate",
+      "forming_bar": null,
+      "settings": {"symbol": "SYNTHETIC", "window": "1d"},
+      "values": [{"name": "displayed_notional", "type": "number", "value": null, "unit": "USD"}],
+      "quality_flags": ["invented_fixture"]
+    },
+    {
+      "id": "invented_spot_bar",
+      "status": "OK",
+      "url": "https://example.test/public-spot",
+      "event_asof_ms": 1792051260000,
+      "lag_status": "unknown",
+      "provider_lag_ms": null,
+      "market_scope": "spot",
+      "aggregation": "bar",
+      "forming_bar": true,
+      "settings": {"symbol": "SYNTHETIC", "timeframe": "1d"},
+      "values": [{"name": "invented_price", "type": "number", "value": 100, "unit": "USD"}],
+      "quality_flags": ["invented_fixture"]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "cases_checked": 696,
+  "numeric_result_files_unchanged": 14,
+  "changed_files": [],
+  "hashes": {
+    "REPORT.json": "8e4980c8751e8ad994df6614f160815755477d70ef4faebc18e9b2c1471ab662",
+    "REPORT.md": "cdb09e536177cf073cdfe1bc8f0b3aefceef08ec6c23de1df2ddddb43fe26672",
+    "equity_minute_decomposed_fee1bp_slip1bp.csv": "057b7d2abf1c99d904b6cbc4d319a96ccb9fa5c7d6dbbb454ca0ecb7c436c1a0",
+    "equity_minute_decomposed_fee1bp_slip3bp.csv": "feaad354a77a8d5db137d216687b8cfd614ed091f371c783c9b2371c6cdb1049",
+    "equity_minute_static_all_in_4bp.csv": "308e8fee75112db04db265807941f9866dec5feed982302e9fc67f1c1a100a88",
+    "equity_minute_static_all_in_8bp.csv": "84e9db5e5d8fd5f014a65073a7d3b157bff05bc4ccc08173ce948a4333605cd4",
+    "equity_points_decomposed_fee1bp_slip1bp.csv": "4239f9ed49e41bdcc2858f04fc171fa12042fdb87b5d0ef01f5e28cd1746494c",
+    "equity_points_decomposed_fee1bp_slip3bp.csv": "49675b690e4071e77f0a8bafa5c06a462b272599494d7ff476d7845b3453a9ee",
+    "equity_points_static_all_in_4bp.csv": "1de36d0ca91a638764c3db8d442c101b8c40586a386c4f86267d488700993426",
+    "equity_points_static_all_in_8bp.csv": "d43c334bfec6d6d17aa7f5481b9ca38bb8d3854ea64037688c77df0efa6ddefc",
+    "ledger_decomposed_fee1bp_slip1bp.csv": "b73a96bdd432f48cefa73ac8c2492b93af1bb48a5a94c6f015f03bb089dfac96",
+    "ledger_decomposed_fee1bp_slip3bp.csv": "1b75c507c71e12ccd6a5b135661ab0a9c026c6b9ade1e11710e683474b8f3253",
+    "ledger_static_all_in_4bp.csv": "7b48b20a66d8c981cdeeee4edf762416cdae591a82383d5d28ac194928bf9efc",
+    "ledger_static_all_in_8bp.csv": "ecc79f829df1ca844cf675820c9f3f7e03c75582b88d78bbf835ea4f6e3d636d"
+  },
+  "tests_passed": 17
+}

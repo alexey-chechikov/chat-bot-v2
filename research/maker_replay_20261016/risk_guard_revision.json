@@ -1,0 +1,9 @@
+{
+  "previous_source_sha256": "6b43a7d7591198f7c750d297b10fa3405b710e9a9a4c4ef565a37000bda4fdb2",
+  "corrected_source_sha256": "524fe280965fdb775be766625adefa61a3e8156b19e4a31bd235dbfaf60e3e69",
+  "reproduced_red_regressions": 3,
+  "regressions": "stale without new book; first late fill below fresh stop; unpriceable stale exit retains unresolved inventory",
+  "scenario_runs_regenerated": 12,
+  "numeric_scenario_differences": [],
+  "interpretation": "Risk guards repaired. No economic inference; actual_cost_per_M remains null."
+}

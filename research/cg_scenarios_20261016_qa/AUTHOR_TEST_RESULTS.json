@@ -1,0 +1,10 @@
+{
+  "tests_run": 29,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "success": true,
+  "temp_redirect": "task-owned writable unit_tmp; no source code edits",
+  "source_sha256": "0a95bf8cbff3171a98c61ba9dbb70347e65a38bbd96041c7c44ce2f724c9bf7c",
+  "tests_sha256": "580b833a8c46a6ca04269ddc7640edaf9087a67a2ce1c21ec930efdd64164bdc"
+}

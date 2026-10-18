@@ -1,0 +1,24 @@
+{
+  "status": "RETROSPECTIVE_CONTEXT_ONLY",
+  "rows": 1729,
+  "first_bar_start_ms": 1789688700000,
+  "last_bar_end_ms": 1791244800000,
+  "closed_price_flow_known_at": "bar_end, before feed delay",
+  "oi_timestamp_semantics": "provider-declared period end",
+  "historical_publication_lag_ms": null,
+  "entry_signal_or_profit_computed": false,
+  "same_end_oi_is_proven_available_at_bar_close": false,
+  "lag_columns_are_sensitivity_not_measured_delay": true,
+  "missing_lag1": 1,
+  "missing_lag4": 4,
+  "sha256": "231d18a8f042212794c92bc0a27f0035e8db76f7f5b325f9fd14e7187e3dd5ba",
+  "input_sha256": {
+    "paired_BTCUSDT_spot_perp_15m.csv": "83f0b23fa5052c166d2afab1c7021e31f6c6c2527e245d84c1b7dde2e2060a48",
+    "BTCUSDT_oi_15m.csv": "72bf2c37af7a4239711133f27d253b4bc052a5f784295aff8563a07d62fb06fa"
+  },
+  "code_sha256": "17644874f909ab573bd6ec815d1e8a1f77e87e5a405c8f00bd7a934a1156265b",
+  "no_fill_or_interpolation": true,
+  "coinglass_matrices_available": false,
+  "primary_map_observations": 0,
+  "separate_secondary_pilot_episodes": 1
+}

@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "unit_tests": 20,
+  "new_risk_regressions_red_before_fix": 3,
+  "scenario_ledgers_independently_checked": 12,
+  "deterministic_output_hashes": true,
+  "passive_ack_and_once_volume_ledger_checks": true,
+  "taker_after_own_order_terminal": true,
+  "reduce_only_and_fee_accounting_checks": true,
+  "source_code_sha256": "524fe280965fdb775be766625adefa61a3e8156b19e4a31bd235dbfaf60e3e69",
+  "test_source_sha256": "a1fb723b32985fb1a8eff73a6a203c303507b10519f0ac832647e48cda10875d",
+  "assumptions_sha256": "1faabe053c915803bb76da91ec25458a3874ec23ad1b5a44ea8f04f1f04de0d2",
+  "risk_revision_sha256": "9abf09c8fe144176d0e5512b8bc76865cf58941b2b913e2fa1e6f5384102aa41",
+  "scope": "offline model verification; not exchange execution validation"
+}

@@ -1,0 +1,164 @@
+{
+  "version": "CG-SR1-v0-offline-0.1",
+  "series_id": "CG-model1-Binance-BTCUSDT-24h-ui085-forward-v2",
+  "synthetic": true,
+  "model": "idealized closed-1m OHLC, not maker fills; price only; no spot filter",
+  "fixed_comparison_capital": "10000",
+  "risk_budget": "25",
+  "size_rr_reserve": "0.0008",
+  "snapshot_count": 2,
+  "entered_count": 1,
+  "closed_count": 1,
+  "pending_count": 0,
+  "censored_count": 0,
+  "reason_counts": {
+    "OBSERVATION_MISSED": 1
+  },
+  "snapshots": [
+    {
+      "snapshot_id": "SYNTHETIC-example-missed",
+      "slot_ms": 1792087200000,
+      "status": "SKIPPED",
+      "reasons": [
+        "OBSERVATION_MISSED"
+      ],
+      "observation_reason": "Fabricated missed-attempt example"
+    },
+    {
+      "snapshot_id": "SYNTHETIC-example-A",
+      "slot_ms": 1792108800000,
+      "status": "CLOSED",
+      "reasons": [],
+      "freeze_ms": 1792108800000,
+      "t0_ms": 1792108860000,
+      "deadline_ms": 1792123260000,
+      "lower_zone": [
+        "97",
+        "98"
+      ],
+      "upper_zone": [
+        "120",
+        "122"
+      ],
+      "frozen_spot": "100",
+      "signal_start_ms": 1792109700000,
+      "signal_close_ms": 1792110600000,
+      "entry_ms": 1792110600000,
+      "side": "LONG",
+      "previous_atr14": "0.4",
+      "entry": "100",
+      "stop": "95.9",
+      "stop_unrounded": "95.96",
+      "target": "120",
+      "net_rr_reserve8bp": "4.765550239234449760765550239",
+      "quantity": "5.980",
+      "entry_notional": "598.000",
+      "planned_loss_including_reserve": "24.9964000",
+      "exit_ms": 1792123260000,
+      "exit": "100",
+      "exit_phase": "open",
+      "exit_reason": "DEADLINE",
+      "entered": true,
+      "raw_gross": "0.000",
+      "all_in_cost_4bp": "0.2392000",
+      "all_in_cost_8bp": "0.4784000",
+      "net_4bp": "-0.2392000",
+      "net_8bp": "-0.4784000"
+    }
+  ],
+  "ledger_4bp": [
+    {
+      "snapshot_id": "SYNTHETIC-example-A",
+      "slot_ms": 1792108800000,
+      "status": "CLOSED",
+      "reasons": [],
+      "freeze_ms": 1792108800000,
+      "t0_ms": 1792108860000,
+      "deadline_ms": 1792123260000,
+      "lower_zone": [
+        "97",
+        "98"
+      ],
+      "upper_zone": [
+        "120",
+        "122"
+      ],
+      "frozen_spot": "100",
+      "signal_start_ms": 1792109700000,
+      "signal_close_ms": 1792110600000,
+      "entry_ms": 1792110600000,
+      "side": "LONG",
+      "previous_atr14": "0.4",
+      "entry": "100",
+      "stop": "95.9",
+      "stop_unrounded": "95.96",
+      "target": "120",
+      "net_rr_reserve8bp": "4.765550239234449760765550239",
+      "quantity": "5.980",
+      "entry_notional": "598.000",
+      "planned_loss_including_reserve": "24.9964000",
+      "exit_ms": 1792123260000,
+      "exit": "100",
+      "exit_phase": "open",
+      "exit_reason": "DEADLINE",
+      "entered": true,
+      "raw_gross": "0.000",
+      "all_in_cost_4bp": "0.2392000",
+      "all_in_cost_8bp": "0.4784000",
+      "net_4bp": "-0.2392000",
+      "net_8bp": "-0.4784000",
+      "all_in_rate": "0.0004",
+      "net": "-0.2392000"
+    }
+  ],
+  "ledger_8bp": [
+    {
+      "snapshot_id": "SYNTHETIC-example-A",
+      "slot_ms": 1792108800000,
+      "status": "CLOSED",
+      "reasons": [],
+      "freeze_ms": 1792108800000,
+      "t0_ms": 1792108860000,
+      "deadline_ms": 1792123260000,
+      "lower_zone": [
+        "97",
+        "98"
+      ],
+      "upper_zone": [
+        "120",
+        "122"
+      ],
+      "frozen_spot": "100",
+      "signal_start_ms": 1792109700000,
+      "signal_close_ms": 1792110600000,
+      "entry_ms": 1792110600000,
+      "side": "LONG",
+      "previous_atr14": "0.4",
+      "entry": "100",
+      "stop": "95.9",
+      "stop_unrounded": "95.96",
+      "target": "120",
+      "net_rr_reserve8bp": "4.765550239234449760765550239",
+      "quantity": "5.980",
+      "entry_notional": "598.000",
+      "planned_loss_including_reserve": "24.9964000",
+      "exit_ms": 1792123260000,
+      "exit": "100",
+      "exit_phase": "open",
+      "exit_reason": "DEADLINE",
+      "entered": true,
+      "raw_gross": "0.000",
+      "all_in_cost_4bp": "0.2392000",
+      "all_in_cost_8bp": "0.4784000",
+      "net_4bp": "-0.2392000",
+      "net_8bp": "-0.4784000",
+      "all_in_rate": "0.0008",
+      "net": "-0.4784000"
+    }
+  ],
+  "input_sha256": {
+    "metadata": "16ed723f902fd5f6156a334dfb3d2f754756ab45686ddd01abe9495d38108a56",
+    "snapshots": "d2364464f4b32c7cd8e56feb0520a4f69260af9854de289699ea05cd5fa877e0",
+    "prices": "0bfa7177b48fc2a11a1e503505dfca180d5695253db4d0a5bda5743e177df890"
+  }
+}

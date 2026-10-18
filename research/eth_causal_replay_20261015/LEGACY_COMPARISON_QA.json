@@ -1,0 +1,94 @@
+{
+  "old_static4_total_usd": 44.79421325000088,
+  "new_static4_total_usd": 56.58616076757134,
+  "delta_usd": 11.791947517570515,
+  "groups": [
+    {
+      "group": "changed_exit_bar_or_reason",
+      "n": 13,
+      "delta_usd": 22.37394751757048
+    },
+    {
+      "group": "same_bar_reason_reanchored_price",
+      "n": 53,
+      "delta_usd": -10.582000000000342
+    },
+    {
+      "group": "unchanged",
+      "n": 108,
+      "delta_usd": 3.8270081548219537e-13
+    }
+  ],
+  "examples": [
+    {
+      "candidate": 39,
+      "signal_time": 1781015400000,
+      "side": -1,
+      "old_exit_bar": 1781017740000,
+      "new_exit_bar": 1781022600000,
+      "old_reason": "stop",
+      "new_reason": "time",
+      "entry_mid": 1638.47,
+      "old_entry_slipped": 1638.142306,
+      "old_exit_raw": 1652.885586754,
+      "new_exit_raw": 1629.61,
+      "old_static_4bp_usd": -9.198199999999899,
+      "new_static_4bp_usd": 5.007483811116545,
+      "delta_usd": 14.205683811116444,
+      "change_group": "changed_exit_bar_or_reason"
+    },
+    {
+      "candidate": 92,
+      "signal_time": 1784728800000,
+      "side": 1,
+      "old_exit_bar": 1784730480000,
+      "new_exit_bar": 1784736000000,
+      "old_reason": "stop",
+      "new_reason": "time",
+      "entry_mid": 1939.05,
+      "old_entry_slipped": 1939.43781,
+      "old_exit_raw": 1921.98286971,
+      "new_exit_raw": 1942.07,
+      "old_static_4bp_usd": -9.2017999999999,
+      "new_static_4bp_usd": 1.1574637064541822,
+      "delta_usd": 10.359263706454081,
+      "change_group": "changed_exit_bar_or_reason"
+    },
+    {
+      "candidate": 44,
+      "signal_time": 1781472600000,
+      "side": 1,
+      "old_exit_bar": 1781473800000,
+      "new_exit_bar": 1781473800000,
+      "old_reason": "target",
+      "new_reason": "target",
+      "entry_mid": 1700.32,
+      "old_entry_slipped": 1700.660064,
+      "old_exit_raw": 1731.271945152,
+      "new_exit_raw": 1730.92576,
+      "old_static_4bp_usd": 17.8036,
+      "new_static_4bp_usd": 17.599999999999955,
+      "delta_usd": -0.2036000000000442,
+      "change_group": "same_bar_reason_reanchored_price"
+    }
+  ],
+  "decomposed_exit_open_exact_funding_timestamp_cases": [
+    {
+      "scenario": "decomposed_fee1bp_slip1bp",
+      "candidate": 124,
+      "time": 1787356800000,
+      "reason": "time",
+      "side": 1,
+      "potential_funding_usd": -0.1000941814396241
+    },
+    {
+      "scenario": "decomposed_fee1bp_slip3bp",
+      "candidate": 124,
+      "time": 1787356800000,
+      "reason": "time",
+      "side": 1,
+      "potential_funding_usd": -0.10007416860718588
+    }
+  ],
+  "explanation": "Old stop/target anchored to entry_mid*(1+side*0.0002); static new path anchors to raw entry_mid. Same174signals and 1000 entry notional. Levels/path transitions change without parameter fitting. This is diagnostic model change, not new unseen profit."
+}
