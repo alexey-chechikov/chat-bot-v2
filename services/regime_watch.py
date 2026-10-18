@@ -246,7 +246,23 @@ def build_card(now: Optional[datetime] = None) -> str:
     for label, closed, cycles, bag, nlots in rows:
         lines.append(f"• {label}: {closed:+,.2f}$ ({cycles} цикл.) · мешок {bag:+,.2f}$ ({nlots} лот.)")
     lines.append(f"итого: закрыто {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
-    return "\n".join(lines)
+    return "\n".join(lines) + _market_brief()
+
+
+def _market_brief() -> str:
+    """18.10 (оператор): вывод на день по данным панелей CoinGlass (публичные первоисточники), что изменилось со
+    вчера, статистика 2 лет и проверка вчерашнего вывода — services/market_brief. Сбой не ломает карточку."""
+    try:
+        from services.market_brief import history, brief
+        for sym in brief.SYMS:
+            try:
+                history.update(sym)                             # дописать вчерашний день в историю
+            except Exception:                                   # noqa: BLE001
+                logger.exception("regime_card.brief_history_failed %s", sym)
+        return "\n\n" + brief.build()
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.brief_failed")
+        return ""
 
 
 def build_trend_alert(st: dict, side: str) -> str:
