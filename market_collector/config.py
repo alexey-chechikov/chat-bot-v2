@@ -40,7 +40,7 @@ BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/linear"
 # All-market delivers thousands of events per hour across all pairs;
 # liquidations._run_binance_ws filters symbol=BTCUSDT client-side.
 # Historical evidence: bybit_ws populated 2195 rows over 24h, binance_ws 0 rows.
-BINANCE_WS_URL = "wss://fstream.binance.com/ws/!forceOrder@arr"
+BINANCE_WS_URL = "wss://fstream.binance.com/market/ws/!forceOrder@arr"
 
 # 2026-05-12 (Phase 1.1b): OKX public WebSocket for liquidation orders.
 # Subscribe to liquidation-orders channel with instType=SWAP, filter

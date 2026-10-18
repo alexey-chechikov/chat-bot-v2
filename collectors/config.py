@@ -25,7 +25,7 @@ HL_COINS = list(HL_SYMBOL_MAP.keys())
 
 # ── WebSocket URLs ────────────────────────────────────────────────────────────
 
-BINANCE_WS_BASE = "wss://fstream.binance.com/stream"
+BINANCE_WS_BASE = "wss://fstream.binance.com/market/stream"
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/linear"
 HL_WS_URL = "wss://api.hyperliquid.xyz/ws"
 BITMEX_WS_URL = "wss://ws.bitmex.com/realtime"

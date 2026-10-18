@@ -3,10 +3,10 @@
 Tries 2 streams for 60 seconds each, prints what's received.
 
 Stream 1: per-symbol force order (current code)
-  wss://fstream.binance.com/ws/btcusdt@forceOrder
+  wss://fstream.binance.com/market/ws/btcusdt@forceOrder
 
 Stream 2: all-market force orders (suspected correct)
-  wss://fstream.binance.com/ws/!forceOrder@arr
+  wss://fstream.binance.com/market/ws/!forceOrder@arr
 """
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ import time
 import websocket  # websocket-client
 
 STREAMS = [
-    ("per-symbol", "wss://fstream.binance.com/ws/btcusdt@forceOrder"),
-    ("all-market", "wss://fstream.binance.com/ws/!forceOrder@arr"),
+    ("per-symbol", "wss://fstream.binance.com/market/ws/btcusdt@forceOrder"),
+    ("all-market", "wss://fstream.binance.com/market/ws/!forceOrder@arr"),
 ]
 DURATION_SEC = 45
 
