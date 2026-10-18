@@ -1,0 +1,144 @@
+{
+  "schema": "weex-parallel-offline-reproduction-v1",
+  "commit": "834887d82626b5c31f546079a2b80730ebf539f2",
+  "checks_passed": 8,
+  "issue_cases": 5,
+  "control_cases": 3,
+  "source_hashes_verified": true,
+  "production_modules_imported": false,
+  "network_requests": 0,
+  "live_state_read": false,
+  "cases": [
+    {
+      "case": "orphan_old_size_partial_fill",
+      "status": "ISSUE_REPRODUCED",
+      "cap": 350.0,
+      "snapshot_recorded_used": 0.0,
+      "actual_preexisting_exposure": 300.0,
+      "shares": {
+        "A": 249.0,
+        "B": 249.0
+      },
+      "orphan_original_qty": 3,
+      "current_config_qty": 1,
+      "orphan_filled_qty": 1,
+      "A_room_used": 200.0,
+      "A_holds_remaining": true,
+      "B_may_add": true,
+      "full_side_executed": true,
+      "aggregate_after_B_add": 400.0,
+      "overflow": 50.0
+    },
+    {
+      "case": "short_entry_5pct_exceeds_ask_reserve",
+      "status": "ISSUE_REPRODUCED",
+      "side": "SHORT",
+      "allocation_ask": 100.0,
+      "budget_per_peer": 101.0,
+      "free": 206.0,
+      "shares": {
+        "A": 105.0,
+        "B": 105.0
+      },
+      "final_price": 105.0,
+      "accepted": [
+        {
+          "grid": "A",
+          "may_add": true,
+          "reason": "",
+          "actual_place_returned_id": true,
+          "full_side_executed": true,
+          "step_pct": 5.0
+        },
+        {
+          "grid": "B",
+          "may_add": true,
+          "reason": "",
+          "actual_place_returned_id": true,
+          "full_side_executed": true,
+          "step_pct": 5.0
+        }
+      ],
+      "aggregate_notional": 210.0,
+      "overflow": 4.0
+    },
+    {
+      "case": "long_price_changes_after_budget_snapshot",
+      "status": "ISSUE_REPRODUCED",
+      "side": "LONG",
+      "allocation_ask": 100.0,
+      "budget_per_peer": 101.0,
+      "free": 203.0,
+      "shares": {
+        "A": 102.0,
+        "B": 102.0
+      },
+      "final_price": 102.0,
+      "accepted": [
+        {
+          "grid": "A",
+          "may_add": true,
+          "reason": "",
+          "actual_place_returned_id": true,
+          "full_side_executed": true,
+          "step_pct": 0.4878048780487809
+        },
+        {
+          "grid": "B",
+          "may_add": true,
+          "reason": "",
+          "actual_place_returned_id": true,
+          "full_side_executed": true,
+          "step_pct": 0.4878048780487809
+        }
+      ],
+      "aggregate_notional": 204.0,
+      "overflow": 1.0
+    },
+    {
+      "case": "existing_pending_recovery",
+      "status": "CONTROL_PASSED",
+      "used_before": 300.0,
+      "used_after": 300.0,
+      "cap": 350.0,
+      "free_before_and_after": 50.0,
+      "explanation": "Actual pending qty is reserved despite smaller current config qty; recovery preserves it."
+    },
+    {
+      "case": "new_placement_timeout",
+      "status": "CONTROL_PASSED",
+      "fake_exchange_accepted_notional": 99.0,
+      "pending_kept": true,
+      "room_used": 99.0,
+      "portfolio_recorded_used": 99.0,
+      "scope": "Synthetic response contract; no claim real WEEX returned this response."
+    },
+    {
+      "case": "success_missing_id",
+      "status": "CONTROL_PASSED",
+      "fake_exchange_accepted_notional": 99.0,
+      "pending_kept": true,
+      "room_used": 99.0,
+      "portfolio_recorded_used": 99.0,
+      "scope": "Synthetic response contract; no claim real WEEX returned this response."
+    },
+    {
+      "case": "null_response_is_not_proven_rejection",
+      "status": "ISSUE_REPRODUCED",
+      "fake_exchange_accepted_notional": 99.0,
+      "pending_kept": false,
+      "room_used": 0.0,
+      "portfolio_recorded_used": 0.0,
+      "scope": "Synthetic response contract; no claim real WEEX returned this response."
+    },
+    {
+      "case": "empty_object_is_not_proven_rejection",
+      "status": "ISSUE_REPRODUCED",
+      "fake_exchange_accepted_notional": 99.0,
+      "pending_kept": false,
+      "room_used": 0.0,
+      "portfolio_recorded_used": 0.0,
+      "scope": "Synthetic response contract; no claim real WEEX returned this response."
+    }
+  ]
+}

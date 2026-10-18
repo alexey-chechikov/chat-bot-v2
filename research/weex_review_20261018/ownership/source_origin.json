@@ -1,0 +1,27 @@
+{
+  "schema": "weex-ownership-source-origin-v1",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "ref": "1d0da80863226acda8fdf57d07eee087fc08ef2c",
+  "primary_source_only": true,
+  "live_deployment_verified": false,
+  "sources": [
+    {
+      "key": "engine",
+      "path": "services/weex_grid/engine.py",
+      "blob_sha": "fa6abdf0c3090a34ee00b6eb2843aa80659eef39",
+      "local_path": "sources/engine_1d0da80.py.txt"
+    },
+    {
+      "key": "client",
+      "path": "services/weex_api/client.py",
+      "blob_sha": "0e8e7dccc6b48ee36ab0b207d370eb144108f69f",
+      "local_path": "sources/client_1d0da80.py.txt"
+    },
+    {
+      "key": "monitor",
+      "path": "research/weex/weex_monitor_common.py",
+      "blob_sha": "e4bece4e65db4399b05f6164b68422783d57cca9",
+      "local_path": "sources/monitor_1d0da80.py.txt"
+    }
+  ]
+}

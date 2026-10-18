@@ -1,0 +1,33 @@
+{
+  "schema": "weex-parallel-pinned-sources-v1",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "commit": "834887d82626b5c31f546079a2b80730ebf539f2",
+  "source": "GitHub connector fetch_file",
+  "files": [
+    {
+      "file": "pinned/engine.py.txt",
+      "repository_path": "services/weex_grid/engine.py",
+      "git_blob_sha1": "fa6abdf0c3090a34ee00b6eb2843aa80659eef39",
+      "sha256": "ec487e0f23bb7c84a16527fbf920c709c68ff27ecd27382e6bf2c3ead1e60491",
+      "bytes": 148310,
+      "url": "https://github.com/alexey-chechikov/chat-bot-v2/blob/834887d82626b5c31f546079a2b80730ebf539f2/services/weex_grid/engine.py"
+    },
+    {
+      "file": "pinned/loop.py.txt",
+      "repository_path": "services/weex_grid/loop.py",
+      "git_blob_sha1": "eefaa56c479df1d3d19121e42e3e7d550d10e8ed",
+      "sha256": "9bd25480e5b792b62fdde8f5b4b597bb61b1209e180c008d51c71cef2404fd4d",
+      "bytes": 28724,
+      "url": "https://github.com/alexey-chechikov/chat-bot-v2/blob/834887d82626b5c31f546079a2b80730ebf539f2/services/weex_grid/loop.py"
+    },
+    {
+      "file": "pinned/portfolio.py.txt",
+      "repository_path": "services/weex_grid/portfolio.py",
+      "git_blob_sha1": "a7b3993b4ab085dfaa1d32f665cf38566bbec36a",
+      "sha256": "f91d033310e96126da5a7e1e449bd9295eb22dec8b1440ca6076d1b02900b8d9",
+      "bytes": 5114,
+      "url": "https://github.com/alexey-chechikov/chat-bot-v2/blob/834887d82626b5c31f546079a2b80730ebf539f2/services/weex_grid/portfolio.py"
+    }
+  ],
+  "inert_sources": true
+}

@@ -1,0 +1,198 @@
+{
+  "schema": "step-a-weex-publication-manifest-v1",
+  "created_at_utc": "2026-10-18T13:30:19.733655+02:00",
+  "base_commit": "3e17d00952e110efbff6b744c8445cc400be6b1b",
+  "publication": "new offline research code/specification/synthetic audit only",
+  "raw_coinglass_included": false,
+  "account_data_included": false,
+  "production_changes": false,
+  "market_results_computed": false,
+  "files": [
+    {
+      "repo_path": "docs/COINGLASS_STEP_A_AND_WEEX_REVIEW_2026-10-18.md",
+      "bytes": 8868,
+      "sha256": "f4d5c0daff245c39d1b809085d9fca4c993671ce1f6722b8df71574037e02488"
+    },
+    {
+      "repo_path": "docs/WEEX_GPT_SECTION2_REVIEW_2026-10-18.md",
+      "bytes": 21096,
+      "sha256": "2e10fbafdb1cc1a9ede6f486c952661b9e777ab6c6ae83e63f94367625d3288e"
+    },
+    {
+      "repo_path": "docs/WEEX_PUBLIC_REPLAY_EXPORT_2026-10-18.md",
+      "bytes": 9229,
+      "sha256": "e7520cf979602818e5aa5825ff60bcf962e4ea7b188abbd6856983e14e1b1344"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/.gitattributes",
+      "bytes": 62,
+      "sha256": "9bc4c3814ce4d8787d34ca53e6417a83cc3aa1c60a0604c968f039ce39fb859d"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/AMENDMENT_001_REGISTRATION.json",
+      "bytes": 404,
+      "sha256": "9abe97978bf20de1f0826d717513f2f696574100c51edcca8c85a1800461385d"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/AMENDMENT_001.md",
+      "bytes": 2198,
+      "sha256": "9cf7437036b658d2c79271a9d39f8992772bf8325588a21a5b9c206b73836062"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/AMENDMENT_002_REGISTRATION.json",
+      "bytes": 357,
+      "sha256": "f322ac38a4d603da684bcd3c504a055f553b51d9562c8004cf0cdbe5e510b663"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/AMENDMENT_002.md",
+      "bytes": 2894,
+      "sha256": "932d04381f612abda769723ce8119a2f4a8e5a21b7a1417679fb2d87424547c9"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/CODE_MANIFEST.json",
+      "bytes": 2814,
+      "sha256": "26d6be3b22031e6f6dcdabd005744869f508c85f5f7553873136a5b0f375c6e3"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/MODEL.md",
+      "bytes": 5734,
+      "sha256": "8c01da241ce7ef72027491ef6a4e1443e613697332d990171069607729d2c554"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/PREREGISTRATION.json",
+      "bytes": 1028,
+      "sha256": "083440d69150aa83984d3cb5abbbb8aed29a947e75561d240fdef4c4a8aa0b92"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/PROTOCOL.md",
+      "bytes": 11119,
+      "sha256": "cc2c39b252910bf91a2d50e724c88853fbbfa30fc2e0441c4a62a5ddf389c4ea"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/proxy.py",
+      "bytes": 31415,
+      "sha256": "81c7e0fd2c8d8f5cbdb17a473051e2752e28014d27e8a6e85369399f6a4e7ade"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/qa_ownership/test_independent.py",
+      "bytes": 3984,
+      "sha256": "355da25ca2c09e457519d4152e151e6884e7eaa1e754a9996cc5d3826c767643"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/QA_pre_final_coverage.json",
+      "bytes": 10516,
+      "sha256": "0cb000828ee1a02d5547e3e8ae0c0fc05bcf8920e9cf85ba03f8b54fb78ceaad"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/QA.json",
+      "bytes": 11253,
+      "sha256": "cd3a88c745516fef1c9fbbd003252d04d933320aa5d45f5d9794722949646dfb"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/README.md",
+      "bytes": 8145,
+      "sha256": "64313f336a548ad77c1d59a3be9c198286bb5e122f3f71ff3ba473b18e56a237"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/ROOT_QA.json",
+      "bytes": 919,
+      "sha256": "62294e6ea50e9414f6f2b01a4133b1d11b20497b23f06826d591284d1c65acee"
+    },
+    {
+      "repo_path": "research/liq_pressure_proxy_20261018/test_proxy.py",
+      "bytes": 20537,
+      "sha256": "2e385ed8b8eeb165797831103c579f2a315efdec8b50eed9e6d42d939d9ca576"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/.gitattributes",
+      "bytes": 62,
+      "sha256": "9bc4c3814ce4d8787d34ca53e6417a83cc3aa1c60a0604c968f039ce39fb859d"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/audit_ownership_offline.py",
+      "bytes": 13363,
+      "sha256": "408448da009434d91610b5d348e845676bd4dbaed08d6b57a724f637a6cdd907"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/BUNDLE_SHA256.json",
+      "bytes": 609,
+      "sha256": "efedc550005de60f0c55abaca1c09f376e58fccd7e571925dd832bb2ce1a36cc"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/README.md",
+      "bytes": 6373,
+      "sha256": "7190bfdfe2d277194946eaa29233694535661d053f8c43346d646a46c3d6550b"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/results.json",
+      "bytes": 7517,
+      "sha256": "984c81e0913ae52fd53b3f839dd421c779c7208aeac308f3e09302160aa9bfc2"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/source_origin.json",
+      "bytes": 835,
+      "sha256": "da4f0de5c00d216b093d00c509c91da4d5c3e3230fcbac80fb18e086c5fd9916"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/sources/client_1d0da80.py.txt",
+      "bytes": 12765,
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/sources/engine_1d0da80.py.txt",
+      "bytes": 148310,
+      "sha256": "ec487e0f23bb7c84a16527fbf920c709c68ff27ecd27382e6bf2c3ead1e60491"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/sources/monitor_1d0da80.py.txt",
+      "bytes": 13469,
+      "sha256": "dc3f1f6051a3896037b358ef47ea8bd99b5161f2f39340cbd088690b0228a459"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ownership/VERIFIED_SOURCES.json",
+      "bytes": 1307,
+      "sha256": "10e9f9b3f9306eb35a396df6ba7d9087636a4928719621c2c970afe2d5d06bc8"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/PINNED_SOURCES.json",
+      "bytes": 1532,
+      "sha256": "7a0509a2b280c79abe90dc073c2fce61acf8eb01e311767ddb498ef82cfadda1"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/pinned/engine.py.txt",
+      "bytes": 148310,
+      "sha256": "ec487e0f23bb7c84a16527fbf920c709c68ff27ecd27382e6bf2c3ead1e60491"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/pinned/loop.py.txt",
+      "bytes": 28724,
+      "sha256": "9bd25480e5b792b62fdde8f5b4b597bb61b1209e180c008d51c71cef2404fd4d"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/pinned/portfolio.py.txt",
+      "bytes": 5114,
+      "sha256": "f91d033310e96126da5a7e1e449bd9295eb22dec8b1440ca6076d1b02900b8d9"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/REPORT.md",
+      "bytes": 8909,
+      "sha256": "121b770ca13e7eb625dd8cf3916542b43fb945c6788299cb42a7fdcf08691006"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/reproduce.py",
+      "bytes": 12286,
+      "sha256": "61118c066801b6b924c1fda00fb5c099d05d6d528e5c64ce5791be7f5f43ccc1"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/parallel/results.json",
+      "bytes": 4224,
+      "sha256": "303754e6c3ffc92e02cf213f52c7f552b9809d5a0e39739be84ee88b123a51fc"
+    },
+    {
+      "repo_path": "research/weex_review_20261018/ROOT_QA.json",
+      "bytes": 964,
+      "sha256": "58655118ce6edf6a77fb2e69aec38fb594318469c6de03a5828f296bc346cca7"
+    }
+  ],
+  "excluded_self": "docs/STEP_A_WEEX_REVIEW_MANIFEST_2026-10-18.json"
+}
