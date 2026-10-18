@@ -143,6 +143,9 @@ def cid_tag(cfg: dict) -> str:
     tag = cfg["cid_tag"]
     if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
         raise ConfigError(f"cid_tag {tag!r} негоден: нужен ровно один знак A–Z, a–z или 0–9")
+    if tag.upper() in ("L", "S"):
+        # 18.10, разбор GPT P2: старые номера BTC 09–10.10 — b7g + сторона (b7gL…/b7gS…) без буквы символа
+        raise ConfigError(f"cid_tag {tag!r} занят старым форматом номеров BTC (b7gL…/b7gS…) — нужен другой знак")
     return tag
 
 
@@ -478,11 +481,19 @@ class Grid:
         книге FEE_WINDOW секунд — поздно появившаяся комиссия будет дописана _settle_fees."""
         s = self.st[side]
         try:
-            trades = self.c.user_trades(self.cfg["symbol"], order_id) or []
+            trades = self.c.user_trades(self.cfg["symbol"], order_id)
         except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_grid.trades_failed")
             self._issue(f"комиссия ордера {order_id} не прочитана ({type(exc).__name__}: {exc})")
             trades = []
+        if not isinstance(trades, list):
+            self._issue(f"комиссия ордера {order_id}: ответ сделок не список ({str(trades)[:80]})")
+            trades = []
+        # 18.10, разбор GPT P2: только строки ЭТОГО ордера этого символа (чужая строка в ответе — не наша комиссия;
+        # строка без номера ордера — не наша)
+        sym = self.cfg["symbol"]
+        trades = [t for t in trades if isinstance(t, dict) and str(t.get("orderId") or "") == str(order_id)
+                  and str(t.get("symbol") or sym) == sym]
         fee_all = sum(float(t.get("commission") or 0) for t in trades)
         makers = {bool(t.get("maker")) for t in trades}
         rec = s["fee_book"].setdefault(str(order_id), {"done": 0.0, "t": self.now(), "t0": self.now()})
@@ -683,10 +694,13 @@ class Grid:
             logger.warning("weex_grid.place_failed side=%s kind=%s price=%s err=%s", side, kind, price, exc)
             self._issue(f"постановка {cid}: исход неизвестен ({type(exc).__name__}: {exc})")
             return None
-        if not r or not r.get("success", False) or not r.get("orderId"):
-            if r and r.get("success"):                          # «успех» без номера — исход неизвестен
-                logger.warning("weex_grid.place_no_id side=%s kind=%s resp=%s", side, kind, r)
-                self._issue(f"постановка {cid}: ответ без номера ордера")
+        if not isinstance(r, dict) or r.get("success") is not True or not r.get("orderId"):
+            # явный отказ — ТОЛЬКО объект с success=false. null, {}, не объект, нет поля success, «успех» без номера —
+            # исход неизвестен: намерение и резерв остаются до выяснения (18.10, разбор GPT P1: null/{} снимали намерение,
+            # и при принятом, но не видимом ордере вставал второй вход)
+            if not (isinstance(r, dict) and r.get("success") is False):
+                logger.warning("weex_grid.place_unknown side=%s kind=%s resp=%s", side, kind, str(r)[:200])
+                self._issue(f"постановка {cid}: исход неизвестен (ответ {str(r)[:80]})")
                 return None
             s["pending"] = None                                 # явный отказ — исход известен
             if kind == "e":
@@ -755,7 +769,7 @@ class Grid:
         if b - a <= 1000:
             return None, False
         m = (a + b) // 2
-        halves = sorted([(a, m), (m + 1, b)], key=lambda w: 0 if w[0] <= near <= w[1] else min(abs(near - w[0]),
+        halves = sorted([(a, m), (m, b)], key=lambda w: 0 if w[0] <= near <= w[1] else min(abs(near - w[0]),
                                                                                               abs(near - w[1])))
         complete = True
         for lo, hi in halves:
@@ -785,7 +799,10 @@ class Grid:
         seen: set[str] = set()
         for t in trades:
             oid = str(t.get("orderId") or "")
-            if not oid or oid in known or oid in seen or oid in book:
+            if not oid:
+                complete = False                                # 18.10, разбор GPT P1: чья сделка — неизвестно,
+                continue                                        # «не нашёлся» по такому ответу не доказан
+            if oid in known or oid in seen or oid in book:
                 continue
             # отсев — только по ИЗВЕСТНЫМ значениям полей (LONG/SHORT, BUY/SELL); поле не пришло или значение
             # незнакомое — сделку не отсеиваем (её ордер мог быть нашим)
@@ -837,7 +854,7 @@ class Grid:
                 return
             m = (lo + hi) // 2
             get(lo, m)
-            get(m + 1, hi)
+            get(m, hi)                                          # перекрытие в m (сделки без повторов по id), 18.10
         try:
             get(a, b)
         except WeexIncomplete as exc:
