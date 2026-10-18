@@ -1,0 +1,387 @@
+{
+ "generated_utc": "2026-10-18T11:47:28.768Z",
+ "oi_5m": [
+  {
+   "file": "data/pump_research/BTCUSDT_oi_5min.csv",
+   "header": [
+    "ts",
+    "open_interest"
+   ],
+   "rows": 212369,
+   "first_utc": "2024-05-15T00:05:00.000Z",
+   "last_utc": "2026-05-22T09:25:00.000Z",
+   "step_ms_counts": {
+    "300000": 212368
+   },
+   "gaps_over_5m": 0,
+   "largest_gaps": [],
+   "sha256": "d5d9e62c66340f66ff3fd0113a04c145663ab38b0c3396d77e9c380e33277f1b"
+  },
+  {
+   "file": "data/pump_research/ETHUSDT_oi_5min.csv",
+   "header": [
+    "ts",
+    "open_interest"
+   ],
+   "rows": 212646,
+   "first_utc": "2024-05-15T00:05:00.000Z",
+   "last_utc": "2026-05-23T08:30:00.000Z",
+   "step_ms_counts": {
+    "300000": 212645
+   },
+   "gaps_over_5m": 0,
+   "largest_gaps": [],
+   "sha256": "dd905b3a237bb9148767a70a8f925db3ab361fa93e645eea9efe9e97391584f0"
+  },
+  {
+   "file": "data/pump_research/XRPUSDT_oi_5min.csv",
+   "header": [
+    "ts",
+    "open_interest"
+   ],
+   "rows": 212646,
+   "first_utc": "2024-05-15T00:05:00.000Z",
+   "last_utc": "2026-05-23T08:30:00.000Z",
+   "step_ms_counts": {
+    "300000": 212645
+   },
+   "gaps_over_5m": 0,
+   "largest_gaps": [],
+   "sha256": "6d7f7a5b613200407718f2af29f3d0853c9e877bd227fc026f45ecc0fa46f9bd"
+  }
+ ],
+ "oi_units": "open_interest в монетах контракта (Binance UM sumOpenInterest), источник — data.binance.vision daily metrics (services/derivatives_ingest/data_portal_client.py); после 2026-05-22 не докачано",
+ "liquidations": {
+  "normalized_csv": {
+   "file": "market_live/liquidations.csv",
+   "header": "ts_utc,exchange,side,qty,price",
+   "rows": 280217,
+   "first": "2026-05-07T14:48:47+00:00",
+   "last": "2026-10-18T11:17:15+00:00",
+   "rows_without_qty_or_price": 1,
+   "by_exchange_side": {
+    "bybit/long": 111297,
+    "bybit/short": 89993,
+    "okx/long": 42147,
+    "okx/short": 36780
+   },
+   "side_semantics": "сторона ЛИКВИДИРОВАННОЙ позиции; метки Bybit исправлены 23.07.2026 (allLiquidation.S — сторона позиции; копия до исправления — .bak)",
+   "price_basis": "неизвестно по строке (сырые поля не сохранялись до 13.10)"
+  },
+  "raw_jsonl_since_2026_10_13": [
+   {
+    "file": "bybit_20261013.jsonl",
+    "rows": 279,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 279
+    },
+    "qty_unit": {
+     "base": 279
+    },
+    "recv_min_utc": "2026-10-13T13:19:29.981Z",
+    "recv_max_utc": "2026-10-13T23:55:01.364Z",
+    "sha256": "ecf1fd832433fa4530945ea395656025dc6dfdafe0de8af4e0898833b6362cbc"
+   },
+   {
+    "file": "bybit_20261014.jsonl",
+    "rows": 2016,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 2016
+    },
+    "qty_unit": {
+     "base": 2016
+    },
+    "recv_min_utc": "2026-10-14T00:11:50.333Z",
+    "recv_max_utc": "2026-10-14T23:55:05.551Z",
+    "sha256": "63d7cdd6d12f50261eaf1bcc41c6881ef63df55c6bec8de52d4592940c9942d0"
+   },
+   {
+    "file": "bybit_20261015.jsonl",
+    "rows": 5531,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 5531
+    },
+    "qty_unit": {
+     "base": 5531
+    },
+    "recv_min_utc": "2026-10-15T00:00:01.947Z",
+    "recv_max_utc": "2026-10-15T23:22:37.719Z",
+    "sha256": "7b23b2fb06e4dcfef7b5e2eafa1c0d86f286aeae6a2c831b004b93e11e5e194a"
+   },
+   {
+    "file": "bybit_20261016.jsonl",
+    "rows": 1582,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 1582
+    },
+    "qty_unit": {
+     "base": 1582
+    },
+    "recv_min_utc": "2026-10-16T00:30:19.925Z",
+    "recv_max_utc": "2026-10-16T23:16:59.321Z",
+    "sha256": "d1159ebc5e757ec4324668cb4bff1f59016055e139fa1250046df494f419b0bd"
+   },
+   {
+    "file": "bybit_20261017.jsonl",
+    "rows": 1145,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 1145
+    },
+    "qty_unit": {
+     "base": 1145
+    },
+    "recv_min_utc": "2026-10-17T00:43:56.389Z",
+    "recv_max_utc": "2026-10-17T23:57:03.464Z",
+    "sha256": "d100c86e99d69bce298a687d620d27b3d68b39b4ffaf82ec7abed304fc6f5caf"
+   },
+   {
+    "file": "bybit_20261018.jsonl",
+    "rows": 277,
+    "fields": [
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 277
+    },
+    "qty_unit": {
+     "base": 277
+    },
+    "recv_min_utc": "2026-10-18T00:17:03.960Z",
+    "recv_max_utc": "2026-10-18T11:43:22.807Z",
+    "sha256": "5c0b1be928b0b0f0ded5f7e54a09fe1ae1dbadd216666003c44d3601a3ab5c75"
+   },
+   {
+    "file": "okx_20261013.jsonl",
+    "rows": 357,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 357
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 357
+    },
+    "recv_min_utc": "2026-10-13T13:22:28.607Z",
+    "recv_max_utc": "2026-10-13T23:25:51.777Z",
+    "sha256": "03c082a6b44d1d857a7c3d7894acf999afcdddcad2e9067bc01f265c520a9ade"
+   },
+   {
+    "file": "okx_20261014.jsonl",
+    "rows": 1679,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 1679
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 1679
+    },
+    "recv_min_utc": "2026-10-14T00:27:10.414Z",
+    "recv_max_utc": "2026-10-14T23:24:05.682Z",
+    "sha256": "e861cea0d3a68dee0c53623f541af6514dafe5fce92c455394f2ef60906d691d"
+   },
+   {
+    "file": "okx_20261015.jsonl",
+    "rows": 2965,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 2965
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 2965
+    },
+    "recv_min_utc": "2026-10-15T00:02:54.742Z",
+    "recv_max_utc": "2026-10-15T23:39:17.291Z",
+    "sha256": "708bd34c754810a44fb204451eb99fbe9a842cc3790bc12226269ee131968cfe"
+   },
+   {
+    "file": "okx_20261016.jsonl",
+    "rows": 1690,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 1690
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 1690
+    },
+    "recv_min_utc": "2026-10-16T00:02:40.137Z",
+    "recv_max_utc": "2026-10-16T23:59:03.474Z",
+    "sha256": "b4849063c9369945907575360d256d30062ba686874a45c87b5b41a0cc9606c0"
+   },
+   {
+    "file": "okx_20261017.jsonl",
+    "rows": 651,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 651
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 651
+    },
+    "recv_min_utc": "2026-10-17T00:12:07.573Z",
+    "recv_max_utc": "2026-10-17T23:57:52.538Z",
+    "sha256": "ee19b47855ab9d357f9cb7ec3f1965ff4857ad4669ec9efa2c2c2049d153c21f"
+   },
+   {
+    "file": "okx_20261018.jsonl",
+    "rows": 293,
+    "fields": [
+     "ctVal",
+     "exchange",
+     "exchange_ts_ms",
+     "price",
+     "price_basis",
+     "qty",
+     "qty_unit",
+     "raw",
+     "recv_ms",
+     "side_liquidated",
+     "spec",
+     "symbol"
+    ],
+    "price_basis": {
+     "bankruptcy": 293
+    },
+    "qty_unit": {
+     "base (sz × ctVal)": 293
+    },
+    "recv_min_utc": "2026-10-18T00:17:17.644Z",
+    "recv_max_utc": "2026-10-18T11:47:02.391Z",
+    "sha256": "2fcdebf521d03edcb4e81b9e003820152df940f6986a7ce19f7d6b1d71266fa6"
+   }
+  ]
+ },
+ "mark_price_1m": "локально НЕТ (frozen UM — last-price klines). Публичные markPriceKlines Binance можно скачать отдельно — только по RUN_PLAN, не молча."
+}

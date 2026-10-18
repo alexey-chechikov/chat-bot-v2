@@ -1,0 +1,2639 @@
+{
+ "source": "services/weex_book/recorder.py (v2 depth/trades2/events с 13.10.2026; legacy book/trades)",
+ "generated_utc": "2026-10-18T11:47:28.766Z",
+ "note": "Опись только; сырые файлы не опубликованы. Пропуски/ресинки — по events.csv, не восстановлены.",
+ "files": [
+  {
+   "file": "BTCUSDT_20261011_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261011",
+   "kind": "book",
+   "bytes": 7970359,
+   "sha256": "44d836373562c6dea5c4fc59e03a625349aea689b6e54ee693326be9eed3229c",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261011_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261011",
+   "kind": "trades",
+   "bytes": 8939157,
+   "sha256": "8628e485530e8d7ea3f4d1e787c67e3b76c98ee766115bfedd24c9003d40d1c8",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261012_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261012",
+   "kind": "book",
+   "bytes": 17933899,
+   "sha256": "628f7630cb4b7308c256a72cf1702efa6be7400ccdc6bdfc0d944436d482abed",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261012_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261012",
+   "kind": "trades",
+   "bytes": 21150301,
+   "sha256": "d1c7bcf1c766f5fdbf8258c40c53f1bc04543e83a391ffa182f23d282626ac34",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261013_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261013",
+   "kind": "book",
+   "bytes": 17842071,
+   "sha256": "e8a46c8c87571c94a544d4c9d3f85078de5b90d93472408feac28e4ff36d2bff",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261013_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261013",
+   "kind": "depth",
+   "bytes": 28050738,
+   "sha256": "5ce3612a2ff58f331ebc530e320665c871b829cef8879bc073a7bf322b8206a9",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 77508,
+   "sessions": 1,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-13T13:14:08.985Z",
+     "max_utc": "2026-10-13T23:59:59.745Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:14:09.069Z",
+     "max_utc": "2026-10-14T00:00:06.593Z"
+    }
+   },
+   "kind_counts": {
+    "snapshot": 7,
+    "delta": 77501
+   },
+   "applied_0_rows": 540
+  },
+  {
+   "file": "BTCUSDT_20261013_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261013",
+   "kind": "events",
+   "bytes": 1257,
+   "sha256": "e39f2f80eacfc532782484b7a0a07bfad580b2c748d5e796952f2d2276c846eb",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 21,
+   "sessions": 2,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:13:57.995Z",
+     "max_utc": "2026-10-13T23:23:23.945Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 1,
+    "connect": 1,
+    "snapshot": 7,
+    "gap": 6,
+    "resync": 6
+   },
+   "events": [
+    {
+     "utc": "2026-10-13T13:13:57.995Z",
+     "session": "1791897211835",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-13T13:14:08.809Z",
+     "session": "1791897247999",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T13:14:09.069Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17116672282"
+    },
+    {
+     "utc": "2026-10-13T13:53:40.206Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17117038979, пришло U=17117039005"
+    },
+    {
+     "utc": "2026-10-13T13:53:40.206Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T13:53:40.465Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17117040499"
+    },
+    {
+     "utc": "2026-10-13T14:55:05.342Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17117542427, пришло U=17117542466"
+    },
+    {
+     "utc": "2026-10-13T14:55:05.342Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T14:55:05.600Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17117553667"
+    },
+    {
+     "utc": "2026-10-13T15:42:44.644Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17117863763, пришло U=17117863809"
+    },
+    {
+     "utc": "2026-10-13T15:42:44.644Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T15:42:44.905Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17117873150"
+    },
+    {
+     "utc": "2026-10-13T18:25:47.915Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17118834367, пришло U=17118834437"
+    },
+    {
+     "utc": "2026-10-13T18:25:47.915Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T18:25:48.177Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17118835871"
+    },
+    {
+     "utc": "2026-10-13T20:21:19.654Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17119434929, пришло U=17119434960"
+    },
+    {
+     "utc": "2026-10-13T20:21:19.654Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T20:21:19.914Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17119435006"
+    },
+    {
+     "utc": "2026-10-13T23:23:23.484Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17120336397, пришло U=17120336456"
+    },
+    {
+     "utc": "2026-10-13T23:23:23.484Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T23:23:23.945Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17120338786"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261013_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261013",
+   "kind": "trades",
+   "bytes": 21294504,
+   "sha256": "dd3bf88109681fa3289a9c5f62cea4dcf608d9bcc849d44bf698f57771304de4",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261013_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261013",
+   "kind": "trades2",
+   "bytes": 22980695,
+   "sha256": "636a15e219a0e238e82416aa97b640c2c44fcb66030ea7e16dc98f54312e8b58",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 200647,
+   "sessions": 1,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-13T13:14:09.149Z",
+     "max_utc": "2026-10-13T23:59:59.990Z"
+    },
+    "E": {
+     "min_utc": "2026-10-13T13:14:09.360Z",
+     "max_utc": "2026-10-13T23:59:59.992Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:14:09.454Z",
+     "max_utc": "2026-10-14T00:00:06.593Z"
+    }
+   }
+  },
+  {
+   "file": "BTCUSDT_20261014_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261014",
+   "kind": "book",
+   "bytes": 17191950,
+   "sha256": "2e5bf9988e721c982444e9068bfc2d50b3cdc9575af86a184a613ad7a886e76a",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261014_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261014",
+   "kind": "depth",
+   "bytes": 68755367,
+   "sha256": "b6055273bc64d49ee862e412aae095a69bbf4dcf68c446b4ec05707976e2e095",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 164996,
+   "sessions": 7,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-14T00:00:00.244Z",
+     "max_utc": "2026-10-14T23:59:59.744Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:00:06.596Z",
+     "max_utc": "2026-10-15T00:01:30.789Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 164982,
+    "snapshot": 14
+   },
+   "applied_0_rows": 233
+  },
+  {
+   "file": "BTCUSDT_20261014_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261014",
+   "kind": "events",
+   "bytes": 2637,
+   "sha256": "808a85ba89d801e20dc578d79697fc0b7205941601eb3db287e3592bb7e69f7e",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 44,
+   "sessions": 9,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:23:37.371Z",
+     "max_utc": "2026-10-14T23:40:16.218Z"
+    }
+   },
+   "event_counts": {
+    "gap": 9,
+    "resync": 8,
+    "snapshot": 14,
+    "disconnect": 7,
+    "connect": 6
+   },
+   "events": [
+    {
+     "utc": "2026-10-14T00:23:37.371Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17120648543, пришло U=17120648602"
+    },
+    {
+     "utc": "2026-10-14T00:23:37.371Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T00:23:37.633Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17120650350"
+    },
+    {
+     "utc": "2026-10-14T01:23:07.008Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17121004383, пришло U=17121004444"
+    },
+    {
+     "utc": "2026-10-14T01:23:07.008Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T01:23:09.045Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17121006312"
+    },
+    {
+     "utc": "2026-10-14T02:21:23.957Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=17121347635, пришло U=17121347860"
+    },
+    {
+     "utc": "2026-10-14T02:21:23.957Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T02:21:24.291Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=17121347907"
+    },
+    {
+     "utc": "2026-10-14T02:21:25.878Z",
+     "session": "1791897247999",
+     "event": "disconnect",
+     "detail": "частые пропуски стакана ETHUSDT"
+    },
+    {
+     "utc": "2026-10-14T02:21:31.811Z",
+     "session": "1791944490937",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T02:21:32.073Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=17121348784"
+    },
+    {
+     "utc": "2026-10-14T03:19:20.814Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=17121687587, пришло U=17121687654"
+    },
+    {
+     "utc": "2026-10-14T03:19:20.814Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T03:19:21.076Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=17121687934"
+    },
+    {
+     "utc": "2026-10-14T04:18:55.933Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=17122010954, пришло U=17122010994"
+    },
+    {
+     "utc": "2026-10-14T04:18:55.933Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T04:18:56.192Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=17122012092"
+    },
+    {
+     "utc": "2026-10-14T11:08:59.753Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=17124390259, пришло U=17124390322"
+    },
+    {
+     "utc": "2026-10-14T11:08:59.753Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T11:09:00.038Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=17124391914"
+    },
+    {
+     "utc": "2026-10-14T14:49:32.896Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=17126867581, пришло U=17126867713"
+    },
+    {
+     "utc": "2026-10-14T14:49:32.896Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T14:49:33.177Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=17126867745"
+    },
+    {
+     "utc": "2026-10-14T18:00:37.891Z",
+     "session": "1791944490937",
+     "event": "disconnect",
+     "detail": "тишина в потоке"
+    },
+    {
+     "utc": "2026-10-14T18:01:55.922Z",
+     "session": "1792000904847",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-14T18:02:06.984Z",
+     "session": "1792000925937",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T18:02:07.245Z",
+     "session": "1792000925937",
+     "event": "snapshot",
+     "detail": "u=17128159135"
+    },
+    {
+     "utc": "2026-10-14T18:15:51.617Z",
+     "session": "1792001725065",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-14T18:16:02.419Z",
+     "session": "1792001761625",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T18:16:02.675Z",
+     "session": "1792001761625",
+     "event": "snapshot",
+     "detail": "u=17128249184"
+    },
+    {
+     "utc": "2026-10-14T22:23:00.754Z",
+     "session": "1792001761625",
+     "event": "gap",
+     "detail": "ждали U=17129659908, пришло U=17129659947"
+    },
+    {
+     "utc": "2026-10-14T22:23:00.754Z",
+     "session": "1792001761625",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T22:23:01.050Z",
+     "session": "1792001761625",
+     "event": "snapshot",
+     "detail": "u=17129662102"
+    },
+    {
+     "utc": "2026-10-14T22:23:01.970Z",
+     "session": "1792001761625",
+     "event": "gap",
+     "detail": "ждали U=17129662102, пришло U=17129662155; частые"
+    },
+    {
+     "utc": "2026-10-14T22:23:02.229Z",
+     "session": "1792001761625",
+     "event": "disconnect",
+     "detail": "частые пропуски стакана BTCUSDT"
+    },
+    {
+     "utc": "2026-10-14T22:23:08.628Z",
+     "session": "1792016587239",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T22:23:08.978Z",
+     "session": "1792016587239",
+     "event": "snapshot",
+     "detail": "u=17129664860"
+    },
+    {
+     "utc": "2026-10-14T23:31:20.916Z",
+     "session": "1792016587239",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-14T23:31:26.862Z",
+     "session": "1792020685922",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T23:31:27.165Z",
+     "session": "1792020685922",
+     "event": "snapshot",
+     "detail": "u=17130061828"
+    },
+    {
+     "utc": "2026-10-14T23:40:10.050Z",
+     "session": "1792020685922",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-14T23:40:15.963Z",
+     "session": "1792021215055",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T23:40:16.218Z",
+     "session": "1792021215055",
+     "event": "snapshot",
+     "detail": "u=17130112301"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261014_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261014",
+   "kind": "trades",
+   "bytes": 20608006,
+   "sha256": "08b3bca14bc00b814e7b820ae6b1085769c0edc1d43449f37864d48b80f4661e",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261014_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261014",
+   "kind": "trades2",
+   "bytes": 51301775,
+   "sha256": "a0a87575c8f00161e6e7f69da4ebf03776e14d629fa7b954e37b632432fc51a2",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 447991,
+   "sessions": 7,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-14T00:00:00.195Z",
+     "max_utc": "2026-10-14T23:59:59.959Z"
+    },
+    "E": {
+     "min_utc": "2026-10-14T00:00:00.599Z",
+     "max_utc": "2026-10-15T00:00:00.163Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:00:06.597Z",
+     "max_utc": "2026-10-15T00:01:30.789Z"
+    }
+   }
+  },
+  {
+   "file": "BTCUSDT_20261015_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261015",
+   "kind": "book",
+   "bytes": 17997057,
+   "sha256": "4f6a29fc9eb22f4cfc7904bc0307b63890e9da57ee044c807222d451da950957",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261015_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261015",
+   "kind": "depth",
+   "bytes": 85633297,
+   "sha256": "260446e2572f6bfc596c3594e4d2a15a8ef367f1683b9bfd32a72bc886625c7b",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172483,
+   "sessions": 3,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-15T00:00:00.244Z",
+     "max_utc": "2026-10-15T23:59:59.743Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-15T00:01:30.796Z",
+     "max_utc": "2026-10-16T00:00:47.391Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172481,
+    "snapshot": 2
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "BTCUSDT_20261015_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261015",
+   "kind": "events",
+   "bytes": 449,
+   "sha256": "2d049b0ec07634d9a11dc4e74b39f98317f2984475dd6077324c57278f4efd84",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 7,
+   "sessions": 4,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-15T01:59:07.510Z",
+     "max_utc": "2026-10-15T06:13:13.393Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 2,
+    "snapshot": 2
+   },
+   "events": [
+    {
+     "utc": "2026-10-15T01:59:07.510Z",
+     "session": "1792021215055",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-15T01:59:14.017Z",
+     "session": "1792029552518",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-15T01:59:14.273Z",
+     "session": "1792029552518",
+     "event": "snapshot",
+     "detail": "u=17131092123"
+    },
+    {
+     "utc": "2026-10-15T06:11:44.519Z",
+     "session": "1792029552518",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-15T06:12:40.202Z",
+     "session": "1792044745154",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-15T06:13:13.136Z",
+     "session": "1792044788408",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-15T06:13:13.393Z",
+     "session": "1792044788408",
+     "event": "snapshot",
+     "detail": "u=17133674146"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261015_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261015",
+   "kind": "trades",
+   "bytes": 22650928,
+   "sha256": "6b0c181d92ac02955bdfbcb1eeb10e6d0ff34f5dad539aed6c8dae46ce85dfbb",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261015_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261015",
+   "kind": "trades2",
+   "bytes": 56385338,
+   "sha256": "629a43808f91ee9b26b06d518a2cd23812c26d1a54d0d79e39662015a25b1ec8",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 492400,
+   "sessions": 3,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-15T00:00:00.160Z",
+     "max_utc": "2026-10-15T23:59:59.861Z"
+    },
+    "E": {
+     "min_utc": "2026-10-15T00:00:00.163Z",
+     "max_utc": "2026-10-16T00:00:00.272Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-15T00:01:30.789Z",
+     "max_utc": "2026-10-16T00:00:47.399Z"
+    }
+   }
+  },
+  {
+   "file": "BTCUSDT_20261016_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261016",
+   "kind": "book",
+   "bytes": 17986298,
+   "sha256": "3f8b3386524d55f396ab9879789ef438733890374ef0067a1e8332fd103290b9",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261016_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261016",
+   "kind": "depth",
+   "bytes": 70042535,
+   "sha256": "6f4fc9432a13f9a98e972b330c87c18ffefd746628cb60f1115d0a335efa54c7",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172380,
+   "sessions": 3,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-16T00:00:00.243Z",
+     "max_utc": "2026-10-16T23:59:59.744Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:00:47.398Z",
+     "max_utc": "2026-10-17T00:00:13.012Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172378,
+    "snapshot": 2
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "BTCUSDT_20261016_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261016",
+   "kind": "events",
+   "bytes": 449,
+   "sha256": "19134ce5eda39b4ccb3e95669b18314474e0c7a1d006356fc1c79ef9906c4a84",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 7,
+   "sessions": 4,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:20:20.001Z",
+     "max_utc": "2026-10-16T01:56:14.551Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 2,
+    "snapshot": 2
+   },
+   "events": [
+    {
+     "utc": "2026-10-16T00:20:20.001Z",
+     "session": "1792044788408",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-16T00:20:54.474Z",
+     "session": "1792110025035",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-16T00:22:31.113Z",
+     "session": "1792110148894",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-16T00:22:31.394Z",
+     "session": "1792110148894",
+     "event": "snapshot",
+     "detail": "u=17141871673"
+    },
+    {
+     "utc": "2026-10-16T01:55:51.031Z",
+     "session": "1792110148894",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-16T01:56:14.265Z",
+     "session": "1792115773142",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-16T01:56:14.551Z",
+     "session": "1792115773142",
+     "event": "snapshot",
+     "detail": "u=17142466748"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261016_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261016",
+   "kind": "trades",
+   "bytes": 21258190,
+   "sha256": "14eb419742753bf10c52ca36443eb057e440c727c24d9bbba20115810ec357b1",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261016_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261016",
+   "kind": "trades2",
+   "bytes": 52931655,
+   "sha256": "f491ea1fdb32f5ec79db0ce5be80fe83d2bcfd92d385d964f46bc2bcaba7f247",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 462129,
+   "sessions": 3,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-16T00:00:00.066Z",
+     "max_utc": "2026-10-16T23:59:59.896Z"
+    },
+    "E": {
+     "min_utc": "2026-10-16T00:00:00.272Z",
+     "max_utc": "2026-10-17T00:00:00.112Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:00:47.399Z",
+     "max_utc": "2026-10-17T00:00:13.012Z"
+    }
+   }
+  },
+  {
+   "file": "BTCUSDT_20261017_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261017",
+   "kind": "book",
+   "bytes": 17982612,
+   "sha256": "eafedb08d4a69a623bfb81dcbaa798fb74101f102da9cf09eb67d865edab985f",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261017_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261017",
+   "kind": "depth",
+   "bytes": 45794028,
+   "sha256": "e6240d80141741ce90ad16b9c0c24b320b460c434be04d200be29792d835206f",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172369,
+   "sessions": 5,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-17T00:00:00.243Z",
+     "max_utc": "2026-10-17T23:59:59.743Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-17T00:00:13.021Z",
+     "max_utc": "2026-10-17T23:59:59.822Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172364,
+    "snapshot": 5
+   },
+   "applied_0_rows": 25
+  },
+  {
+   "file": "BTCUSDT_20261017_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261017",
+   "kind": "events",
+   "bytes": 895,
+   "sha256": "20e010ecdd239226ada812c99d428c1029821d2771133fae83f56c0ed55968f7",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 15,
+   "sessions": 5,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-17T02:13:28.758Z",
+     "max_utc": "2026-10-17T18:55:23.368Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 4,
+    "connect": 4,
+    "snapshot": 5,
+    "gap": 1,
+    "resync": 1
+   },
+   "events": [
+    {
+     "utc": "2026-10-17T02:13:28.758Z",
+     "session": "1792115773142",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-17T02:13:35.253Z",
+     "session": "1792203213789",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:13:35.505Z",
+     "session": "1792203213789",
+     "event": "snapshot",
+     "detail": "u=17151571151"
+    },
+    {
+     "utc": "2026-10-17T02:29:19.126Z",
+     "session": "1792203213789",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-17T02:29:25.077Z",
+     "session": "1792204164191",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:29:25.335Z",
+     "session": "1792204164191",
+     "event": "snapshot",
+     "detail": "u=17151647046"
+    },
+    {
+     "utc": "2026-10-17T02:45:29.319Z",
+     "session": "1792204164191",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-17T02:45:35.224Z",
+     "session": "1792205134351",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:45:35.477Z",
+     "session": "1792205134351",
+     "event": "snapshot",
+     "detail": "u=17151730405"
+    },
+    {
+     "utc": "2026-10-17T07:44:00.036Z",
+     "session": "1792205134351",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-17T07:44:44.082Z",
+     "session": "1792223080184",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T07:44:44.340Z",
+     "session": "1792223080184",
+     "event": "snapshot",
+     "detail": "u=17153106998"
+    },
+    {
+     "utc": "2026-10-17T18:55:23.111Z",
+     "session": "1792223080184",
+     "event": "gap",
+     "detail": "ждали U=17156278923, пришло U=17156278965"
+    },
+    {
+     "utc": "2026-10-17T18:55:23.111Z",
+     "session": "1792223080184",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T18:55:23.368Z",
+     "session": "1792223080184",
+     "event": "snapshot",
+     "detail": "u=17156279906"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261017_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261017",
+   "kind": "trades",
+   "bytes": 19623947,
+   "sha256": "cce57814fa480fd4672d67beca2d8a701410c9450e14935607a828e0669d7a11",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261017_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261017",
+   "kind": "trades2",
+   "bytes": 48859278,
+   "sha256": "c7de389e29e3efdb52f9ba23036f10c07035a52efa5e166049a56344bcdba33d",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 426606,
+   "sessions": 5,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-17T00:00:00.108Z",
+     "max_utc": "2026-10-17T23:59:59.878Z"
+    },
+    "E": {
+     "min_utc": "2026-10-17T00:00:00.112Z",
+     "max_utc": "2026-10-18T00:00:00.086Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-17T00:00:13.012Z",
+     "max_utc": "2026-10-18T00:00:00.161Z"
+    }
+   }
+  },
+  {
+   "file": "BTCUSDT_20261018_book.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261018",
+   "kind": "book",
+   "bytes": 8747251,
+   "sha256": "bcb3f9cf4f3c38f7e83151276c6e27618e83f0b76cd4be5ef8bd0df7274b430e",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261018_depth.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261018",
+   "kind": "depth",
+   "bytes": 23156709,
+   "sha256": "8a18dffa9e16c0e41cf959057496ff5ee4240353a3b545a6862c121b0e4c65c4",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 83846,
+   "sessions": 4,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-18T00:00:00.244Z",
+     "max_utc": "2026-10-18T11:47:11.245Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-18T00:00:00.320Z",
+     "max_utc": "2026-10-18T11:47:13.087Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 83843,
+    "snapshot": 3
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "BTCUSDT_20261018_events.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261018",
+   "kind": "events",
+   "bytes": 525,
+   "sha256": "a27096eb7bbd50c13e16161d7b0f478ceec22263968b4717e85777c7ae13ae50",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 9,
+   "sessions": 6,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-18T10:29:58.686Z",
+     "max_utc": "2026-10-18T11:42:35.912Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 3,
+    "snapshot": 3
+   },
+   "events": [
+    {
+     "utc": "2026-10-18T10:29:58.686Z",
+     "session": "1792319388518",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T10:30:18.171Z",
+     "session": "1792319417125",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T10:30:18.428Z",
+     "session": "1792319417125",
+     "event": "snapshot",
+     "detail": "u=17160972962"
+    },
+    {
+     "utc": "2026-10-18T11:00:03.305Z",
+     "session": "1792321192875",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T11:00:22.164Z",
+     "session": "1792321220692",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T11:00:22.420Z",
+     "session": "1792321220692",
+     "event": "snapshot",
+     "detail": "u=17161111774"
+    },
+    {
+     "utc": "2026-10-18T11:42:24.474Z",
+     "session": "1792323717606",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T11:42:35.658Z",
+     "session": "1792323754484",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T11:42:35.912Z",
+     "session": "1792323754484",
+     "event": "snapshot",
+     "detail": "u=17161315275"
+    }
+   ]
+  },
+  {
+   "file": "BTCUSDT_20261018_trades.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261018",
+   "kind": "trades",
+   "bytes": 9715952,
+   "sha256": "4cf41a7740877b15fe76f8aabf6f6f935e17ec2a92d4643d2ef69536058008f4",
+   "format": "legacy"
+  },
+  {
+   "file": "BTCUSDT_20261018_trades2.csv",
+   "symbol": "BTCUSDT",
+   "utc_day": "20261018",
+   "kind": "trades2",
+   "bytes": 24214024,
+   "sha256": "d99e0f7b05d7227f4bab8d3a05b2ba4d15c186804fe2caeb4eb9cae5f4784fbd",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 211320,
+   "sessions": 4,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-18T00:00:00.081Z",
+     "max_utc": "2026-10-18T11:47:12.992Z"
+    },
+    "E": {
+     "min_utc": "2026-10-18T00:00:00.086Z",
+     "max_utc": "2026-10-18T11:47:13.196Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-18T00:00:00.161Z",
+     "max_utc": "2026-10-18T11:47:13.221Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261011_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261011",
+   "kind": "book",
+   "bytes": 7930943,
+   "sha256": "3a15359d345b6df098ab30f5bbb5a82ced45c2784a53fb6815a0b7c3bb0a0e3b",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261011_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261011",
+   "kind": "trades",
+   "bytes": 9211087,
+   "sha256": "5f8b9f3f2367d4c7e568852a3f757577cf2ea41573f2d1fbb823a0330d636eb8",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261012_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261012",
+   "kind": "book",
+   "bytes": 17831320,
+   "sha256": "675b7129ca83eccd223e52e4f563c2e68b535417275ee652d1628096c6093eb2",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261012_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261012",
+   "kind": "trades",
+   "bytes": 21936035,
+   "sha256": "98b37beaed91ddb2dcea219fec58f43ba03a4e01bb82550843f1f74452b9ae2a",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261013_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261013",
+   "kind": "book",
+   "bytes": 17794060,
+   "sha256": "375bce370311db9160612737fa3697f30e6e8d6b3bfef56ed9ca96f6b704bd93",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261013_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261013",
+   "kind": "depth",
+   "bytes": 28254588,
+   "sha256": "ca6b1fbe54dd16413a38bd589bc89814bfb91314d066f6d28ed61d4abac8079b",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 77505,
+   "sessions": 1,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-13T13:14:08.985Z",
+     "max_utc": "2026-10-13T23:59:59.826Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:14:09.072Z",
+     "max_utc": "2026-10-14T00:00:06.593Z"
+    }
+   },
+   "kind_counts": {
+    "snapshot": 3,
+    "delta": 77502
+   },
+   "applied_0_rows": 37
+  },
+  {
+   "file": "ETHUSDT_20261013_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261013",
+   "kind": "events",
+   "bytes": 549,
+   "sha256": "42c39648d6102b9986c9128755050136d5ebc802e2163dc258a2495cf69b4109",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 9,
+   "sessions": 2,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:13:57.996Z",
+     "max_utc": "2026-10-13T20:21:20.104Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 1,
+    "connect": 1,
+    "snapshot": 3,
+    "gap": 2,
+    "resync": 2
+   },
+   "events": [
+    {
+     "utc": "2026-10-13T13:13:57.996Z",
+     "session": "1791897211835",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-13T13:14:08.811Z",
+     "session": "1791897247999",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T13:14:09.072Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15420424563"
+    },
+    {
+     "utc": "2026-10-13T18:25:47.913Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15422140669, пришло U=15422140823"
+    },
+    {
+     "utc": "2026-10-13T18:25:47.913Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T18:25:48.176Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15422141993"
+    },
+    {
+     "utc": "2026-10-13T20:21:19.848Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15422542893, пришло U=15422542932"
+    },
+    {
+     "utc": "2026-10-13T20:21:19.848Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-13T20:21:20.104Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15422542989"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261013_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261013",
+   "kind": "trades",
+   "bytes": 22059312,
+   "sha256": "f22df5199a9ba8afa795f4745fc333cad406304239b49d7a982815f04ac37f20",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261013_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261013",
+   "kind": "trades2",
+   "bytes": 23688744,
+   "sha256": "ea779e991cd5200c29b3e2dba6a01a235579e7bd99459d7338b9cc0a122a6d47",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 208594,
+   "sessions": 1,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-13T13:14:09.018Z",
+     "max_utc": "2026-10-13T23:59:59.813Z"
+    },
+    "E": {
+     "min_utc": "2026-10-13T13:14:09.221Z",
+     "max_utc": "2026-10-14T00:00:00.222Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-13T13:14:09.306Z",
+     "max_utc": "2026-10-14T00:00:06.593Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261014_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261014",
+   "kind": "book",
+   "bytes": 17090918,
+   "sha256": "14d8c944a56c35759c6c1713d61fd995ebff1837164222033eeb6aee31e67e4b",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261014_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261014",
+   "kind": "depth",
+   "bytes": 71000003,
+   "sha256": "0844693f5722ac979175bd59563422243672909c3a3afdb8fbedf76b83200bfd",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 164935,
+   "sessions": 7,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-14T00:00:00.326Z",
+     "max_utc": "2026-10-14T23:59:59.826Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:00:06.597Z",
+     "max_utc": "2026-10-15T00:01:30.789Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 164923,
+    "snapshot": 12
+   },
+   "applied_0_rows": 136
+  },
+  {
+   "file": "ETHUSDT_20261014_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261014",
+   "kind": "events",
+   "bytes": 2283,
+   "sha256": "9e7019b10fe88a78b68c524712bedd9a60ebc939bd70f6e002eed8f3403e26f1",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 38,
+   "sessions": 9,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:23:37.374Z",
+     "max_utc": "2026-10-14T23:40:16.219Z"
+    }
+   },
+   "event_counts": {
+    "gap": 7,
+    "resync": 6,
+    "snapshot": 12,
+    "disconnect": 7,
+    "connect": 6
+   },
+   "events": [
+    {
+     "utc": "2026-10-14T00:23:37.374Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15423332053, пришло U=15423332091"
+    },
+    {
+     "utc": "2026-10-14T00:23:37.374Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T00:23:37.634Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15423333283"
+    },
+    {
+     "utc": "2026-10-14T01:23:08.202Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15423591461, пришло U=15423591549"
+    },
+    {
+     "utc": "2026-10-14T01:23:08.202Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T01:23:09.046Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15423592814"
+    },
+    {
+     "utc": "2026-10-14T02:21:24.820Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15423826065, пришло U=15423826086"
+    },
+    {
+     "utc": "2026-10-14T02:21:24.820Z",
+     "session": "1791897247999",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T02:21:25.176Z",
+     "session": "1791897247999",
+     "event": "snapshot",
+     "detail": "u=15423826258"
+    },
+    {
+     "utc": "2026-10-14T02:21:25.523Z",
+     "session": "1791897247999",
+     "event": "gap",
+     "detail": "ждали U=15423826258, пришло U=15423826330; частые"
+    },
+    {
+     "utc": "2026-10-14T02:21:25.878Z",
+     "session": "1791897247999",
+     "event": "disconnect",
+     "detail": "частые пропуски стакана ETHUSDT"
+    },
+    {
+     "utc": "2026-10-14T02:21:31.811Z",
+     "session": "1791944490937",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T02:21:32.074Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=15423826771"
+    },
+    {
+     "utc": "2026-10-14T03:19:20.816Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=15424047286, пришло U=15424047465"
+    },
+    {
+     "utc": "2026-10-14T03:19:20.816Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T03:19:21.078Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=15424047636"
+    },
+    {
+     "utc": "2026-10-14T11:08:59.755Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=15425964289, пришло U=15425964303"
+    },
+    {
+     "utc": "2026-10-14T11:08:59.755Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T11:09:00.039Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=15425965340"
+    },
+    {
+     "utc": "2026-10-14T15:43:33.132Z",
+     "session": "1791944490937",
+     "event": "gap",
+     "detail": "ждали U=15428593867, пришло U=15428593969"
+    },
+    {
+     "utc": "2026-10-14T15:43:33.132Z",
+     "session": "1791944490937",
+     "event": "resync",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T15:43:33.389Z",
+     "session": "1791944490937",
+     "event": "snapshot",
+     "detail": "u=15428594030"
+    },
+    {
+     "utc": "2026-10-14T18:00:37.891Z",
+     "session": "1791944490937",
+     "event": "disconnect",
+     "detail": "тишина в потоке"
+    },
+    {
+     "utc": "2026-10-14T18:01:55.922Z",
+     "session": "1792000904847",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-14T18:02:06.984Z",
+     "session": "1792000925937",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T18:02:07.246Z",
+     "session": "1792000925937",
+     "event": "snapshot",
+     "detail": "u=15429332355"
+    },
+    {
+     "utc": "2026-10-14T18:15:51.622Z",
+     "session": "1792001725065",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-14T18:16:02.419Z",
+     "session": "1792001761625",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T18:16:02.679Z",
+     "session": "1792001761625",
+     "event": "snapshot",
+     "detail": "u=15429410601"
+    },
+    {
+     "utc": "2026-10-14T22:23:02.229Z",
+     "session": "1792001761625",
+     "event": "disconnect",
+     "detail": "частые пропуски стакана BTCUSDT"
+    },
+    {
+     "utc": "2026-10-14T22:23:08.628Z",
+     "session": "1792016587239",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T22:23:08.979Z",
+     "session": "1792016587239",
+     "event": "snapshot",
+     "detail": "u=15430668977"
+    },
+    {
+     "utc": "2026-10-14T23:31:20.916Z",
+     "session": "1792016587239",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-14T23:31:26.862Z",
+     "session": "1792020685922",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T23:31:27.166Z",
+     "session": "1792020685922",
+     "event": "snapshot",
+     "detail": "u=15430944961"
+    },
+    {
+     "utc": "2026-10-14T23:40:10.050Z",
+     "session": "1792020685922",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-14T23:40:15.963Z",
+     "session": "1792021215055",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-14T23:40:16.219Z",
+     "session": "1792021215055",
+     "event": "snapshot",
+     "detail": "u=15430980671"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261014_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261014",
+   "kind": "trades",
+   "bytes": 21367361,
+   "sha256": "39b9f950f9e26eed63203a5b61f11bb04e25d68ddc97e22517989760725dd4e1",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261014_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261014",
+   "kind": "trades2",
+   "bytes": 53848571,
+   "sha256": "0e876a0755f0e02e65eb9f629e032141edded4ec116709ed9cf2fa8690c0db18",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 474030,
+   "sessions": 7,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-14T00:00:00.020Z",
+     "max_utc": "2026-10-14T23:59:59.906Z"
+    },
+    "E": {
+     "min_utc": "2026-10-14T00:00:00.222Z",
+     "max_utc": "2026-10-15T00:00:00.362Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-14T00:00:06.593Z",
+     "max_utc": "2026-10-15T00:01:30.798Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261015_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261015",
+   "kind": "book",
+   "bytes": 17889383,
+   "sha256": "26e1b78cee0c065f9d7762411892a1628e464f24655ef006776901703f2461ed",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261015_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261015",
+   "kind": "depth",
+   "bytes": 89119815,
+   "sha256": "83349b583126e596e316fe4bc5d9e0294dd3f40c7a50f0dbccf0610103807ac0",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172483,
+   "sessions": 3,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-15T00:00:00.328Z",
+     "max_utc": "2026-10-15T23:59:59.827Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-15T00:01:30.797Z",
+     "max_utc": "2026-10-16T00:00:47.391Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172481,
+    "snapshot": 2
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "ETHUSDT_20261015_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261015",
+   "kind": "events",
+   "bytes": 449,
+   "sha256": "f54aa78b7ac2cd26f511d90679a4a3d43255542fa61fe52ddba23080d366833b",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 7,
+   "sessions": 4,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-15T01:59:07.515Z",
+     "max_utc": "2026-10-15T06:13:13.394Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 2,
+    "snapshot": 2
+   },
+   "events": [
+    {
+     "utc": "2026-10-15T01:59:07.515Z",
+     "session": "1792021215055",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-15T01:59:14.017Z",
+     "session": "1792029552518",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-15T01:59:14.274Z",
+     "session": "1792029552518",
+     "event": "snapshot",
+     "detail": "u=15431702450"
+    },
+    {
+     "utc": "2026-10-15T06:11:44.519Z",
+     "session": "1792029552518",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-15T06:12:40.202Z",
+     "session": "1792044745154",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-15T06:13:13.136Z",
+     "session": "1792044788408",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-15T06:13:13.394Z",
+     "session": "1792044788408",
+     "event": "snapshot",
+     "detail": "u=15434518210"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261015_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261015",
+   "kind": "trades",
+   "bytes": 23401418,
+   "sha256": "9421cf48b16f50cff3c20bb5226368c9fffa5f570e80988479f1d2fac3c1d4d1",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261015_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261015",
+   "kind": "trades2",
+   "bytes": 58945442,
+   "sha256": "f2c5dee6a4944d2098127b0b13624bcf001b53581fb3a6263dd4cf85a2607a26",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 518789,
+   "sessions": 3,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-15T00:00:00.114Z",
+     "max_utc": "2026-10-15T23:59:59.816Z"
+    },
+    "E": {
+     "min_utc": "2026-10-15T00:00:00.362Z",
+     "max_utc": "2026-10-16T00:00:00.026Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-15T00:01:30.798Z",
+     "max_utc": "2026-10-16T00:00:47.391Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261016_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261016",
+   "kind": "book",
+   "bytes": 17878409,
+   "sha256": "440ffb612c42cca2c51c5c56487b17aea48f38aea4428a60a36e6002ff63ced9",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261016_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261016",
+   "kind": "depth",
+   "bytes": 74431579,
+   "sha256": "244940a68d38d5e48ed3e52b64e75f31d1e4c1349a0fcf74f7c1c63441fce7ac",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172376,
+   "sessions": 3,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-16T00:00:00.327Z",
+     "max_utc": "2026-10-16T23:59:59.825Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:00:47.400Z",
+     "max_utc": "2026-10-17T00:00:13.012Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172374,
+    "snapshot": 2
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "ETHUSDT_20261016_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261016",
+   "kind": "events",
+   "bytes": 449,
+   "sha256": "b0e6ed6e7d3e41bd9edd5f0145b6154ec8df94da80c5e8df6cb9633527d4c755",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 7,
+   "sessions": 4,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:20:20.004Z",
+     "max_utc": "2026-10-16T01:56:14.551Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 2,
+    "snapshot": 2
+   },
+   "events": [
+    {
+     "utc": "2026-10-16T00:20:20.004Z",
+     "session": "1792044788408",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-16T00:20:54.474Z",
+     "session": "1792110025035",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-16T00:22:31.113Z",
+     "session": "1792110148894",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-16T00:22:31.394Z",
+     "session": "1792110148894",
+     "event": "snapshot",
+     "detail": "u=15441164072"
+    },
+    {
+     "utc": "2026-10-16T01:55:51.031Z",
+     "session": "1792110148894",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-16T01:56:14.266Z",
+     "session": "1792115773142",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-16T01:56:14.551Z",
+     "session": "1792115773142",
+     "event": "snapshot",
+     "detail": "u=15441559110"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261016_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261016",
+   "kind": "trades",
+   "bytes": 21883777,
+   "sha256": "da441c2faa35abae12e6ecb060a688f44a31dcb1568f47cd4a61030a4d18bdf3",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261016_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261016",
+   "kind": "trades2",
+   "bytes": 55168954,
+   "sha256": "d6080b9f0cf8d2c93ac5687b595cbd3089d83ee39501cf13433c131ad657914f",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 485642,
+   "sessions": 3,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-16T00:00:00.021Z",
+     "max_utc": "2026-10-16T23:59:59.881Z"
+    },
+    "E": {
+     "min_utc": "2026-10-16T00:00:00.026Z",
+     "max_utc": "2026-10-17T00:00:00.298Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-16T00:00:47.391Z",
+     "max_utc": "2026-10-17T00:00:13.021Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261017_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261017",
+   "kind": "book",
+   "bytes": 17877841,
+   "sha256": "5fcca40836ee647c83bf276caf40ee00473ef83f858923f2d017483f262cbcb6",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261017_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261017",
+   "kind": "depth",
+   "bytes": 48933863,
+   "sha256": "a0c8f0b910c5f0702866a91e3e720c09e2975b931f3bd3c5123a4f5600f5a56b",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 172369,
+   "sessions": 5,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-17T00:00:00.329Z",
+     "max_utc": "2026-10-17T23:59:59.826Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-17T00:00:13.023Z",
+     "max_utc": "2026-10-17T23:59:59.902Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 172365,
+    "snapshot": 4
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "ETHUSDT_20261017_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261017",
+   "kind": "events",
+   "bytes": 718,
+   "sha256": "67548e815a5f13c93a58a4fe59a0b942abffae04cd9fc77ccc4c4c874ff6cd4b",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 12,
+   "sessions": 5,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-17T02:13:28.759Z",
+     "max_utc": "2026-10-17T07:44:44.342Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 4,
+    "connect": 4,
+    "snapshot": 4
+   },
+   "events": [
+    {
+     "utc": "2026-10-17T02:13:28.759Z",
+     "session": "1792115773142",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-17T02:13:35.253Z",
+     "session": "1792203213789",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:13:35.506Z",
+     "session": "1792203213789",
+     "event": "snapshot",
+     "detail": "u=15448823042"
+    },
+    {
+     "utc": "2026-10-17T02:29:19.126Z",
+     "session": "1792203213789",
+     "event": "disconnect",
+     "detail": "'NoneType' object has no attribute 'resume_reading'"
+    },
+    {
+     "utc": "2026-10-17T02:29:25.077Z",
+     "session": "1792204164191",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:29:25.336Z",
+     "session": "1792204164191",
+     "event": "snapshot",
+     "detail": "u=15448869661"
+    },
+    {
+     "utc": "2026-10-17T02:45:29.320Z",
+     "session": "1792204164191",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-17T02:45:35.224Z",
+     "session": "1792205134351",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T02:45:35.478Z",
+     "session": "1792205134351",
+     "event": "snapshot",
+     "detail": "u=15448919658"
+    },
+    {
+     "utc": "2026-10-17T07:44:00.036Z",
+     "session": "1792205134351",
+     "event": "disconnect",
+     "detail": "no close frame received or sent"
+    },
+    {
+     "utc": "2026-10-17T07:44:44.082Z",
+     "session": "1792223080184",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-17T07:44:44.342Z",
+     "session": "1792223080184",
+     "event": "snapshot",
+     "detail": "u=15449855109"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261017_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261017",
+   "kind": "trades",
+   "bytes": 20270319,
+   "sha256": "1ba2be881193150e65e8e7a1d5990775a0cbd4ca67a656cbf1c1e47ca2eefccb",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261017_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261017",
+   "kind": "trades2",
+   "bytes": 51126053,
+   "sha256": "8bee2170feaadb612c9c4c9035ba81327b6d0b95c615c90d18a3009bc0b75be8",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 450166,
+   "sessions": 5,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-17T00:00:00.085Z",
+     "max_utc": "2026-10-17T23:59:59.927Z"
+    },
+    "E": {
+     "min_utc": "2026-10-17T00:00:00.298Z",
+     "max_utc": "2026-10-17T23:59:59.930Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-17T00:00:13.021Z",
+     "max_utc": "2026-10-18T00:00:00.004Z"
+    }
+   }
+  },
+  {
+   "file": "ETHUSDT_20261018_book.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261018",
+   "kind": "book",
+   "bytes": 8695389,
+   "sha256": "4e3ef4264bb2612bfa1076b63eafe7a4f7e8479f74265260a79d1925d7d15854",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261018_depth.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261018",
+   "kind": "depth",
+   "bytes": 24369280,
+   "sha256": "edcc47cb4de4cd111d49aa1175b8b19b908f122b4f1af8132cdfc83b7d2df116",
+   "format": "v2",
+   "header": [
+    "kind",
+    "U",
+    "u",
+    "E",
+    "recv_ms",
+    "session",
+    "applied",
+    "b",
+    "a"
+   ],
+   "rows": 83844,
+   "sessions": 4,
+   "time": {
+    "E": {
+     "min_utc": "2026-10-18T00:00:00.327Z",
+     "max_utc": "2026-10-18T11:47:10.827Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-18T00:00:00.404Z",
+     "max_utc": "2026-10-18T11:47:13.087Z"
+    }
+   },
+   "kind_counts": {
+    "delta": 83841,
+    "snapshot": 3
+   },
+   "applied_0_rows": 0
+  },
+  {
+   "file": "ETHUSDT_20261018_events.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261018",
+   "kind": "events",
+   "bytes": 525,
+   "sha256": "7b0e53e44691a8b90d9caae1a751874724c5fa5255f80811278e77fc23a65255",
+   "format": "v2",
+   "header": [
+    "recv_ms",
+    "session",
+    "event",
+    "detail"
+   ],
+   "rows": 9,
+   "sessions": 6,
+   "time": {
+    "recv_ms": {
+     "min_utc": "2026-10-18T10:29:59.142Z",
+     "max_utc": "2026-10-18T11:42:35.917Z"
+    }
+   },
+   "event_counts": {
+    "disconnect": 3,
+    "connect": 3,
+    "snapshot": 3
+   },
+   "events": [
+    {
+     "utc": "2026-10-18T10:29:59.142Z",
+     "session": "1792319388518",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T10:30:18.171Z",
+     "session": "1792319417125",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T10:30:18.433Z",
+     "session": "1792319417125",
+     "event": "snapshot",
+     "detail": "u=15455710888"
+    },
+    {
+     "utc": "2026-10-18T11:00:03.308Z",
+     "session": "1792321192875",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T11:00:22.164Z",
+     "session": "1792321220692",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T11:00:22.426Z",
+     "session": "1792321220692",
+     "event": "snapshot",
+     "detail": "u=15455810040"
+    },
+    {
+     "utc": "2026-10-18T11:42:24.481Z",
+     "session": "1792323717606",
+     "event": "disconnect",
+     "detail": "timed out during opening handshake"
+    },
+    {
+     "utc": "2026-10-18T11:42:35.658Z",
+     "session": "1792323754484",
+     "event": "connect",
+     "detail": ""
+    },
+    {
+     "utc": "2026-10-18T11:42:35.917Z",
+     "session": "1792323754484",
+     "event": "snapshot",
+     "detail": "u=15455953315"
+    }
+   ]
+  },
+  {
+   "file": "ETHUSDT_20261018_trades.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261018",
+   "kind": "trades",
+   "bytes": 9869066,
+   "sha256": "ce58e466167f3558368fb0cec0eab83ce73c24bee1cab301d5742e9c9e5702be",
+   "format": "legacy"
+  },
+  {
+   "file": "ETHUSDT_20261018_trades2.csv",
+   "symbol": "ETHUSDT",
+   "utc_day": "20261018",
+   "kind": "trades2",
+   "bytes": 24898285,
+   "sha256": "6f01b8edc4aff56d580627644003f43d33fc6ecb3742eb139e45e23498333444",
+   "format": "v2",
+   "header": [
+    "t",
+    "T",
+    "E",
+    "recv_ms",
+    "session",
+    "p",
+    "q",
+    "m_raw"
+   ],
+   "rows": 219226,
+   "sessions": 4,
+   "time": {
+    "T": {
+     "min_utc": "2026-10-18T00:00:00.132Z",
+     "max_utc": "2026-10-18T11:47:04.613Z"
+    },
+    "E": {
+     "min_utc": "2026-10-18T00:00:00.542Z",
+     "max_utc": "2026-10-18T11:47:04.615Z"
+    },
+    "recv_ms": {
+     "min_utc": "2026-10-18T00:00:00.617Z",
+     "max_utc": "2026-10-18T11:47:13.083Z"
+    }
+   }
+  }
+ ]
+}
