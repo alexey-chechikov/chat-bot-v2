@@ -13,7 +13,6 @@ import logging
 import math
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 from services.weex_grid import engine as eg
 
@@ -81,35 +80,28 @@ class Runner:
         return self.real
 
     def tick(self) -> None:
-        """Проход по всем сеткам; ошибка одной не мешает остальным, но после прохода поднимается
+        """Проход по всем сеткам ПО ОЧЕРЕДИ; ошибка одной не мешает остальным, но после прохода поднимается
         наверх (цикл делает паузу 60 с и шлёт одно предупреждение в 30 мин).
-        18.10 (оператор: «делай»): сетки проходят ПАРАЛЛЕЛЬНО — с пятью сетками по очереди каждая обновлялась раз в
-        30–45 с, тейк после исполнения входа ставился с такой же задержкой. Общий потолок при этом не раздаётся дважды:
-        за проход сетка ставит не больше одного нового входа на сторону, поэтому каждой выдаётся свободное МИНУС
-        возможные новые входы всех остальных живых сеток (_room_shares). Сумма новых входов прохода ≤ свободного; у
-        самого потолка это строже очереди (может не поставиться вход, который по очереди прошёл бы). STATE_LOCK держится
-        весь проход сеток — команды /weex ждут его конца."""
+        18.10: параллельный проход (834887d) откачен — разбор GPT (docs/WEEX_GPT_SECTION2_REVIEW_2026-10-18.md §2):
+        найденная сирота не уменьшала долю соседей, ask×1.01 не ограничивал итоговый вход → потолок мог быть превышен.
+        Выигрыш был мал (25–30 с против 30–45 с). Вернуть параллель — только с общим атомарным резервом риска."""
         first = None
-        with STATE_LOCK:
-            names = list(eg.GRIDS)
-            free = self._portfolio_free()
-            shares = self._room_shares(names, free)
-            with ThreadPoolExecutor(max_workers=max(len(names), 1), thread_name_prefix="weex_grid") as pool:
-                futs = [(name, pool.submit(self.tick_one, name, shares.get(name))) for name in names]
-            for name, fut in futs:
-                exc = fut.exception()
-                if exc is None:
-                    continue
-                if isinstance(exc, eg.GridHalt):
-                    # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
-                    logger.error("weex_grid.halt grid=%s err=%s", name, exc)
-                    if self.send and time.time() - self.last_halt.get(name, 0.0) > 1800:
-                        if self._send(f"🛑 Сетка WEEX {name} остановлена: {str(exc)[:250]}. Ордера на бирже не трогаю; "
-                                      f"нужно восстановить файл."):
-                            self.last_halt[name] = time.time()
-                else:
-                    logger.error("weex_grid.tick_failed grid=%s", name, exc_info=exc)
-                    first = first or RuntimeError(f"{name}: {exc}")
+        for name in eg.GRIDS:
+            try:
+                with STATE_LOCK:
+                    # свободное — заново перед каждой сеткой: входы предыдущей уже в её учёте (11.10, разбор
+                    # GPT: одно место раздавалось всем сеткам и тренду)
+                    self.tick_one(name, self._portfolio_free())
+            except eg.GridHalt as exc:
+                # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
+                logger.error("weex_grid.halt grid=%s err=%s", name, exc)
+                if self.send and time.time() - self.last_halt.get(name, 0.0) > 1800:
+                    if self._send(f"🛑 Сетка WEEX {name} остановлена: {str(exc)[:250]}. Ордера на бирже не трогаю; "
+                                  f"нужно восстановить файл."):
+                        self.last_halt[name] = time.time()
+            except Exception as exc:                            # noqa: BLE001
+                logger.exception("weex_grid.tick_failed grid=%s", name)
+                first = first or RuntimeError(f"{name}: {exc}")
         # трендовый бот ETH (services/weex_trend) — в том же цикле, ошибки отделены от сеток
         try:
             with STATE_LOCK:
@@ -141,38 +133,6 @@ class Runner:
         except Exception:                                       # noqa: BLE001
             logger.exception("weex_portfolio.failed")
             return 0.0
-
-    def _room_shares(self, names: list[str], free: float | None) -> dict[str, float]:
-        """Свободное под общим потолком для каждой сетки параллельного прохода (18.10): free минус возможные новые входы
-        ВСЕХ ОСТАЛЬНЫХ живых включённых сеток — по одному входу на сторону, order_qty × ask с запасом 1%. Цена символа не
-        прочитана — резерв его сеток бесконечен: у остальных сеток в этот проход места нет (новых входов нет, ничего не
-        превышено). free None — общий потолок не ведётся."""
-        if free is None:
-            return {}
-        try:
-            self._client()                                      # синхронизация часов — до потоков, один раз
-        except Exception:                                       # noqa: BLE001
-            logger.exception("weex_grid.client_failed")
-        need: dict[str, float] = {}
-        px: dict[str, float] = {}
-        for n in names:
-            try:
-                cfg = grid_config(n)
-            except eg.GridHalt:
-                need[n] = 0.0                                   # сетка встанет сама в своём проходе
-                continue
-            if cfg["dry_run"] or not cfg["enabled"]:
-                need[n] = 0.0                                   # холостая/выключенная новых живых входов не ставит
-                continue
-            sym = cfg["symbol"]
-            if sym not in px:
-                try:
-                    px[sym] = float(self._client().book(sym)[1])
-                except Exception:                               # noqa: BLE001
-                    logger.exception("weex_grid.share_price_failed %s", sym)
-                    px[sym] = math.inf
-            need[n] = float(cfg["order_qty"]) * px[sym] * 1.01 * max(len(cfg.get("sides") or []), 1)
-        return {n: max(0.0, float(free) - sum(v for m, v in need.items() if m != n)) for n in names}
 
     def tick_one(self, name: str, free: float | None = None) -> None:
         cfg = grid_config(name)
