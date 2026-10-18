@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "historical"
 HOSTS = ("https://data-api.binance.vision", "https://api.binance.com")
 START_MS = 1502928000000          # 2017-08-17
-STEP_MS = {"1d": 86_400_000, "4h": 14_400_000, "1h": 3_600_000}
+STEP_MS = {"1d": 86_400_000, "4h": 14_400_000, "1h": 3_600_000, "15m": 900_000}
 
 
 def _get(url: str) -> list:

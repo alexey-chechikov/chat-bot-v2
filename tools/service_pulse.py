@@ -43,7 +43,11 @@ STATE = ROOT / "state"
 # имени логгера, а действия — из журнала, и тревога поднимается только
 # при отсутствии ПУЛЬСА.
 
-APP_LOG = ROOT / "logs" / "launchd_app_runner.err"
+# 09.10: INFO больше не пишется в launchd_app_runner.err (core/app_logging.py
+# под launchd шлёт в stderr только WARNING+), поэтому пульс по логгеру берём
+# из app.log с ротацией: те же строки, 4 файла по 1 МБ ≈ 12 часов.
+APP_LOGS = [ROOT / "logs" / n
+            for n in ("app.log.3", "app.log.2", "app.log.1", "app.log")]
 
 # 31.08: пульс по логу оказался ЛОЖНЫМ источником. Лог вырос до 330 МБ и
 # очень болтлив (data_loader пишет каждую секунду), а _tail читает
@@ -137,9 +141,12 @@ def _tail(path: Path, limit_bytes: int = 4_000_000) -> list[str]:
 def _last_pulse(prefixes: dict[str, str]) -> dict[str, datetime]:
     """Когда каждая служба последний раз что-то писала в лог (= цикл жив)."""
     out: dict[str, datetime] = {}
-    if not prefixes or not APP_LOG.exists():
+    if not prefixes:
         return out
-    for ln in _tail(APP_LOG, limit_bytes=8_000_000):
+    lines: list[str] = []
+    for path in APP_LOGS:
+        lines += _tail(path)  # нет файла → [] (OSError внутри _tail)
+    for ln in lines:
         if " | " not in ln:
             continue
         parts = ln.split(" | ", 3)
