@@ -1,0 +1,301 @@
+{
+ "role": "Mac handover metadata — derived only; no raw DOM/JPEG, prices, market series, Telegram IDs, keys, account",
+ "generated_utc": "2026-10-18T21:53:46+00:00",
+ "reference_file": "research/coinglass_v1_reply_review_20261018/WINDOWS_SETTINGS_REFERENCE.json",
+ "reference_sha256": "95d87156f770311caff7183ca56a72e9a9e2bc4321dea3401af4bc12a3c99535",
+ "run": {
+  "run_id": "2026-10-18T21:47:19+00:00",
+  "started_utc": "2026-10-18T21:47:19.292+00:00",
+  "finished_utc": "2026-10-18T21:48:57.414+00:00",
+  "trigger": "ручной прогон того же модуля, что запускает launchd com.bot7.coinglass-web (07–23 Варшавы)",
+  "browser": "Playwright Chromium headless, locale ru-RU, viewport 1400x2400"
+ },
+ "sources": [
+  {
+   "id": "coinglass_liquidation_model1_btc",
+   "mac_key": "liq_heatmap",
+   "status": "ok",
+   "url": "https://www.coinglass.com/ru/pro/futures/LiquidationHeatMap?coin=BTC&type=pair",
+   "captured_utc": "2026-10-18T21:47:42.361+00:00",
+   "read_started_utc": null,
+   "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
+   "settings_expected": {
+    "model": 1,
+    "mode": "pair",
+    "exchange": "Binance",
+    "symbol": "BTCUSDT_perpetual",
+    "window": "24h",
+    "threshold": 0.85,
+    "liquidation_map": true
+   },
+   "settings_observed": {
+    "model": 1,
+    "mode": "pair",
+    "exchange": "Binance",
+    "symbol": "BTCUSDT_perpetual",
+    "window": "24h",
+    "threshold": 0.85,
+    "liquidation_map": true
+   },
+   "observed_evidence": [
+    "вкладка «Модель 1» aria-selected=true",
+    "вкладка «Пара» aria-selected=true",
+    "поле инструмента «Binance BTC/USDT Бессрочный»",
+    "список окна «24 час»",
+    "текст «Порог ликвидности = 0.85»",
+    "флажок «Карта Ликвидаций» checked=True"
+   ],
+   "mac_self_check": {
+    "model": "match",
+    "mode": "match",
+    "exchange": "match",
+    "symbol": "match",
+    "window": "match",
+    "threshold": "match",
+    "liquidation_map": "match"
+   },
+   "provider_freshness": null,
+   "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
+   "local_files": [
+    {
+     "name": "2147_liq_heatmap.jpg",
+     "type": "image/jpeg",
+     "sha256": "4cb7f2292bda5aa03f973ce242f8131aaae5245357226a662f4034b863a45a81",
+     "published": false
+    }
+   ],
+   "chart_loaded": true,
+   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+  },
+  {
+   "id": "coinglass_btc_actual_liquidations",
+   "mac_key": "liquidations",
+   "status": "ok",
+   "url": "https://www.coinglass.com/ru/liquidations/BTC",
+   "captured_utc": "2026-10-18T21:47:24.958+00:00",
+   "read_started_utc": null,
+   "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
+   "settings_expected": {
+    "symbol": "BTC",
+    "exchanges": "all_covered_by_provider",
+    "windows_hours": [
+     1,
+     4,
+     12,
+     24
+    ]
+   },
+   "settings_observed": {
+    "symbol": "BTC",
+    "exchanges": "all_covered_by_provider",
+    "windows_hours": [
+     1,
+     4,
+     12,
+     24
+    ]
+   },
+   "observed_evidence": [
+    "URL /liquidations/BTC, заголовок «Биткоин Ликвидации»",
+    "фильтр «Биржи» без выбора; в таблице бирж 10 строк",
+    "окна из разобранного текста страницы: 1h, 4h, 12h, 24h"
+   ],
+   "mac_self_check": {
+    "symbol": "match",
+    "exchanges": "match",
+    "windows_hours": "match"
+   },
+   "provider_freshness": null,
+   "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
+   "local_files": [
+    {
+     "name": "raw_20261018.txt (фрагмент liquidations)",
+     "type": "text/plain",
+     "sha256_of_fragment": "590d3f64f75c82a9a7d8cf4f68816e23b22a400620826ce8def9fcc9da9a6585",
+     "published": false
+    }
+   ],
+   "numbers_loaded": true,
+   "parsed_fields": {
+    "windows": [
+     "12h",
+     "1h",
+     "24h",
+     "4h"
+    ],
+    "exchanges_rows": 10
+   }
+  },
+  {
+   "id": "coinglass_orderbook_heatmap_btc",
+   "mac_key": "book_heatmap",
+   "status": "ok",
+   "url": "https://www.coinglass.com/ru/LiquidityHeatmap",
+   "captured_utc": "2026-10-18T21:48:57.373+00:00",
+   "read_started_utc": null,
+   "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
+   "settings_expected": {
+    "exchange": "Binance",
+    "symbol": "BTCUSDT_perpetual",
+    "bar_interval": "15m",
+    "merge": 1
+   },
+   "settings_observed": {
+    "exchange": "Binance",
+    "symbol": "BTCUSDT_perpetual",
+    "bar_interval": "15m",
+    "merge": 1
+   },
+   "observed_evidence": [
+    "поле инструмента «Binance BTCUSDT Бессрочный»",
+    "список интервала «15 минута»",
+    "список «Уровень слияния : 1»"
+   ],
+   "mac_self_check": {
+    "exchange": "match",
+    "symbol": "match",
+    "bar_interval": "match",
+    "merge": "match"
+   },
+   "provider_freshness": null,
+   "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
+   "local_files": [
+    {
+     "name": "2147_book_heatmap.jpg",
+     "type": "image/jpeg",
+     "sha256": "4b6c921f620587c2f3b3b51d7538c8650b1fa9d2dd941d3a807be195411d234f",
+     "published": false
+    }
+   ],
+   "chart_loaded": true,
+   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+  },
+  {
+   "id": "coinglass_spot_book_delta_btc",
+   "mac_key": "depth_delta",
+   "status": "ok",
+   "url": "https://www.coinglass.com/ru/pro/depth-delta",
+   "captured_utc": "2026-10-18T21:47:55.226+00:00",
+   "read_started_utc": null,
+   "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
+   "settings_expected": {
+    "symbol": "BTC",
+    "bar_interval": "15m",
+    "range_percent": 1,
+    "mode": "Delta",
+    "currency": "USD"
+   },
+   "settings_observed": {
+    "currency": "USD",
+    "bar_interval": "15m",
+    "market": "Spot",
+    "symbol": "BTC",
+    "range_percent": 1,
+    "mode": "Delta"
+   },
+   "observed_evidence": [
+    "первая панель «График агрегированной дельты ликвидности ордербука (±1%)»: Доллары | 15 минута | Spot | BTC | 1% | Дельта"
+   ],
+   "mac_self_check": {
+    "symbol": "match",
+    "bar_interval": "match",
+    "range_percent": "match",
+    "mode": "match",
+    "currency": "match"
+   },
+   "provider_freshness": null,
+   "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
+   "local_files": [
+    {
+     "name": "2147_depth_delta.jpg",
+     "type": "image/jpeg",
+     "sha256": "cd0e91b1a9eff220acc5a084db45f3dfb778b5e990029100a67a089f9419b485",
+     "published": false
+    }
+   ],
+   "chart_loaded": true,
+   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+  },
+  {
+   "id": "coinglass_liquidation_levels",
+   "mac_key": "levels",
+   "status": "ok",
+   "url": "https://www.coinglass.com/ru/liquidation-levels",
+   "captured_utc": "2026-10-18T21:47:23.067+00:00",
+   "read_started_utc": null,
+   "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
+   "settings_expected": null,
+   "settings_observed": {
+    "exchange": "Binance",
+    "symbol": "BTCUSDT",
+    "controls_pressed": [
+     "3 д. · 1 мин.",
+     "Высокое кредитное плечо",
+     "Среднее плечо",
+     "Низкое кредитное плечо",
+     "Tier 1",
+     "По стороне",
+     "Свечи",
+     "±2%"
+    ]
+   },
+   "observed_evidence": [
+    "заголовок «Уровни ликвидаций Binance BTCUSDT»",
+    "нажатые переключатели: 3 д. · 1 мин. | Высокое кредитное плечо | Среднее плечо | Низкое кредитное плечо | Tier 1 | По стороне | Свечи | ±2%"
+   ],
+   "mac_self_check": null,
+   "provider_freshness": null,
+   "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
+   "local_files": [
+    {
+     "name": "raw_20261018.txt (фрагмент levels)",
+     "type": "text/plain",
+     "sha256_of_fragment": "935ca033a63c16d259a1edb6909c149dadcad92146a3ead6d00e309cfb9beb20",
+     "published": false
+    }
+   ],
+   "numbers_loaded": true,
+   "parsed_fields": {
+    "zones_short": 2,
+    "zones_long": 2,
+    "near_field": true
+   },
+   "note": "отдельный источник (liquidation-levels); не та же heatmap Model 1; на нём строится C1"
+  }
+ ],
+ "c1_readiness": {
+  "protocol": "cg-c1-20261018",
+  "impl": "mac-c1-impl-1",
+  "first_slot_local": "2026-10-19T07:00+02:00",
+  "base": {
+   "symbol": "BTCUSDT",
+   "market": "Binance USD-M perpetual",
+   "first_ts_utc": "2024-10-17T00:00:00+00:00",
+   "last_ts_utc": "2026-10-18T11:59:00+00:00",
+   "rows": 1053360,
+   "missing_minutes": 0,
+   "npz_sha256": "32222d05553b3a3a16cf158b3d10479394039619b8c478f9869a400f7b8cc2d5",
+   "dates_sha256": "ea345933c078d226415e18949dc5514aeb57e587023b7d8ad25febd7a50a0aa5",
+   "frozen_source_sha256": "8b39e6306c4d1c800d252c0417488a7c735c6a98f6170f047d3ba0e1ea56602f",
+   "rest_minutes_added": 5266,
+   "tz": "Europe/Warsaw",
+   "dates_first": "2024-10-18",
+   "dates_last": "2026-10-17",
+   "dates_n": 730
+  },
+  "base_complete_windows_check": "q_vector: complete 730/730 на фазах 07:01, 07:06, 07:11"
+ },
+ "delivery": {
+  "log": "state/coinglass/delivery_log.jsonl (локально)",
+  "log_sha256": null,
+  "records": null,
+  "reason_if_null": "журнал доставки введён 18.10.2026 ~23:50 Варшавы; первая утренняя карточка с ним — 19.10.2026 08:00–11:00 Варшавы; сегодняшняя карточка (18.10, утро) ушла до появления блока CoinGlass"
+ },
+ "code_sha256": {
+  "services/coinglass_web/collector.py": "48d04f1351a6a6499b9e322d2e6913ec449ee7795113ece4954a505eda3b22a4",
+  "services/coinglass_web/c1.py": "5e89f682176928cd72c3a52d08f39d3fce837e362d3d89af861ca45d6abb74b7",
+  "services/coinglass_web/section.py": "129c04f02df43bc54e5c3fe8d6dc367858097ea0807ab218575499c7ae63f10d",
+  "services/coinglass_web/handover.py": "aa2c8b45de61aad12eb4001a923625912f54c889741f76b9b4906995ad3cfe63",
+  "services/regime_watch.py": "579ba9d4f24aae4a36c1c17fd88a684324f809f927f20da509442eb04fcbaf73"
+ }
+}

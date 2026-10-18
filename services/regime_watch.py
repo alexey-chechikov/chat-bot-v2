@@ -294,6 +294,26 @@ def _card_push_enabled() -> bool:
     return scheduled_push_enabled()
 
 
+DELIVERY_LOG = ROOT / "state" / "coinglass" / "delivery_log.jsonl"
+
+
+def _log_delivery(day: str, card: str) -> None:
+    """Доказательство доставки для GPT: время отправки, SHA карточки и блока CoinGlass, какой снимок в нём.
+    Без чатов и личных идентификаторов. Сбой записи не ломает отправку."""
+    try:
+        import hashlib
+        import json
+        from services.coinglass_web import section as cg
+        rec = {"date": day, "sent_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "card_sha256": hashlib.sha256(card.encode("utf-8")).hexdigest(),
+               "coinglass_block_in_card": "🧲 CoinGlass" in card, **cg.LAST}
+        DELIVERY_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(DELIVERY_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.delivery_log_failed")
+
+
 def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
                            now: Optional[datetime] = None) -> bool:
     if send_fn is not None and not _card_push_enabled():
@@ -314,6 +334,7 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         send_fn(card)
         _write_state(CARD_STATE, {"date": day})
         logger.info("regime_card.sent date=%s", day)
+        _log_delivery(day, card)
         return True
     except Exception:
         logger.exception("regime_card.send_failed")

@@ -106,40 +106,105 @@ def _page(br, url: str):
     return pg
 
 
-def collect(shots_dir: Path | None, now: datetime) -> tuple[dict, dict]:
-    """Один браузер на запуск: уровни и ликвидации — текстом, остальное — снимками. → (сырые тексты, сбои)."""
+OBSERVE_JS = """() => {
+  const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+  const ctrl = [...document.querySelectorAll('button, [role=combobox], [role=tab], .MuiSelect-select, select')]
+    .filter(vis).map(e => ({t: (e.innerText || e.value || '').trim().slice(0, 60),
+      cls: String(e.className || '').slice(0, 120), sel: e.getAttribute('aria-selected'),
+      pressed: e.getAttribute('aria-pressed')})).filter(x => x.t).slice(0, 80);
+  const cbs = [...document.querySelectorAll('input[type=checkbox]')].map(c => ({checked: c.checked,
+      label: ((c.id && document.querySelector('label[for="' + c.id + '"]')) || c.closest('label') || {innerText: ''})
+        .innerText.trim().slice(0, 60)}));
+  const txt = document.body.innerText;
+  const m = txt.match(/Порог ликвидности = ([\\d.]+)/);
+  const h = [...document.querySelectorAll('h1, h2, h3')].map(e => e.innerText.trim()).filter(Boolean).slice(0, 8);
+  return {controls: ctrl, checkboxes: cbs, threshold: m ? m[1] : null, headings: h, url: location.href};
+}"""
+
+
+def observe(pg) -> dict:
+    """Настройки, реально видимые на загруженной странице (не константы кода): тексты кнопок/списков с классами и
+    aria-состоянием, флажки, порог, заголовки. Разбор активной вкладки — по этим сырым данным."""
+    try:
+        return pg.evaluate(OBSERVE_JS)
+    except Exception as exc:                                    # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
+def collect_text() -> tuple[dict, dict, dict, dict]:
+    """Этап 1: уровни и ликвидации — текстом. → (тексты, сбои, время получения, наблюдаемые настройки)."""
     from playwright.sync_api import sync_playwright
-    texts, fails, caps = {}, {}, {}
+    texts, fails, caps, seen = {}, {}, {}, {}
     with sync_playwright() as p:
         br = p.chromium.launch(headless=True)
         try:
             for key, url, cond in (("levels", URL, "/Последняя цена \\d/.test(document.body.innerText) && "
                                                    "/\\d – \\d/.test(document.body.innerText)"),
                                    ("liquidations", LIQ_URL, "/Биткоин Ликвидации\\n\\$\\d/.test(document.body.innerText)")):
+                for attempt in range(3 if key == "levels" else 1):   # уровни нужны C1 до 07:10 — 3 попытки
+                    pg = None
+                    try:
+                        pg = _page(br, url)
+                        pg.wait_for_function(f"() => {cond}", timeout=90_000)   # цифры подставляет JS
+                        texts[key] = pg.evaluate("() => document.body.innerText")
+                        caps[key] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")   # время получения
+                        seen[key] = observe(pg)
+                        fails.pop(key, None)
+                        break
+                    except Exception as exc:                    # noqa: BLE001
+                        fails[key] = f"попытка {attempt + 1}: {type(exc).__name__}: {exc}"[:200]
+                        try:
+                            texts[f"{key}_fail{attempt + 1}"] = pg.evaluate("() => document.body.innerText")[:4000]
+                        except Exception:                       # noqa: BLE001
+                            pass
+                    finally:
+                        if pg is not None:
+                            pg.close()
+        finally:
+            br.close()
+    return texts, fails, caps, seen
+
+
+def collect_shots(shots_dir: Path, now: datetime) -> tuple[dict, dict, dict]:
+    """Этап 2: снимки страниц с холстом. Тепловая карта — с включённой «Картой ликвидаций» (как у Windows-сбора GPT).
+    → (файлы с SHA256, сбои, наблюдаемые настройки)."""
+    import hashlib
+    from playwright.sync_api import sync_playwright
+    files, fails, seen = {}, {}, {}
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        br = p.chromium.launch(headless=True)
+        try:
+            for key, url in SHOTS.items():
                 try:
                     pg = _page(br, url)
-                    pg.wait_for_function(f"() => {cond}", timeout=90_000)   # цифры подставляет JS
-                    texts[key] = pg.evaluate("() => document.body.innerText")
-                    caps[key] = datetime.now(timezone.utc).isoformat(timespec="seconds")   # время получения (v1)
+                    pg.wait_for_timeout(12_000)                 # холст рисуется после загрузки данных
+                    if key == "liq_heatmap":                    # подпись — отдельный <label for=…>
+                        box = pg.get_by_label("Карта Ликвидаций")
+                        if box.count() and not box.first.is_checked():
+                            box.first.check()
+                            pg.wait_for_timeout(4_000)
+                    if key == "book_heatmap":                   # эталон GPT: интервал 15 мин (по умолчанию 5)
+                        sel = pg.locator("button.MuiSelect-button", has_text="минута").first
+                        if sel.count() and sel.inner_text().strip() != "15 минута":
+                            sel.click()
+                            pg.get_by_role("option", name="15 минута", exact=True).click()
+                            pg.wait_for_timeout(6_000)
+                    seen[key] = observe(pg)
+                    clip = {"liq_heatmap": {"x": 290, "y": 360, "width": 1100, "height": 840},
+                            "book_heatmap": {"x": 0, "y": 80, "width": 1400, "height": 1000}}.get(
+                                key, {"x": 240, "y": 80, "width": 1160, "height": 1100})
+                    path = shots_dir / f"{now:%H%M}_{key}.jpg"
+                    pg.screenshot(path=str(path), type="jpeg", quality=70, clip=clip)
+                    files[key] = {"file": f"{shots_dir.name}/{path.name}",
+                                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                  "captured": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
                     pg.close()
                 except Exception as exc:                        # noqa: BLE001
                     fails[key] = f"{type(exc).__name__}: {exc}"[:200]
-            if shots_dir is not None:
-                shots_dir.mkdir(parents=True, exist_ok=True)
-                for key, url in SHOTS.items():
-                    try:
-                        pg = _page(br, url)
-                        pg.wait_for_timeout(12_000)             # холст рисуется после загрузки данных
-                        clip = ({"x": 290, "y": 360, "width": 1100, "height": 840} if key == "liq_heatmap"
-                                else {"x": 240, "y": 80, "width": 1160, "height": 1100})
-                        pg.screenshot(path=str(shots_dir / f"{now:%H%M}_{key}.jpg"), type="jpeg", quality=70,
-                                      clip=clip)
-                        pg.close()
-                    except Exception as exc:                    # noqa: BLE001
-                        fails[key] = f"{type(exc).__name__}: {exc}"[:200]
         finally:
             br.close()
-    return texts, fails, caps
+    return files, fails, seen
 
 
 def prune(now: datetime, shots_days: int = 14, raw_days: int = 30) -> None:
@@ -160,28 +225,52 @@ def prune(now: datetime, shots_days: int = 14, raw_days: int = 30) -> None:
 
 
 def main() -> int:
+    import hashlib
     DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     prune(now)
-    texts, fails, caps = collect(DIR / "shots" / f"{now:%Y%m%d}", now)
-    rec = {"ts": now.isoformat(timespec="seconds"), "symbol": "BTCUSDT",
-           **{f"{k}_captured": v for k, v in caps.items()}}
+    texts, fails, caps, seen = collect_text()
+    rec = {"ts": now.isoformat(timespec="seconds"), "run_id": now.isoformat(timespec="seconds"), "symbol": "BTCUSDT",
+           "started": now.isoformat(timespec="milliseconds"), **{f"{k}_captured": v for k, v in caps.items()}}
     for key, parser in (("levels", parse_levels), ("liquidations", parse_liquidations)):
         if key in texts:
             try:
                 rec[key] = parser(texts[key])
             except ValueError as exc:
                 fails[key] = f"разбор: {exc}"
-    if fails:
-        rec["fails"] = fails
-    with open(DIR / f"raw_{now:%Y%m%d}.txt", "a", encoding="utf-8") as f:
+    # C1: прогноз назначенного утра фиксируется сразу после уровней, до снимков (протокол: не позже 07:10)
+    try:
+        from services.coinglass_web import c1
+        fc = c1.make_forecast(rec["run_id"], now, rec.get("levels"),
+                              datetime.fromisoformat(caps["levels"]) if "levels" in caps else None, seen.get("levels"))
+        if fc:
+            rec["c1"] = {"forecast_id": fc["forecast_id"], "status": fc["status"], "record_sha256": fc["record_sha256"]}
+    except Exception as exc:                                    # noqa: BLE001
+        fails["c1"] = f"{type(exc).__name__}: {exc}"[:200]
+    files, f2, seen2 = collect_shots(DIR / "shots" / f"{now:%Y%m%d}", now)
+    fails.update(f2)
+    seen.update(seen2)
+    raw_path = DIR / f"raw_{now:%Y%m%d}.txt"
+    with open(raw_path, "a", encoding="utf-8") as f:
         for key, t in texts.items():
             f.write(f"===== {rec['ts']} {key}\n{t}\n")
+    rec["text_sha256"] = {k: hashlib.sha256(v.encode("utf-8")).hexdigest() for k, v in texts.items()}
+    rec["files"] = files
+    rec["settings_observed"] = seen
+    rec["status"] = {k: ("ok" if k not in fails else "fail") for k in ("levels", "liquidations", *SHOTS)}
+    if fails:
+        rec["fails"] = fails
+    rec["finished"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
     with open(DIR / "snapshots.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    try:                                                        # исходы созревших прогнозов C1 и пропущенные слоты
+        from services.coinglass_web import c1
+        c1.evaluate()
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"c1.evaluate: {type(exc).__name__}: {exc}"[:200])
     lv, lq = rec.get("levels") or {}, rec.get("liquidations") or {}
     print(f"{rec['ts']} цена {lv.get('price')}; зоны {len(lv.get('zones_short', []))}/{len(lv.get('zones_long', []))}; "
-          f"ликвидации 24ч {lq.get('total_24h')}; сбои {fails or 'нет'}")
+          f"ликвидации 24ч {lq.get('total_24h')}; c1 {rec.get('c1')}; сбои {fails or 'нет'}")
     return 0 if "levels" in rec else 1
 
 
