@@ -476,24 +476,28 @@ class Grid:
     def _tiny(self) -> float:
         return float(self.cfg.get("qty_step") or 0.0001) / 2
 
+    def _own_trades(self, order_id: str, what: str) -> list | None:
+        """Сделки ЭТОГО ордера этого символа (18.10, разбор GPT P2 / 7ecda96 §2.1: чужая строка или строка без номера в
+        ответе — не наша комиссия). None — ответ не прочитан или не список: сбой записан, это НЕ пустое успешное
+        чтение (поздний курсор по нему не помечается проверенным и не истекает)."""
+        try:
+            rows = self.c.user_trades(self.cfg["symbol"], order_id)
+        except Exception as exc:                                # noqa: BLE001
+            logger.exception("weex_grid.trades_failed")
+            self._issue(f"{what} ордера {order_id} не прочитана ({type(exc).__name__}: {exc})")
+            return None
+        if not isinstance(rows, list):
+            self._issue(f"{what} ордера {order_id}: ответ сделок не список ({str(rows)[:80]})")
+            return None
+        sym = self.cfg["symbol"]
+        return [r for r in rows if isinstance(r, dict) and str(r.get("orderId") or "") == str(order_id)
+                and str(r.get("symbol") or sym) == sym]
+
     def _fee_delta(self, side: str, order_id: str) -> tuple[float, bool | None]:
         """Прирост комиссии ордера против уже записанной (курсор в fee_book). Ордер остаётся в
         книге FEE_WINDOW секунд — поздно появившаяся комиссия будет дописана _settle_fees."""
         s = self.st[side]
-        try:
-            trades = self.c.user_trades(self.cfg["symbol"], order_id)
-        except Exception as exc:                                # noqa: BLE001
-            logger.exception("weex_grid.trades_failed")
-            self._issue(f"комиссия ордера {order_id} не прочитана ({type(exc).__name__}: {exc})")
-            trades = []
-        if not isinstance(trades, list):
-            self._issue(f"комиссия ордера {order_id}: ответ сделок не список ({str(trades)[:80]})")
-            trades = []
-        # 18.10, разбор GPT P2: только строки ЭТОГО ордера этого символа (чужая строка в ответе — не наша комиссия;
-        # строка без номера ордера — не наша)
-        sym = self.cfg["symbol"]
-        trades = [t for t in trades if isinstance(t, dict) and str(t.get("orderId") or "") == str(order_id)
-                  and str(t.get("symbol") or sym) == sym]
+        trades = self._own_trades(order_id, "комиссия") or []
         fee_all = sum(float(t.get("commission") or 0) for t in trades)
         makers = {bool(t.get("maker")) for t in trades}
         rec = s["fee_book"].setdefault(str(order_id), {"done": 0.0, "t": self.now(), "t0": self.now()})
@@ -548,12 +552,9 @@ class Grid:
         refs = {sd: self._referenced(sd) for sd in ("LONG", "SHORT")}
         books.sort(key=lambda b: float(b[2].get("checked") or 0))
         for sd, oid, rec in books[:FEE_BATCH]:
-            try:
-                trades = self.c.user_trades(self.cfg["symbol"], oid) or []
-            except Exception as exc:                            # noqa: BLE001
-                logger.exception("weex_grid.trades_failed")
-                self._issue(f"поздняя комиссия ордера {oid} не прочитана ({type(exc).__name__}: {exc})")
-                continue
+            trades = self._own_trades(oid, "поздняя комиссия")
+            if trades is None:
+                continue                                        # негодный ответ — не проверка (7ecda96 §2.1)
             rec["checked"] = now
             fee_all = sum(float(t.get("commission") or 0) for t in trades)
             if fee_all > rec["done"] + 1e-12:
