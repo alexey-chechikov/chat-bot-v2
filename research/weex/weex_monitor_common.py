@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,10 @@ HANDOVER = "передано оператору"
 TRADE_FIELDS = ("id", "orderId", "positionSide", "side", "price", "qty", "time")
 WINDOW_MS = 6 * 86_400_000
 BOT, MANUAL, OTHER = "bot", "manual", "other"      # OTHER — ордер другой сетки бота (b7g + чужой знак)
+# Формат первых дней живой BTC (09.10 11:31 … 10.10 05:38, проверено по деталям ордеров на счёте 18.10): b7g + сторона
+# (L/S) + вид + время — без буквы символа. Тогда на BTCUSDT была одна сетка — BTC (знак 'B'); знаки L/S новым сеткам
+# не давать.
+LEGACY_BTC = re.compile(r"b7g[LS][a-z]\d")
 # 15.10: лимит WEEX — 500 веса за 10 с на IP (заголовок X-USED-WEIGHT-10S), IP общий с живым циклом сеток. Четыре сетки
 # BTC за неделю — тысячи сделок: деление окон шло бы десятками запросов подряд (сделки вес 5) и могло упереться в 429
 # (бан IP на 10 с — проходы живых сеток падали бы). Пауза между запросами сделок/деталей: ≤ 40 запросов за 10 с.
@@ -170,8 +175,13 @@ def cid_owner(cid, oid, prefix: str, registry: set | frozenset = frozenset(), ot
         return BOT
     if isinstance(cid, str) and any(cid.startswith(p) for p in others):
         return None if oid in registry else OTHER
+    if isinstance(cid, str) and family and LEGACY_BTC.match(cid):
+        return BOT if prefix == family + "B" else OTHER
     if isinstance(cid, str) and family and cid.startswith(family):
-        return None
+        # b7g без знака известной сетки. Прежний формат первых дней BTC (09–10.10: b7g + сторона, без буквы символа) —
+        # свой, если номер есть в реестре ЭТОЙ сетки (журнал/учёт); иначе владелец неизвестен (18.10: без этого сверка
+        # BTC теряла 37 старых ордеров и писала «не всё прочитано»)
+        return BOT if oid in registry else None
     if isinstance(cid, str) and cid.strip():
         return None if oid in registry else MANUAL
     return BOT if oid in registry else None

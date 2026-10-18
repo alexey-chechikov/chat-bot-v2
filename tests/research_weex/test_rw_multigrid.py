@@ -195,3 +195,17 @@ def test_account_now_other_grid_on_operator_side_is_problem(tmp_path, monkeypatc
     code, out = run_script("account_now.py", FakeClient(opens=opens), monkeypatch)
     assert code == 1, out
     assert "ДРУГИЕ СЕТКИ БОТА на стороне: ордеров 1" in out and "ПРОБЛЕМА" in out
+
+
+# ---------- 18.10: старый формат номеров BTC (b7g + сторона, без буквы символа) — свой по реестру сетки
+def test_legacy_cid_without_tag_is_own_only_if_in_registry():
+    from research.weex import weex_monitor_common as mc
+    others = ("b7g3", "b7g4", "b7g8", "b7gE")
+    # b7g с незнакомым знаком: свой только по реестру сетки
+    assert mc.cid_owner("b7gZLe1", "777", "b7gB", {"777"}, others, "b7g") == mc.BOT
+    assert mc.cid_owner("b7gZLe1", "778", "b7gB", {"777"}, others, "b7g") is None
+    assert mc.cid_owner("b7g4Le1", "779", "b7gB", {"777"}, others, "b7g") == mc.OTHER
+    # формат 09–10.10 без буквы символа: всегда живая BTC (знак B), для соседних сеток — чужой
+    assert mc.cid_owner("b7gSe17600002", "780", "b7gB", set(), others, "b7g") == mc.BOT
+    assert mc.cid_owner("b7gLt17600003", "781", "b7g3", set(), ("b7gB", "b7g4"), "b7g") == mc.OTHER
+    assert mc.cid_owner("b7gZLe1", "782", "b7gB", set(), others, "b7g") is None
