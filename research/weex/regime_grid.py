@@ -118,6 +118,8 @@ def run(args):
             act = {1: bool(reg[i]), -1: False}
         elif mode == "shuffle_lf":                        # контроль для longflat: случайные отрезки лонга
             act = {1: bool(reg[i]), -1: False}
+        elif mode == "longhold":                          # 18.10 (оператор: «выход −4% по ETH не нравится»): ниже
+            act = {1: bool(reg[i]), -1: False}            # SMA100 новых входов нет, лоты держатся со своими тейками
         elif mode == "both":
             act = {1: True, -1: True}
         else:
@@ -156,10 +158,13 @@ def run(args):
                     s["ref"] = max(s["ref"], p) if d > 0 else min(s["ref"], p)
                 lvl = s["ref"] * (1 - d * g)
                 if len(s["lots"]) < MAX_LOTS and ((d > 0 and p <= lvl) or (d < 0 and p >= lvl)):
+                    # longhold: после паузы ниже SMA уровень от старых лотов может быть выше рынка — живой POST_ONLY
+                    # не пересекает стакан и берёт по рынку, поэтому вход не дороже текущей цены
+                    px_in = min(lvl, p) if (mode == "longhold" and d > 0) else lvl
                     cost = sum(x[1] * x[0] for x in s["lots"])
-                    if max(cost, sum(x[1] for x in s["lots"]) * p) + qty * lvl <= cap:
-                        s["lots"].append([lvl, qty, lvl * (1 + d * t)])
-                        s["fee"] += qty * lvl * MAKER
+                    if max(cost, sum(x[1] for x in s["lots"]) * p) + qty * px_in <= cap:
+                        s["lots"].append([px_in, qty, px_in * (1 + d * t)])
+                        s["fee"] += qty * px_in * MAKER
         eq = sum(s["real"] - s["fee"] + sum(d * x[1] * (c[i] - x[0]) for x in s["lots"]) for d, s in S.items())
         peak = max(peak, eq)
         dd = min(dd, eq - peak)
@@ -179,22 +184,32 @@ def main():
     print(f"окно {pd.to_datetime(ts[0], unit='s').date()} … {pd.to_datetime(ts[-1], unit='s').date()}, "
           f"доля времени выше SMA100 {data[5].mean():.0%}; срез половин {cut_label(ts)}")
     jobs = []
-    for step, tgt in ((0.6, 1.4), (0.8, 1.65)):
-        for mode in ("regime", "longflat", "both", "long", "invert"):
-            jobs.append((f"{step}/{tgt}", mode, 0, step, tgt))
+    # 18.10: --modes=a,b --steps=0.6/1.4 --qty= --cap= — прогон только нужных вариантов живым размером
+    modes = next((a.split("=", 1)[1].split(",") for a in sys.argv[1:] if a.startswith("--modes=")),
+                 ["regime", "longflat", "both", "long", "invert"])
+    steps = next(([tuple(float(x) for x in s.split("/")) for s in a.split("=", 1)[1].split(",")]
+                  for a in sys.argv[1:] if a.startswith("--steps=")), [(0.6, 1.4), (0.8, 1.65)])
+    qa = next((float(a.split("=", 1)[1]) for a in sys.argv[1:] if a.startswith("--qty=")), None)
+    ca = next((float(a.split("=", 1)[1]) for a in sys.argv[1:] if a.startswith("--cap=")), 6000.0)
+    extra = (qa, ca) if qa else ()
+    for step, tgt in steps:
+        for mode in modes:
+            jobs.append((f"{step:g}/{tgt:g}", mode, 0, step, tgt, *extra))
     n_ctl = N_CTL                                          # --ctl=999 для решения (часы счёта); 12 — только ориентир
     jobs += [("0.6/1.4", "shuffle", s, 0.6, 1.4) for s in range(n_ctl)]
     jobs += [("0.6/1.4", "shuffle_lf", s, 0.6, 1.4) for s in range(n_ctl)]
     with ProcessPoolExecutor(max_workers=3, initializer=init, initargs=(data,)) as ex:
         res = list(ex.map(run, jobs))
     names = {"regime": "по режиму", "longflat": "только лонг/вне", "both": "всегда обе", "long": "всегда лонг",
-             "short": "всегда шорт", "invert": "режим наоборот"}
+             "short": "всегда шорт", "invert": "режим наоборот", "longhold": "лонг/держать"}
     print(f"{'сетка':>9} {'вариант':>15} | {'итог':>8} {'1-я пол':>8} {'2-я пол':>8} | {'просадка':>9} {'смен':>5} | стороны")
     for name, mode, seed, step, tgt, eq, mid, dd, flips, side in res:
         if mode.startswith("shuffle"):
             continue
         print(f"{name:>9} {names[mode]:>15} | {eq:>+8.0f} {mid:>+8.0f} {eq - mid:>+8.0f} | {dd:>+9.0f} {flips:>5} | {side}")
     for real_mode, ctl_mode, what in (("regime", "shuffle", "лонг/шорт"), ("longflat", "shuffle_lf", "только лонг")):
+        if n_ctl <= 0 or not any(r[1] == real_mode and r[0] == "0.6/1.4" for r in res):
+            continue
         real = next(r[5] for r in res if r[1] == real_mode and r[0] == "0.6/1.4")
         sh = np.array([r[5] for r in res if r[1] == ctl_mode])
         print(f"контроль {what} (0.6/1.4, те же границы с закрытием, случайная сторона, {n_ctl} сидов): медиана "
