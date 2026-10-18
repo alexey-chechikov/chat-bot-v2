@@ -151,62 +151,101 @@ def trend_state(symbol: str) -> dict:
 
 # ------------------------------------------------------------- построение
 
-def build_card(now: Optional[datetime] = None) -> str:
-    now = now or datetime.now(timezone.utc)
-    lines = [f"☀️ {now:%d.%m}"]
-    r = btc_regime()
-    if not r:
-        lines.append("режим: нет данных")
-        return "\n".join(lines)
-    lines.append(f"BTC {r['price']:,.0f} · SMA20д {r['sma']:,.0f} · "
-                 f"{r['dev_pct']:+.2f}%")
-    if r["state"] == "РОСТ":
-        lines.append(f"режим: РОСТ, {r['up_days']:.0f}-й день над SMA20д")
-        lines.append("  ▸ не открывать новый шорт-грид")
-        lines.append("  ▸ медианный остаток хода вверх 6.89%")
-        lines.append(f"  ▸ книга заполнится за "
-                     f"~{GRID_COVERAGE_PCT / TREND_SPEED_PCT_DAY:.0f} дн")
-    elif r["state"] == "ПАДЕНИЕ":
-        lines.append(f"режим: ПАДЕНИЕ, {r['dn_days']:.0f}-й день под SMA20д")
-        lines.append("  ▸ шорт-гриду попутно")
-    else:
-        d = max(r["up_days"], r["dn_days"])
-        side = "над" if r["up_days"] >= r["dn_days"] else "под"
-        lines.append(f"режим: боковик · {d:.1f} дн {side} SMA20д "
-                     f"(порог {TREND_DAYS})")
+def _sma_exit(symbol: str, n: int = 100) -> Optional[tuple[float, float]]:
+    """(цена сейчас, порог): лонги сеток WEEX закроются по рынку, если сегодняшний день UTC закроется НИЖЕ порога.
+    То же правило, что engine.regime_up: close > SMA{n}, включающей этот close ⇔ close > среднее прошлых n−1 закрытий.
+    Дневки Binance spot; цена — закрытие формирующейся дневки (последняя сделка)."""
+    from services.weex_grid import engine as eg
+    rows = eg._fetch_daily(symbol, n + 2)
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000
+    closes = [float(r[4]) for r in rows if int(r[6]) < now_ms][-(n - 1):]
+    if len(closes) < n - 1 or not rows:
+        return None
+    return float(rows[-1][4]), sum(closes) / len(closes)
 
+
+def _ts(v) -> float:
     try:
-        from tools.grid_health import analyse
-        rows = [x for x in analyse(7) if x["status"] == 2]
-        jam = [x for x in rows if any("ЗАКЛИНИЛА" in f for f in x["flags"])]
-        lines.append(f"гриды: {len(rows)} живых · "
-                     + (f"ЗАКЛИНИЛО {len(jam)}" if jam else "заклинивших нет"))
-        for x in jam:
-            lines.append(f"  ⚠️ {x['name']}: "
-                         + "; ".join(f for f in x["flags"] if "ЗАКЛИН" in f))
-        rat = [x["margin_ratio"] for x in rows
-               if x["margin_ratio"] == x["margin_ratio"]]
-        if rat:
-            lines.append(f"маржа парка: {min(rat)*100:.0f}–{max(rat)*100:.0f}% "
-                         f"от закона")
-    except Exception:
-        logger.exception("regime_watch.grid_health_failed")
-    # гейт шорта: замер 17.09 — без него ралли стоило −$3 180 при худшей
-    # точке −$3 806, с ним −$143 и −$231 (контроль с тем же временем в
-    # рынке: −$791…−$2 121). Ботов не трогает, это строка для решения.
+        return datetime.fromisoformat(str(v)).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _grid_rows(prices: dict, since: float) -> list[tuple[str, float, int, float, int]]:
+    """(подпись, закрыто за сутки $ после комиссий, циклов, мешок $, лотов) по живым сеткам WEEX и сеткам с лотами."""
+    from services.weex_grid import engine as eg
+    from services.weex_grid.loop import run_files
+    out = []
+    for name in eg.GRIDS:
+        cfg = eg.peek_config(name)
+        if not cfg:
+            continue
+        st_path, jr_path = run_files(name, False)
+        try:
+            st = json.loads(st_path.read_text(encoding="utf-8")) if st_path.exists() else {}
+        except (OSError, ValueError):
+            st = {}
+        mid = prices.get(cfg["symbol"])
+        bag, nlots = 0.0, 0
+        for side, d in (("LONG", 1), ("SHORT", -1)):
+            for lot in (st.get(side) or {}).get("lots") or []:
+                nlots += 1
+                if mid:
+                    bag += d * float(lot["qty"]) * (mid - float(lot["entry"]))
+        live = not cfg["dry_run"] and cfg["enabled"]
+        if not live and not nlots:
+            continue
+        closed, cycles = 0.0, 0
+        try:
+            for line in jr_path.read_text(encoding="utf-8").splitlines() if jr_path.exists() else []:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if _ts(r.get("ts")) < since:
+                    continue
+                closed -= float(r.get("fee") or 0)
+                if "pnl" in r:
+                    closed += float(r.get("pnl") or 0)
+                    cycles += str(r.get("kind", "")).startswith("тейк")
+        except OSError:
+            pass
+        label = name                                            # BTC, ETH, B34…
+        out.append((f"{label} {cfg['step_pct']:g}/{cfg['target_pct']:g}", closed, cycles, bag, nlots))
+    return out
+
+
+def build_card(now: Optional[datetime] = None) -> str:
+    """Карточка дня под WEEX (оператор 18.10): расстояние до выключателя SMA100 и живые сетки — закрыто за сутки и
+    мешок сейчас. Прежние строки SMA20д/шорт-гейта/гридов GinArea убраны: GinArea остановлена с 07.10, шорт-сеток нет,
+    «гриды: 0 живых» при пяти живых сетках WEEX вводило в заблуждение."""
+    now = now or datetime.now(timezone.utc)
+    lines = [f"☀️ {now:%d.%m} · сетки WEEX"]
+    prices: dict[str, float] = {}
+    for sym in ("BTCUSDT", "ETHUSDT"):
+        try:
+            got = _sma_exit(sym)
+        except Exception:                                       # noqa: BLE001
+            logger.exception("regime_card.sma_failed %s", sym)
+            got = None
+        if not got:
+            lines.append(f"{sym[:3]}: SMA100 не прочитана — режим неизвестен")
+            continue
+        px, thr = got
+        prices[sym] = px
+        lines.append(f"{sym[:3]} {px:,.0f} · лонги закроются при дневном закрытии ниже {thr:,.0f} ({thr / px - 1:+.1%})")
     try:
-        from services.short_gate.loop import current_gate, load_config
-        cfg = load_config()
-        g = current_gate(cfg)
-        if g:
-            icon = "🟢" if g["on"] else "🔴"
-            word = "разрешён" if g["on"] else "запрещён"
-            lines.append(f"{icon} шорт {word}: цена "
-                         f"{'ниже' if g['on'] else 'выше'} SMA"
-                         f"{int(cfg.get('sma_days', 100))}д на "
-                         f"{abs(g['dist_pct']):.1f}%")
-    except Exception:
-        logger.exception("regime_watch.short_gate_failed")
+        rows = _grid_rows(prices, now.timestamp() - 86_400)
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.grids_failed")
+        rows = []
+    if not rows:
+        lines.append("живых сеток нет")
+        return "\n".join(lines)
+    lines.append("за сутки закрыто · мешок сейчас (без фандинга):")
+    for label, closed, cycles, bag, nlots in rows:
+        lines.append(f"• {label}: {closed:+,.2f}$ ({cycles} цикл.) · мешок {bag:+,.2f}$ ({nlots} лот.)")
+    lines.append(f"итого: закрыто {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
     return "\n".join(lines)
 
 
@@ -267,7 +306,11 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
 
 def maybe_send_trend_entry(*, send_fn: Optional[Callable] = None,
                            now: Optional[datetime] = None) -> int:
-    """Событийный сигнал. Один раз на пару+сторону+день."""
+    """Событийный сигнал. Один раз на пару+сторону+день.
+    18.10 (оператор «да»): в TG только при regime_card-соседнем ключе trend_entry=true в state/report_delivery.json —
+    тренд ETH/XRP вне периода отбора «Не квалифицирован» (docs/TREND_4H_RECHECK_RESULTS_2026-10-15.md); журнал пишется."""
+    if send_fn is not None and not _read_state(ROOT / "state" / "report_delivery.json").get("trend_entry", False):
+        send_fn = None
     now = now or datetime.now(timezone.utc)
     day = now.strftime("%Y-%m-%d")
     seen = _read_state(TREND_STATE)

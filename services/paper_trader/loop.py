@@ -259,6 +259,18 @@ def _tg_allowed(setup_type: str | None) -> bool:
     return str(setup_type or "") in TG_ALLOWED_SETUPS
 
 
+def _tg_on() -> bool:
+    """18.10 (оператор «да»): PAPER-открытия и закрытия в TG только при state/paper_trader_tg.json
+    {"enabled": true}. Нет файла или битый — молчим: входы по сигналам опровергнуты (CLAUDE.md), журнал пишется."""
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(__file__).resolve().parents[2] / "state" / "paper_trader_tg.json"
+    try:
+        return bool(_json.loads(p.read_text(encoding="utf-8")).get("enabled", False))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _format_open_alert(record: dict) -> str:
     from services.common.humanize import humanize_setup_type, fmt_price_compact
     side = "📈 PAPER LONG" if record["side"] == "long" else "📉 PAPER SHORT"
@@ -387,7 +399,7 @@ async def paper_trader_loop(
                     pending.pop(sid, None); continue
                 opened = trader.open_paper_trade(setup)
                 pending.pop(sid, None)
-                if opened and send_fn and _tg_allowed(opened.get("setup_type")):
+                if opened and send_fn and _tg_on() and _tg_allowed(opened.get("setup_type")):
                     try:
                         send_fn(f"⏱ confirmed ({reason})\n" + _format_open_alert(opened))
                     except Exception:
@@ -414,7 +426,7 @@ async def paper_trader_loop(
                 prices = _get_prices_for_symbols(tuple(sorted(pairs_in_use)))
                 if prices:
                     closes = trader.update_open_trades(prices)
-                    if closes and send_fn:
+                    if closes and send_fn and _tg_on():
                         # Group identical close events to suppress TG spam.
                         # 2026-05-09 incident: 37 duplicate long_multi_divergence
                         # paper trades hit TP1 in the same tick → 10+ identical
