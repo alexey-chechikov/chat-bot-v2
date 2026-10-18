@@ -1,0 +1,293 @@
+{
+  "schema": "weex-ownership-offline-audit-v1",
+  "created_at_utc": "2026-10-18T11:21:12.732045+00:00",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "ref": "1d0da80863226acda8fdf57d07eee087fc08ef2c",
+  "network_requests": 0,
+  "production_imports": 0,
+  "real_account_inputs": 0,
+  "live_deployment_verified": false,
+  "source_integrity": [
+    {
+      "key": "engine",
+      "path": "services/weex_grid/engine.py",
+      "blob_sha": "fa6abdf0c3090a34ee00b6eb2843aa80659eef39",
+      "local_path": "sources/engine_1d0da80.py.txt",
+      "sha256": "ec487e0f23bb7c84a16527fbf920c709c68ff27ecd27382e6bf2c3ead1e60491",
+      "bytes": 148310,
+      "verified": true
+    },
+    {
+      "key": "client",
+      "path": "services/weex_api/client.py",
+      "blob_sha": "0e8e7dccc6b48ee36ab0b207d370eb144108f69f",
+      "local_path": "sources/client_1d0da80.py.txt",
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23",
+      "bytes": 12765,
+      "verified": true
+    },
+    {
+      "key": "monitor",
+      "path": "research/weex/weex_monitor_common.py",
+      "blob_sha": "e4bece4e65db4399b05f6164b68422783d57cca9",
+      "local_path": "sources/monitor_1d0da80.py.txt",
+      "sha256": "dc3f1f6051a3896037b358ef47ea8bd99b5161f2f39340cbd088690b0228a459",
+      "bytes": 13469,
+      "verified": true
+    }
+  ],
+  "extracted_function_lines": {
+    "_fee_delta": {
+      "start_line": 476,
+      "end_line": 492
+    },
+    "_settle_fees": {
+      "start_line": 526,
+      "end_line": 560
+    },
+    "_history_window": {
+      "start_line": 739,
+      "end_line": 766
+    },
+    "_find_by_trades": {
+      "start_line": 768,
+      "end_line": 812
+    },
+    "_window_trades": {
+      "start_line": 814,
+      "end_line": 850
+    },
+    "_resolve_pending": {
+      "start_line": 852,
+      "end_line": 932
+    },
+    "cid_tag": {
+      "start_line": 132,
+      "end_line": 146
+    },
+    "cid_owner": {
+      "start_line": 168,
+      "end_line": 187
+    },
+    "client.user_trades": {
+      "start_line": 196,
+      "end_line": 206
+    }
+  },
+  "all_reproductions_asserted": true,
+  "cases": [
+    {
+      "id": "P1_malformed_trade_false_absence",
+      "reproduced": true,
+      "scope": "conditional_on_malformed_provider_input; no evidence provider currently returns this",
+      "trade_search_complete": true,
+      "resolve_return": true,
+      "pending_after": null,
+      "risk": "pending released; the next normal pass can permit a second entry",
+      "source": [
+        "engine.py:828-833",
+        "engine.py:787-789",
+        "engine.py:894-914"
+      ]
+    },
+    {
+      "id": "P2_unknown20_starvation",
+      "reproduced": true,
+      "runs": [
+        {
+          "broken_first20": false,
+          "attempts": 2,
+          "found": true,
+          "detail_requests": 21,
+          "own21_requested": true,
+          "foreign_cached": 20,
+          "complete": true
+        },
+        {
+          "broken_first20": true,
+          "attempts": 100,
+          "found": false,
+          "detail_requests": 2000,
+          "own21_requested": false,
+          "foreign_cached": 0,
+          "complete": false
+        }
+      ],
+      "scope": "conditional_on_persistent_unknown_or_CIDless_neighbour_details",
+      "risk": "fails closed but own filled entry can remain unaccounted and without its take profit",
+      "source": [
+        "engine.py:785-811"
+      ]
+    },
+    {
+      "id": "P2_foreign_trade_fee",
+      "reproduced": true,
+      "scope": "preexisting_robustness_gap_conditional_on_wrong_order_rows_from_provider",
+      "requested_order": "OWN",
+      "returned_order": "NEIGHBOUR",
+      "fee_charged_to_OWN": 7.0,
+      "source": [
+        "engine.py:476-492",
+        "engine.py:541-553"
+      ]
+    },
+    {
+      "id": "P2_101_fills_fee_cap100",
+      "reproduced": true,
+      "scope": "preexisting_gap_conditional_on_more_than_100_fills_for_one_order",
+      "true_fill_count": 101,
+      "api_limit": 100,
+      "true_commission": 1.01,
+      "charged_commission": 1.0,
+      "fee_cursor_expired": true,
+      "incompleteness_warning": false,
+      "source": [
+        "client.py:196-206",
+        "engine.py:476-492",
+        "engine.py:526-560"
+      ]
+    },
+    {
+      "id": "P2_reserved_legacy_tag",
+      "reproduced": true,
+      "scope": "configuration_guard_gap; current_tags_3_4_8_unaffected",
+      "accepted_tag": "L",
+      "legacy_cid": "b7gLe17600002",
+      "new_L_grid_prefix_owns_legacy": true,
+      "BTC_monitor_with_L_peer": "other",
+      "source": [
+        "engine.py:132-146",
+        "engine.py:181-191",
+        "monitor.py:174-179"
+      ]
+    },
+    {
+      "id": "CONDITIONAL_history_boundary_contract",
+      "reproduced": true,
+      "scope": "arithmetic_correct_for_inclusive_integer_ms; actual_WEEX_boundary_contract_NOT_verified",
+      "not_a_confirmed_live_provider_bug": true,
+      "runs": [
+        {
+          "end_exclusive": false,
+          "target_ms": 0,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": false,
+          "target_ms": 2000,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": false,
+          "target_ms": 2001,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ],
+            [
+              2001,
+              4000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": false,
+          "target_ms": 4000,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ],
+            [
+              2001,
+              4000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": true,
+          "target_ms": 0,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": true,
+          "target_ms": 2000,
+          "found": false,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ],
+            [
+              2001,
+              4000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": true,
+          "target_ms": 2001,
+          "found": true,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ],
+            [
+              2001,
+              4000
+            ]
+          ]
+        },
+        {
+          "end_exclusive": true,
+          "target_ms": 4000,
+          "found": false,
+          "complete": true,
+          "requests": [
+            [
+              0,
+              2000
+            ],
+            [
+              2001,
+              4000
+            ]
+          ]
+        }
+      ],
+      "source": [
+        "engine.py:739-766",
+        "client.py:134-148"
+      ]
+    }
+  ]
+}

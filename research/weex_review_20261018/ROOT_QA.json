@@ -1,0 +1,26 @@
+{
+  "schema": "root-offline-review-v1",
+  "created_at_utc": "2026-10-18T11:26:17.3406672+00:00",
+  "target": "WEEX referenced code only",
+  "market_data_loaded": false,
+  "account_access": false,
+  "mac_access": false,
+  "production_modules_imported": false,
+  "production_files_changed": false,
+  "network_requests_in_harnesses": 0,
+  "ownership": {
+    "command": "python -X utf8 -B research/weex_review_20261018/ownership/audit_ownership_offline.py",
+    "exit_code": 0,
+    "reproduced_cases": 6,
+    "source_sha256_and_git_blob_verified": true
+  },
+  "parallel": {
+    "command": "python -X utf8 -B research/weex_review_20261018/parallel/reproduce.py",
+    "exit_code": 0,
+    "checks_passed": 8,
+    "issue_cases": 5,
+    "positive_controls": 3,
+    "source_sha256_and_git_blob_verified": true
+  },
+  "interpretation": "Synthetic counterexamples and controls; no live breach/frequency/deployment or trading profitability verified"
+}

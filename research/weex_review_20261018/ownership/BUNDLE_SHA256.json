@@ -1,0 +1,21 @@
+{
+  "schema": "offline-audit-bundle-v1",
+  "files": [
+    {
+      "path": "audit_ownership_offline.py",
+      "sha256": "408448da009434d91610b5d348e845676bd4dbaed08d6b57a724f637a6cdd907"
+    },
+    {
+      "path": "README.md",
+      "sha256": "7190bfdfe2d277194946eaa29233694535661d053f8c43346d646a46c3d6550b"
+    },
+    {
+      "path": "VERIFIED_SOURCES.json",
+      "sha256": "10e9f9b3f9306eb35a396df6ba7d9087636a4928719621c2c970afe2d5d06bc8"
+    },
+    {
+      "path": "source_origin.json",
+      "sha256": "da4f0de5c00d216b093d00c509c91da4d5c3e3230fcbac80fb18e086c5fd9916"
+    }
+  ]
+}

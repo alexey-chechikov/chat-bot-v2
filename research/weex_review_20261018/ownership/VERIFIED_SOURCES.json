@@ -1,0 +1,34 @@
+{
+  "schema": "weex-ownership-source-origin-v1",
+  "repository": "alexey-chechikov/chat-bot-v2",
+  "ref": "1d0da80863226acda8fdf57d07eee087fc08ef2c",
+  "primary_source_only": true,
+  "live_deployment_verified": false,
+  "sources": [
+    {
+      "key": "engine",
+      "path": "services/weex_grid/engine.py",
+      "blob_sha": "fa6abdf0c3090a34ee00b6eb2843aa80659eef39",
+      "local_path": "sources/engine_1d0da80.py.txt",
+      "sha256": "ec487e0f23bb7c84a16527fbf920c709c68ff27ecd27382e6bf2c3ead1e60491",
+      "bytes": 148310
+    },
+    {
+      "key": "client",
+      "path": "services/weex_api/client.py",
+      "blob_sha": "0e8e7dccc6b48ee36ab0b207d370eb144108f69f",
+      "local_path": "sources/client_1d0da80.py.txt",
+      "sha256": "a421e5ee1e8d8780de5602cac690933ef8cee60901dbc7a608be8659a6bc4d23",
+      "bytes": 12765
+    },
+    {
+      "key": "monitor",
+      "path": "research/weex/weex_monitor_common.py",
+      "blob_sha": "e4bece4e65db4399b05f6164b68422783d57cca9",
+      "local_path": "sources/monitor_1d0da80.py.txt",
+      "sha256": "dc3f1f6051a3896037b358ef47ea8bd99b5161f2f39340cbd088690b0228a459",
+      "bytes": 13469
+    }
+  ],
+  "normalization": "Exact GitHub blob bytes; one patch-added final newline removed only after matching Git blob SHA."
+}

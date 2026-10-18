@@ -1,0 +1,88 @@
+{
+  "schema": "lpx-a0-code-freeze-v1",
+  "frozen_at_utc": "2026-10-18T11:29:00.2510692+00:00",
+  "role": "reference_kernel_only",
+  "synthetic_tests_passed": 37,
+  "core_tests": 33,
+  "independent_tests": 4,
+  "market_results_computed": false,
+  "real_data_loaded": false,
+  "network_calls": 0,
+  "end_to_end_pipeline_ready": false,
+  "files": [
+    {
+      "file": "PROTOCOL.md",
+      "bytes": 11119,
+      "sha256": "cc2c39b252910bf91a2d50e724c88853fbbfa30fc2e0441c4a62a5ddf389c4ea"
+    },
+    {
+      "file": "MODEL.md",
+      "bytes": 5734,
+      "sha256": "8c01da241ce7ef72027491ef6a4e1443e613697332d990171069607729d2c554"
+    },
+    {
+      "file": "PREREGISTRATION.json",
+      "bytes": 1028,
+      "sha256": "083440d69150aa83984d3cb5abbbb8aed29a947e75561d240fdef4c4a8aa0b92"
+    },
+    {
+      "file": "AMENDMENT_001.md",
+      "bytes": 2198,
+      "sha256": "9cf7437036b658d2c79271a9d39f8992772bf8325588a21a5b9c206b73836062"
+    },
+    {
+      "file": "AMENDMENT_001_REGISTRATION.json",
+      "bytes": 404,
+      "sha256": "9abe97978bf20de1f0826d717513f2f696574100c51edcca8c85a1800461385d"
+    },
+    {
+      "file": "AMENDMENT_002.md",
+      "bytes": 2894,
+      "sha256": "932d04381f612abda769723ce8119a2f4a8e5a21b7a1417679fb2d87424547c9"
+    },
+    {
+      "file": "AMENDMENT_002_REGISTRATION.json",
+      "bytes": 357,
+      "sha256": "f322ac38a4d603da684bcd3c504a055f553b51d9562c8004cf0cdbe5e510b663"
+    },
+    {
+      "file": "proxy.py",
+      "bytes": 31415,
+      "sha256": "81c7e0fd2c8d8f5cbdb17a473051e2752e28014d27e8a6e85369399f6a4e7ade"
+    },
+    {
+      "file": "test_proxy.py",
+      "bytes": 20537,
+      "sha256": "2e385ed8b8eeb165797831103c579f2a315efdec8b50eed9e6d42d939d9ca576"
+    },
+    {
+      "file": "qa_ownership/test_independent.py",
+      "bytes": 3984,
+      "sha256": "355da25ca2c09e457519d4152e151e6884e7eaa1e754a9996cc5d3826c767643"
+    },
+    {
+      "file": "README.md",
+      "bytes": 8145,
+      "sha256": "64313f336a548ad77c1d59a3be9c198286bb5e122f3f71ff3ba473b18e56a237"
+    },
+    {
+      "file": "QA.json",
+      "bytes": 11253,
+      "sha256": "cd3a88c745516fef1c9fbbd003252d04d933320aa5d45f5d9794722949646dfb"
+    },
+    {
+      "file": "QA_pre_final_coverage.json",
+      "bytes": 10516,
+      "sha256": "0cb000828ee1a02d5547e3e8ae0c0fc05bcf8920e9cf85ba03f8b54fb78ceaad"
+    }
+  ],
+  "exclusions": [
+    "ROOT_QA.json is intentionally not included; root adds its independent final report later."
+  ],
+  "remaining": [
+    "raw public-data adapters/exporter and provenance audit",
+    "input inventory and RUN_PLAN temporal split/purge",
+    "batch joining and complete planned-anchor journal/export",
+    "complete 5m/30m and placebo/statistical report orchestration"
+  ]
+}

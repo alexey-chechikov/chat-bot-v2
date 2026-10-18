@@ -1,0 +1,24 @@
+{
+  "schema": "root-lpx-final-qa-v1",
+  "created_at_utc": "2026-10-18T11:29:59.4793897+00:00",
+  "command": "python -X utf8 -B -m unittest -v test_proxy qa_ownership.test_independent",
+  "exit_code": 0,
+  "tests_run": 37,
+  "core_tests": 33,
+  "independent_tests": 4,
+  "failures": 0,
+  "errors": 0,
+  "frozen_files_verified": 13,
+  "code_manifest_sha256": "26d6be3b22031e6f6dcdabd005744869f508c85f5f7553873136a5b0f375c6e3",
+  "real_market_data_loaded": false,
+  "network_requests": 0,
+  "mac_access": false,
+  "account_access": false,
+  "end_to_end_pipeline_ready": false,
+  "reviewed_corrections": [
+    "retirement equality explicit pre-execution amendment001",
+    "defined-day/week gates and event-time amendment002 before market use",
+    "canonical dedup excludes local receipt timestamp",
+    "coverage ignores disjoint spans and refuses intersecting invalid metadata before union"
+  ]
+}
