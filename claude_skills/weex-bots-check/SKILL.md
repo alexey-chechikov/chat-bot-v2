@@ -30,8 +30,12 @@ description: Проверка работы ботов bot7 на WEEX и сост
    `weex_grid.halt` / `weex_trend.halt` — первой строкой «есть проблема». Всегда разбирать (имена сверены с кодом
    12.10): weex_grid — `place_rejected`, `place_failed`, `place_no_id`, `orphan_order`, `external_close`,
    `flatten_send_failed`, `flatten_trades_failed`, `pending_not_found`, `pending_adopted`, `tp_qty_mismatch`,
-   `stray_tp_unallocated`, `fee_unresolved`, `regime_failed` (режим неизвестен — входов нет); weex_trend —
+   `stray_tp_unallocated`, `fee_unresolved`, `regime_failed` (режим неизвестен — входов нет); с 20.10 —
+   `fee_incomplete` (ответ сделок на пределе 100, комиссия — нижняя оценка), `position_mismatch` (ERROR: лотов всех
+   сеток больше позиции биржи 3 прохода — входы стороны остановлены; первой строкой «есть проблема»),
+   `position_restored`, `position_audit_skipped` (сверка позиции не прочитана); weex_trend —
    `rejected`, `pending_not_found`, `cancel_algo_failed`. «ПОКРЫТИЕ НЕПОЛНОЕ» — сказать.
+   Общая сверка позиции — `state/weex_position_audit.json`: `blocked: true` у стороны = входы стоят.
 6. **Конфиги** (поля по файлам; `release_sides` только у BTC, `regime_sma` — у BTC и ETH):
    - `state/weex_grid_config.json` (BTC), `state/weex_grid_eth_config.json` — enabled, dry_run, sides,
      release_sides, regime_sma, step_pct, target_pct, order_qty, max_notional_usd, max_lots_per_side,
