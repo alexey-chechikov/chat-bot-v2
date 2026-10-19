@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.coinglass_web import c1
 from services.coinglass_web.collector import DIR, ROOT
 
 OUT = ROOT / "docs" / "COINGLASS_MAC_HANDOVER_METADATA_2026-10-18.json"
@@ -196,10 +197,14 @@ def build(run_id: str | None = None) -> dict:
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "reference_file": str(REF.relative_to(ROOT)), "reference_sha256": _sha_file(REF),
         "run": {"run_id": rec["run_id"], "started_utc": rec.get("started"), "finished_utc": rec.get("finished"),
-                "trigger": "ручной прогон того же модуля, что запускает launchd com.bot7.coinglass-web (07–23 Варшавы)",
+                "trigger": ("по расписанию launchd com.bot7.coinglass-web (07–23 Варшавы, минута 0)"
+                            if datetime.fromisoformat(rec["run_id"]).minute == 0
+                            and datetime.fromisoformat(rec["run_id"]).second < 30
+                            else "ручной прогон того же модуля, что запускает launchd com.bot7.coinglass-web"),
                 "browser": "Playwright Chromium headless, locale ru-RU, viewport 1400x2400"},
         "sources": sources,
-        "c1_readiness": {"protocol": "cg-c1-20261018", "impl": "mac-c1-impl-1",
+        "c1_registry": [{k: r.get(k) for k in ("slot", "run_id", "status", "impl")} for r in c1._read("registry.jsonl")],
+        "c1_readiness": {"protocol": c1.PROTOCOL, "impl": c1.IMPL,
                          "first_slot_local": "2026-10-19T07:00+02:00",
                          "base": {k: man[k] for k in ("symbol", "market", "first_ts_utc", "last_ts_utc", "rows",
                                                        "missing_minutes", "npz_sha256", "dates_sha256",

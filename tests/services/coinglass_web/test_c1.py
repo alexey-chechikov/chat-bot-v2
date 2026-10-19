@@ -120,6 +120,48 @@ def test_admitted_forecast_fixes_before_price_and_uses_closed_hours(tmp_c1, monk
     assert len((tmp_c1 / "registry.jsonl").read_text().splitlines()) == 1
 
 
+class VirtualClock:
+    """Часы, которые двигает sleep: так моделируется задержка свечи в REST Binance."""
+    def __init__(self, t: datetime):
+        self.t = t
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += timedelta(seconds=s)
+
+
+def lagging_klines(tmp, clk, lag_ms, p0=100.0):
+    """Как живой Binance 19.10: свеча минуты A появляется в REST только через lag_ms после её начала."""
+    base = fake_klines(tmp, p0=p0)
+
+    def k(interval, start, end):
+        if interval == "1m" and ms(clk.now()) < start + lag_ms:
+            return []
+        return base(interval, start, end)
+    return k
+
+
+def test_p0_waits_for_rest_lag(tmp_c1, monkeypatch):
+    """Регрессия слота 19.10: свеча A появилась через ~3.6 с, один запрос через 2 с давал not_ready_price."""
+    clk = VirtualClock(FIX)
+    monkeypatch.setattr(c1, "klines", lagging_klines(tmp_c1, clk, 4300))
+    monkeypatch.setattr(c1, "q_vector", lambda a, b, hhmm, side: {"q_low": 0.4, "q_high": 0.45, "complete": 730})
+    rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clk.now, sleep=clk.sleep)
+    assert rec["status"] == "admitted" and rec["P0"] == 100.0
+    assert rec["p0_fetch_tries"] >= 2
+
+
+def test_p0_never_appears_is_not_ready_after_wait(tmp_c1, monkeypatch):
+    clk = VirtualClock(FIX)
+    monkeypatch.setattr(c1, "klines", lagging_klines(tmp_c1, clk, 10 ** 9))
+    rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clk.now, sleep=clk.sleep)
+    assert rec["status"] == "not_ready_price" and "P0" not in rec
+    a_ms = ms(datetime(2026, 10, 19, 5, 2, tzinfo=UTC))
+    assert a_ms + c1.P0_WAIT_MS <= ms(clk.now()) <= a_ms + c1.P0_WAIT_MS + 2000   # ждал не дольше 45 с после A
+
+
 def test_abstain_at_anchor(tmp_c1, monkeypatch):
     monkeypatch.setattr(c1, "klines", fake_klines(tmp_c1, p0=103.5))
     rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clock(FIX, FIX + timedelta(minutes=1)),

@@ -31,7 +31,8 @@ import numpy as np
 from services.coinglass_web.collector import DIR
 
 PROTOCOL = "cg-c1-20261018"
-IMPL = "mac-c1-impl-1"
+IMPL = "mac-c1-impl-2"           # impl-1 (слот 19.10) терял P0: один запрос через 2 с, свеча REST ещё не готова
+P0_WAIT_MS = 45_000
 WARSAW = ZoneInfo("Europe/Warsaw")
 C1 = DIR / "c1"
 FIRST_SLOT, LAST_SLOT = date(2026, 10, 19), date(2027, 10, 18)
@@ -275,8 +276,19 @@ def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captu
         sleep = sleep or time.sleep
         while now_fn().timestamp() * 1000 < a_ms + 2000:            # ждём открытия минуты A
             sleep(0.5)
-        k = klines("1m", a_ms, a_ms + MIN)
-        p0 = float(k[0][1]) if k and int(k[0][0]) == a_ms else None
+        # REST Binance отдаёт свечу текущей минуты через 1.4–4.3 с после её начала (замер 19.10; один запрос через 2 с
+        # потерял слот 19.10). Open минуты не меняется после появления — опрос до A+45 с будущего не использует.
+        p0, tries = None, 0
+        while True:
+            tries += 1
+            k = klines("1m", a_ms, a_ms + MIN)
+            if k and int(k[0][0]) == a_ms:
+                p0 = float(k[0][1])
+                break
+            if now_fn().timestamp() * 1000 >= a_ms + P0_WAIT_MS:
+                break
+            sleep(1.0)
+        rec.update(p0_fetch_tries=tries, p0_fetched_at=now_fn().isoformat())
         hrs = [r for r in klines("1h", a_ms - 20 * HOUR, a_ms) if int(r[6]) < int(fixed.timestamp() * 1000)][-15:]
         consecutive = len(hrs) == 15 and all(int(hrs[i][0]) - int(hrs[i - 1][0]) == HOUR for i in range(1, 15))
         if p0 is None or not consecutive:

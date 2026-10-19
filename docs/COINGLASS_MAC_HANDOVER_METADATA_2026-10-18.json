@@ -1,13 +1,13 @@
 {
  "role": "Mac handover metadata — derived only; no raw DOM/JPEG, prices, market series, Telegram IDs, keys, account",
- "generated_utc": "2026-10-18T21:53:46+00:00",
+ "generated_utc": "2026-10-19T09:31:33+00:00",
  "reference_file": "research/coinglass_v1_reply_review_20261018/WINDOWS_SETTINGS_REFERENCE.json",
  "reference_sha256": "95d87156f770311caff7183ca56a72e9a9e2bc4321dea3401af4bc12a3c99535",
  "run": {
-  "run_id": "2026-10-18T21:47:19+00:00",
-  "started_utc": "2026-10-18T21:47:19.292+00:00",
-  "finished_utc": "2026-10-18T21:48:57.414+00:00",
-  "trigger": "ручной прогон того же модуля, что запускает launchd com.bot7.coinglass-web (07–23 Варшавы)",
+  "run_id": "2026-10-19T06:00:04+00:00",
+  "started_utc": "2026-10-19T06:00:04.300+00:00",
+  "finished_utc": "2026-10-19T06:01:42.855+00:00",
+  "trigger": "по расписанию launchd com.bot7.coinglass-web (07–23 Варшавы, минута 0)",
   "browser": "Playwright Chromium headless, locale ru-RU, viewport 1400x2400"
  },
  "sources": [
@@ -16,7 +16,7 @@
    "mac_key": "liq_heatmap",
    "status": "ok",
    "url": "https://www.coinglass.com/ru/pro/futures/LiquidationHeatMap?coin=BTC&type=pair",
-   "captured_utc": "2026-10-18T21:47:42.361+00:00",
+   "captured_utc": "2026-10-19T06:00:35.438+00:00",
    "read_started_utc": null,
    "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
    "settings_expected": {
@@ -58,9 +58,9 @@
    "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
    "local_files": [
     {
-     "name": "2147_liq_heatmap.jpg",
+     "name": "0600_liq_heatmap.jpg",
      "type": "image/jpeg",
-     "sha256": "4cb7f2292bda5aa03f973ce242f8131aaae5245357226a662f4034b863a45a81",
+     "sha256": "e54aef1db2006ab2d02c1e5fe0ec09e690cd657a2c1700fb18250aac97db7a61",
      "published": false
     }
    ],
@@ -72,7 +72,7 @@
    "mac_key": "liquidations",
    "status": "ok",
    "url": "https://www.coinglass.com/ru/liquidations/BTC",
-   "captured_utc": "2026-10-18T21:47:24.958+00:00",
+   "captured_utc": "2026-10-19T06:00:17.666+00:00",
    "read_started_utc": null,
    "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
    "settings_expected": {
@@ -109,9 +109,9 @@
    "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
    "local_files": [
     {
-     "name": "raw_20261018.txt (фрагмент liquidations)",
+     "name": "raw_20261019.txt (фрагмент liquidations)",
      "type": "text/plain",
-     "sha256_of_fragment": "590d3f64f75c82a9a7d8cf4f68816e23b22a400620826ce8def9fcc9da9a6585",
+     "sha256_of_fragment": "406e5b00a8b269e75de95098a4d407636ea12f14e93ab913f5ebc2867d6279ab",
      "published": false
     }
    ],
@@ -131,7 +131,7 @@
    "mac_key": "book_heatmap",
    "status": "ok",
    "url": "https://www.coinglass.com/ru/LiquidityHeatmap",
-   "captured_utc": "2026-10-18T21:48:57.373+00:00",
+   "captured_utc": "2026-10-19T06:01:42.807+00:00",
    "read_started_utc": null,
    "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
    "settings_expected": {
@@ -161,9 +161,9 @@
    "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
    "local_files": [
     {
-     "name": "2147_book_heatmap.jpg",
+     "name": "0600_book_heatmap.jpg",
      "type": "image/jpeg",
-     "sha256": "4b6c921f620587c2f3b3b51d7538c8650b1fa9d2dd941d3a807be195411d234f",
+     "sha256": "87bde473c435ed600c6e8e8d2b6f8669c06d4846db340ed7bb519f424baffee7",
      "published": false
     }
    ],
@@ -175,7 +175,7 @@
    "mac_key": "depth_delta",
    "status": "ok",
    "url": "https://www.coinglass.com/ru/pro/depth-delta",
-   "captured_utc": "2026-10-18T21:47:55.226+00:00",
+   "captured_utc": "2026-10-19T06:00:48.643+00:00",
    "read_started_utc": null,
    "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
    "settings_expected": {
@@ -207,9 +207,9 @@
    "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
    "local_files": [
     {
-     "name": "2147_depth_delta.jpg",
+     "name": "0600_depth_delta.jpg",
      "type": "image/jpeg",
-     "sha256": "cd0e91b1a9eff220acc5a084db45f3dfb778b5e990029100a67a089f9419b485",
+     "sha256": "6b61c795ae149b79693f88fa0b58f02dde47d79acf52f25a51ed14a6c988ff1e",
      "published": false
     }
    ],
@@ -221,7 +221,7 @@
    "mac_key": "levels",
    "status": "ok",
    "url": "https://www.coinglass.com/ru/liquidation-levels",
-   "captured_utc": "2026-10-18T21:47:23.067+00:00",
+   "captured_utc": "2026-10-19T06:00:15.747+00:00",
    "read_started_utc": null,
    "read_started_reason": "отдельно по источнику не пишется; есть started прогона",
    "settings_expected": null,
@@ -248,24 +248,32 @@
    "provider_freshness_reason": "страница не показывает время обновления данных провайдера — неизвестно",
    "local_files": [
     {
-     "name": "raw_20261018.txt (фрагмент levels)",
+     "name": "raw_20261019.txt (фрагмент levels)",
      "type": "text/plain",
-     "sha256_of_fragment": "935ca033a63c16d259a1edb6909c149dadcad92146a3ead6d00e309cfb9beb20",
+     "sha256_of_fragment": "5749a3a78767b108d0ffdff8b4f5cd1f5fc0087fa4464748a340da026765ec41",
      "published": false
     }
    ],
    "numbers_loaded": true,
    "parsed_fields": {
-    "zones_short": 2,
-    "zones_long": 2,
+    "zones_short": 3,
+    "zones_long": 3,
     "near_field": true
    },
    "note": "отдельный источник (liquidation-levels); не та же heatmap Model 1; на нём строится C1"
   }
  ],
+ "c1_registry": [
+  {
+   "slot": "2026-10-19",
+   "run_id": "2026-10-19T05:00:04+00:00",
+   "status": "not_ready_price",
+   "impl": "mac-c1-impl-1"
+  }
+ ],
  "c1_readiness": {
   "protocol": "cg-c1-20261018",
-  "impl": "mac-c1-impl-1",
+  "impl": "mac-c1-impl-2",
   "first_slot_local": "2026-10-19T07:00+02:00",
   "base": {
    "symbol": "BTCUSDT",
@@ -287,15 +295,26 @@
  },
  "delivery": {
   "log": "state/coinglass/delivery_log.jsonl (локально)",
-  "log_sha256": null,
-  "records": null,
-  "reason_if_null": "журнал доставки введён 18.10.2026 ~23:50 Варшавы; первая утренняя карточка с ним — 19.10.2026 08:00–11:00 Варшавы; сегодняшняя карточка (18.10, утро) ушла до появления блока CoinGlass"
+  "log_sha256": "92b684b5764abd137fc5c13fc4bd50ff914f49f69e9c536f1321de04e3fee167",
+  "records": [
+   {
+    "date": "2026-10-19",
+    "sent_utc": "2026-10-19T06:03:02+00:00",
+    "card_sha256": "8de08676590e8ad7e4ce33b74004b44cb2db6270397f8a309a12be6c6fbe9081",
+    "coinglass_block_in_card": true,
+    "snapshot_run_id": "2026-10-19T06:00:04+00:00",
+    "snapshot_levels_captured": "2026-10-19T06:00:15.747+00:00",
+    "section_sha256": "19fee1e8bee29bdeacda4dc3b535a78a3268c10fa16b57f75c94fd0eac8e1238",
+    "line_sha256": "aa4a18f8f958d8fc45c236d45365a1e5a28f91395fc6ff29a00322ccc0748f07"
+   }
+  ],
+  "reason_if_null": null
  },
  "code_sha256": {
   "services/coinglass_web/collector.py": "48d04f1351a6a6499b9e322d2e6913ec449ee7795113ece4954a505eda3b22a4",
-  "services/coinglass_web/c1.py": "5e89f682176928cd72c3a52d08f39d3fce837e362d3d89af861ca45d6abb74b7",
+  "services/coinglass_web/c1.py": "ee1c791bb62e8567dfbb5ca38838880f702831fb240265b848f47d33345824f1",
   "services/coinglass_web/section.py": "129c04f02df43bc54e5c3fe8d6dc367858097ea0807ab218575499c7ae63f10d",
-  "services/coinglass_web/handover.py": "aa2c8b45de61aad12eb4001a923625912f54c889741f76b9b4906995ad3cfe63",
+  "services/coinglass_web/handover.py": "64f1cb27e3ef9179a1a525f2d9f1d87f4b0a22e9b8919840e0f519b102d2b5ee",
   "services/regime_watch.py": "579ba9d4f24aae4a36c1c17fd88a684324f809f927f20da509442eb04fcbaf73"
  }
 }
