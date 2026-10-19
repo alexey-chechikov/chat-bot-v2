@@ -256,7 +256,7 @@ def build() -> str:
                               "Контекст, не сигнал входа."))
     try:                                                        # 19.10 оператор: «примерный прогноз на день»
         from services.coinglass_web import day_range
-        lines += day_range.lines(now_utc)
+        lines += day_range.lines()                              # момент выдачи = фактическое время сборки
     except Exception:                                           # noqa: BLE001
         logger.exception("market_brief.day_range_failed")
     lines += bodies

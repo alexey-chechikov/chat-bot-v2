@@ -1,0 +1,160 @@
+{
+ "role": "derived validation summary of day_range dr-2; no prices, no snapshots",
+ "manifest_sha256": "616d544972caca686476262fa687734aba4dbceef1e27bd9600fe3c9ec445c9f",
+ "code_sha256": {
+  "services/coinglass_web/day_range.py": "852a337cf7d004e9fd7cd9b54ecf749e2b921ce2aa64e62e1c5e06fcf0154ab3",
+  "services/market_brief/brief.py": "313b062d054897df87ccc54ebe74f26bbbbc2922069338208b6465e2ad081fcf"
+ },
+ "algo": "dr-2",
+ "built_utc": "2026-10-19T10:18:38+00:00",
+ "symbols": {
+  "BTCUSDT": {
+   "source": "BTCUSDT_UM_1m.csv",
+   "source_sha256": "8b39e6306c4d1c800d252c0417488a7c735c6a98f6170f047d3ba0e1ea56602f",
+   "npz_sha256": "933e54c306e7cca8d1d4b1af6b02c9848f7ccaca32273348b48231b7c27d078f",
+   "cutoff_utc": "2026-10-14T20:13:00+00:00",
+   "days": [
+    "2024-10-14",
+    "2026-10-13"
+   ],
+   "n_days": 730,
+   "skipped_incomplete": [],
+   "validation": {
+    "phase": "08:01, часы ATR до 08:00",
+    "train": [
+     "2024-10-14",
+     "2025-10-13"
+    ],
+    "test": [
+     "2025-10-14",
+     "2026-10-13"
+    ],
+    "n_train_days": 365,
+    "n_test_days": 365,
+    "marginal_up_inside": 0.893,
+    "marginal_down_inside": 0.866,
+    "joint_inside": 0.762,
+    "touch_bins": [
+     {
+      "promised": 0.086,
+      "realized": 0.101,
+      "queries": 1460,
+      "days": 365
+     },
+     {
+      "promised": 0.303,
+      "realized": 0.312,
+      "queries": 1460,
+      "days": 365
+     },
+     {
+      "promised": 0.511,
+      "realized": 0.534,
+      "queries": 730,
+      "days": 365
+     },
+     {
+      "promised": 0.721,
+      "realized": 0.758,
+      "queries": 730,
+      "days": 365
+     },
+     {
+      "promised": 0.845,
+      "realized": 0.877,
+      "queries": 730,
+      "days": 365
+     }
+    ],
+    "queries": 5110,
+    "distances_atr": [
+     0.5,
+     1,
+     2,
+     3,
+     4,
+     6,
+     8
+    ],
+    "brier_model": 0.1636,
+    "brier_baseline_const": 0.2451,
+    "baseline_definition": "одна частота касания по всем расстояниям и сторонам на подборе (без учёта расстояния)",
+    "note": "запросы зависимы внутри дня (2 стороны × 7 расстояний); единица независимости — день"
+   }
+  },
+  "ETHUSDT": {
+   "source": "ETHUSDT_UM_1m.csv",
+   "source_sha256": "1fd301a1a642541393f9b429f9004665d42fba40e88f7b170e2632754c0f6005",
+   "npz_sha256": "0e6a27b51fe823e2dfc1c3113d40d8f1a660cda53b7baa7d427ec0e6b31b4d9b",
+   "cutoff_utc": "2026-10-14T20:26:00+00:00",
+   "days": [
+    "2024-10-14",
+    "2026-10-13"
+   ],
+   "n_days": 730,
+   "skipped_incomplete": [],
+   "validation": {
+    "phase": "08:01, часы ATR до 08:00",
+    "train": [
+     "2024-10-14",
+     "2025-10-13"
+    ],
+    "test": [
+     "2025-10-14",
+     "2026-10-13"
+    ],
+    "n_train_days": 365,
+    "n_test_days": 365,
+    "marginal_up_inside": 0.882,
+    "marginal_down_inside": 0.888,
+    "joint_inside": 0.775,
+    "touch_bins": [
+     {
+      "promised": 0.088,
+      "realized": 0.102,
+      "queries": 1460,
+      "days": 365
+     },
+     {
+      "promised": 0.294,
+      "realized": 0.296,
+      "queries": 1460,
+      "days": 365
+     },
+     {
+      "promised": 0.51,
+      "realized": 0.527,
+      "queries": 730,
+      "days": 365
+     },
+     {
+      "promised": 0.718,
+      "realized": 0.747,
+      "queries": 730,
+      "days": 365
+     },
+     {
+      "promised": 0.852,
+      "realized": 0.881,
+      "queries": 730,
+      "days": 365
+     }
+    ],
+    "queries": 5110,
+    "distances_atr": [
+     0.5,
+     1,
+     2,
+     3,
+     4,
+     6,
+     8
+    ],
+    "brier_model": 0.1626,
+    "brier_baseline_const": 0.2441,
+    "baseline_definition": "одна частота касания по всем расстояниям и сторонам на подборе (без учёта расстояния)",
+    "note": "запросы зависимы внутри дня (2 стороны × 7 расстояний); единица независимости — день"
+   }
+  }
+ }
+}

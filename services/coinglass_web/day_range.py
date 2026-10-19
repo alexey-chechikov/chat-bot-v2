@@ -1,14 +1,22 @@
-"""Прогноз РАЗМАХА на сутки (не направления) для утренней сводки: коридор цены от 08:00 Варшавы до 08:00 завтра и шанс
-коснуться уровней (магнитные зоны CoinGlass) — эмпирически по 730 утрам 08:00 в единицах ATR14 часовых свечей.
+"""Прогноз РАЗМАХА на сутки (не направления) для утренней сводки — версия dr-2 (19.10.2026, по разбору GPT
+docs/COINGLASS_HANDOVER_PASS_AND_DAY_RANGE_REVIEW_2026-10-19.md).
 
-Замер 19.10.2026 на BTC (подбор 18.10.2024–17.10.2025, проверка 18.10.2025–17.10.2026, 08:00 Варшавы):
-шанс коснуться — обещано 11/29/49/70/85% → сбылось 12/28/48/72/87%; Brier 0.160 против 0.217 у «средней частоты»;
-коридор 90%/90% целиком удержан в 76% дней проверки. Прогноз направления не даёт — вверх и вниз почти симметричны
-(прогноз направления опровергнут многократно — CLAUDE.md «Где не искать»).
-
-Каждое утро: вчерашний прогноз против факта (полные 1440 минут Binance) и накопленная сверка «обещано → сбылось».
-Файлы: state/coinglass/day_range_table.json (таблица, строится один раз из frozen), day_range_log.jsonl (прогнозы и
-проверки).
+Контракт dr-2:
+  - прогноз выдаётся в момент T (сборка карточки). Опорная цена P — close последней ЗАКРЫТОЙ минуты до T (минута A−2);
+    окно исхода — от A = первой полной минуты после T до следующего местного 08:00 Варшавы (1380/1440/1500 минут при
+    переводе часов). ATR14 — простое среднее 14 TR по 15 часам, закрытым до начала часа T;
+  - история — 730 дней из замороженных минуток Binance UM в ТОЙ ЖЕ фазе: A_j = 08:00 + (A − 08:00), P_j — close минуты
+    A_j−2, часы ATR с тем же сдвигом, окно до местного 08:00 следующего дня;
+  - коридор — квантиль 90% хода вверх и 90% хода вниз ПО ОТДЕЛЬНОСТИ (это не 90% всего коридора); в карточке —
+    фактическое совместное покрытие на проверке вне выборки по каждой монете;
+  - шанс коснуться уровня — частота, с которой цена проходила то же расстояние в ATR. Это геометрия и волатильность:
+    сила/плотность зоны CoinGlass в расчёт не входит, добавочной ценности карты это не доказывает (её проверяет C1);
+  - зоны — только из снимка, полученного ДО T (не старше 70 мин), с run_id, временем получения и SHA записи снимка;
+  - каждый запуск проверяет все созревшие и ещё не оценённые прогнозы; сбой → запись pending с причиной и повтор;
+    зрелость — по фактическому текущему времени; сводка: выдано / проверено / ждут / пропущено;
+  - записи прежней версии (без "algo") не переписываются и в статистику dr-2 не входят.
+Файлы state/coinglass/: day_range_base_<SYM>.npz + day_range_manifest.json (строятся один раз из frozen, с SHA и
+проверкой вне выборки), day_range_log.jsonl (прогнозы, проверки, pending).
 """
 from __future__ import annotations
 
@@ -22,13 +30,17 @@ import numpy as np
 
 from services.coinglass_web.collector import DIR, ROOT
 
+ALGO = "dr-2"
 WARSAW = ZoneInfo("Europe/Warsaw")
 SYMS = ("BTCUSDT", "ETHUSDT")
-TABLE = DIR / "day_range_table.json"
 LOG = DIR / "day_range_log.jsonl"
-Q = 0.90                                  # квантиль каждой стороны коридора
+MANIFEST = DIR / "day_range_manifest.json"
+Q = 0.90                                  # квантиль КАЖДОЙ стороны коридора (не всего коридора)
 MIN, HOUR = 60_000, 3_600_000
 HOUR_LOCAL = 8
+N_DAYS = 730
+LATE_MIN = 15                             # выдан позже 08:15 — помечается поздним (окно короче)
+DISTS = (0.5, 1, 2, 3, 4, 6, 8)           # расстояния в ATR для проверки калибровки
 
 
 def _get(url: str):
@@ -50,7 +62,7 @@ def klines(sym: str, interval: str, start_ms: int, end_ms: int) -> list:
 
 
 def atr14(h: list, lo: list, c: list) -> float:
-    """Простое среднее 14 TR по 15 свечам (первая — только для previous close)."""
+    """Простое среднее 14 TR по 15 свечам (первая — только для previous close). Не Уайлдер."""
     tr = [max(h[i] - lo[i], abs(h[i] - c[i - 1]), abs(lo[i] - c[i - 1])) for i in range(1, 15)]
     return sum(tr) / 14
 
@@ -59,81 +71,140 @@ def anchor_ms(day: date) -> int:
     return int(datetime(day.year, day.month, day.day, HOUR_LOCAL, tzinfo=WARSAW).timestamp() * 1000)
 
 
-# ---------------------------------------------------------------- таблица (один раз из замороженных минуток)
-def _moves(ts, op, hi, lo, cl, a_ms: int):
-    """(up, dn, atr, p0) для окна 1440 минут от a_ms; None — неполное покрытие."""
-    i = int(np.searchsorted(ts, a_ms))
-    if i + 1440 > len(ts) or ts[i] != a_ms or ts[i + 1439] != a_ms + 1439 * MIN:
-        return None
-    j = int(np.searchsorted(ts, a_ms - 15 * HOUR))
-    if ts[j] != a_ms - 15 * HOUR or i - j != 900:
-        return None
-    hs = [float(hi[j + k * 60:j + k * 60 + 60].max()) for k in range(15)]
-    ls = [float(lo[j + k * 60:j + k * 60 + 60].min()) for k in range(15)]
-    cs = [float(cl[j + k * 60 + 59]) for k in range(15)]
-    atr, p0 = atr14(hs, ls, cs), float(op[i])
-    return (float(hi[i:i + 1440].max()) - p0) / atr, (p0 - float(lo[i:i + 1440].min())) / atr, atr, p0
+def sha_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
 
 
-def build_table(syms=SYMS, n_days: int = 730) -> dict:
+# ---------------------------------------------------------------- замороженная база (один раз)
+def _base_path(sym: str):
+    return DIR / f"day_range_base_{sym}.npz"
+
+
+def _hist(B: dict, k_min: int, h_off: int, days=None) -> tuple[np.ndarray, np.ndarray]:
+    """Ходы вверх/вниз в ATR для каждого дня базы в фазе (k_min минут после 08:00, часы ATR до 08:00+h_off)."""
+    ts = B["ts"]
+    up, dn = [], []
+    for d in (days if days is not None else B["days"]):
+        d = date.fromisoformat(str(d))
+        an = anchor_ms(d)
+        a, end, H = an + k_min * MIN, anchor_ms(d + timedelta(days=1)), an + h_off * HOUR
+        ia, ie, ip, ih = (int(np.searchsorted(ts, x)) for x in (a, end, a - 2 * MIN, H - 15 * HOUR))
+        n = len(ts)
+        if max(ia, ip, ih + 899) >= n or ie > n or ie - ia != (end - a) // MIN or ts[ia] != a \
+                or ts[ie - 1] != end - MIN or ts[ip] != a - 2 * MIN or ts[ih] != H - 15 * HOUR \
+                or ts[ih + 899] != H - MIN:
+            up.append(np.nan)
+            dn.append(np.nan)
+            continue
+        hs = [float(B["high"][ih + 60 * m:ih + 60 * m + 60].max()) for m in range(15)]
+        ls = [float(B["low"][ih + 60 * m:ih + 60 * m + 60].min()) for m in range(15)]
+        cs = [float(B["close"][ih + 60 * m + 59]) for m in range(15)]
+        atr, p = atr14(hs, ls, cs), float(B["close"][ip])
+        up.append((float(B["high"][ia:ie].max()) - p) / atr)
+        dn.append((p - float(B["low"][ia:ie].min())) / atr)
+    return np.array(up), np.array(dn)
+
+
+def _validate(B: dict) -> dict:
+    """Вне выборки в фазе 08:01 (типичная выдача): первая половина дней — подбор, вторая — проверка."""
+    up, dn = _hist(B, 1, 0)
+    ok = ~(np.isnan(up) | np.isnan(dn))
+    days = [d for d, o in zip(B["days"], ok) if o]
+    up, dn = up[ok], dn[ok]
+    half = len(days) // 2
+    tu, td, vu, vd = up[:half], dn[:half], up[half:], dn[half:]
+    qu, qd = float(np.quantile(tu, Q)), float(np.quantile(td, Q))
+    pr, ac, day_of = [], [], []
+    for i in range(len(vu)):
+        for tr_arr, real in ((tu, vu[i]), (td, vd[i])):
+            for dd in DISTS:
+                pr.append(float(np.mean(tr_arr >= dd)))
+                ac.append(float(real >= dd))
+                day_of.append(i)
+    pr, ac, day_of = np.array(pr), np.array(ac), np.array(day_of)
+    base_rate = float(np.mean([np.mean(a >= dd) for a in (tu, td) for dd in DISTS]))
+    bins = []
+    for lo_, hi_ in ((0, .2), (.2, .4), (.4, .6), (.6, .8), (.8, 1.01)):
+        m = (pr >= lo_) & (pr < hi_)
+        if m.sum():
+            bins.append({"promised": round(float(pr[m].mean()), 3), "realized": round(float(ac[m].mean()), 3),
+                         "queries": int(m.sum()), "days": int(len(set(day_of[m].tolist())))})
+    return {"phase": "08:01, часы ATR до 08:00", "train": [days[0], days[half - 1]], "test": [days[half], days[-1]],
+            "n_train_days": half, "n_test_days": len(days) - half,
+            "marginal_up_inside": round(float(np.mean(vu <= qu)), 3),
+            "marginal_down_inside": round(float(np.mean(vd <= qd)), 3),
+            "joint_inside": round(float(np.mean((vu <= qu) & (vd <= qd))), 3),
+            "touch_bins": bins, "queries": int(len(pr)), "distances_atr": list(DISTS),
+            "brier_model": round(float(np.mean((pr - ac) ** 2)), 4),
+            "brier_baseline_const": round(float(np.mean((base_rate - ac) ** 2)), 4),
+            "baseline_definition": "одна частота касания по всем расстояниям и сторонам на подборе (без учёта "
+                                   "расстояния)",
+            "note": "запросы зависимы внутри дня (2 стороны × 7 расстояний); единица независимости — день"}
+
+
+def build_base(syms=SYMS) -> dict:
+    """Минутки frozen → npz на монету; последние N_DAYS полных дней [08:00−15ч; 08:00 след. дня); пропуски считаются."""
     import pandas as pd
-    out = {}
+    man = {"algo": ALGO, "built_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "symbols": {}}
     for sym in syms:
         src = ROOT / "backtests" / "frozen" / f"{sym}_UM_1m.csv"
         d = pd.read_csv(src, usecols=["ts", "open", "high", "low", "close"]).drop_duplicates("ts").sort_values("ts")
         ts = d.ts.to_numpy(dtype=np.int64)
-        arrs = [d[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close")]
-        last = datetime.fromtimestamp(ts[-1] / 1000, timezone.utc).astimezone(WARSAW).date() - timedelta(days=2)
-        days, up, dn = [], [], []
-        day = last
-        while len(days) < n_days and day > last - timedelta(days=n_days + 60):
-            m = _moves(ts, *arrs, anchor_ms(day))
-            if m:
+        cutoff = datetime.fromtimestamp(ts[-1] / 1000, timezone.utc)
+        day = cutoff.astimezone(WARSAW).date() - timedelta(days=1)
+        days, skipped = [], []
+        while len(days) < N_DAYS and len(skipped) < 120:
+            a0, a1 = anchor_ms(day) - 15 * HOUR, anchor_ms(day + timedelta(days=1))
+            i0, i1 = int(np.searchsorted(ts, a0)), int(np.searchsorted(ts, a1))
+            if a1 <= ts[-1] and i1 - i0 == (a1 - a0) // MIN and ts[i0] == a0 and ts[i1 - 1] == a1 - MIN:
                 days.append(day.isoformat())
-                up.append(round(m[0], 4))
-                dn.append(round(m[1], 4))
+            elif a1 <= ts[-1]:
+                skipped.append(day.isoformat())
             day -= timedelta(days=1)
-        days, up, dn = days[::-1], up[::-1], dn[::-1]
-        u, w = np.array(up), np.array(dn)
-        half = len(days) // 2                                   # вне выборки: подбор на первой половине
-        pr, ac = [], []
-        for i in range(half, len(days)):
-            for arr, real in ((u[:half], u[i]), (w[:half], w[i])):
-                for dd in (0.5, 1, 2, 3, 4, 6, 8):
-                    pr.append(float(np.mean(arr >= dd)))
-                    ac.append(float(real >= dd))
-        pr, ac = np.array(pr), np.array(ac)
-        bins = []
-        for lo_, hi_ in ((0, .2), (.2, .4), (.4, .6), (.6, .8), (.8, 1.01)):
-            m = (pr >= lo_) & (pr < hi_)
-            if m.sum():
-                bins.append([round(float(pr[m].mean()), 3), round(float(ac[m].mean()), 3), int(m.sum())])
-        qu, qd = np.quantile(u[:half], Q), np.quantile(w[:half], Q)
-        out[sym] = {"days": [days[0], days[-1]], "n": len(days), "up": up, "dn": dn,
-                    "source": src.name, "source_sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
-                    "validation": {"split": [days[0], days[half - 1], days[half], days[-1]],
-                                   "promised_realized_n": bins,
-                                   "corridor_inside_share": round(float(np.mean((u[half:] <= qu) & (w[half:] <= qd))), 3)}}
-    TABLE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-    return out
+        days = days[::-1]
+        lo_ms = anchor_ms(date.fromisoformat(days[0])) - 16 * HOUR
+        m = ts >= lo_ms
+        path = _base_path(sym)
+        np.savez(path, ts=ts[m], open=d.open.to_numpy()[m], high=d.high.to_numpy()[m], low=d.low.to_numpy()[m],
+                 close=d.close.to_numpy()[m], days=np.array(days))
+        B = _load(sym, verify=False)
+        man["symbols"][sym] = {"source": src.name, "source_sha256": sha_bytes(src.read_bytes()),
+                               "npz_sha256": sha_bytes(path.read_bytes()), "cutoff_utc": cutoff.isoformat(),
+                               "days": [days[0], days[-1]], "n_days": len(days), "skipped_incomplete": skipped,
+                               "validation": _validate(B)}
+    MANIFEST.write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
+    man["manifest_sha256"] = sha_bytes(MANIFEST.read_bytes())
+    return man
 
 
-_TAB = None
+_B: dict = {}
 
 
-def table() -> dict:
-    global _TAB
-    if _TAB is None:
-        _TAB = json.loads(TABLE.read_text(encoding="utf-8")) if TABLE.exists() else build_table()
-    return _TAB
+def _load(sym: str, verify: bool = True) -> dict:
+    if sym not in _B or not verify:
+        path = _base_path(sym)
+        if verify:
+            want = json.loads(MANIFEST.read_text(encoding="utf-8"))["symbols"][sym]["npz_sha256"]
+            if sha_bytes(path.read_bytes()) != want:
+                raise RuntimeError(f"day_range: SHA базы {sym} не совпадает с манифестом")
+        z = np.load(path)
+        B = {k: z[k] for k in z.files}
+        B["days"] = [str(x) for x in B["days"]]
+        if not verify:
+            return B
+        _B[sym] = B
+    return _B[sym]
 
 
-def chance(sym: str, side: str, dist_atr: float) -> float:
-    arr = np.array(table()[sym]["up" if side == "up" else "dn"])
-    return float(np.mean(arr >= dist_atr))
+def manifest() -> dict:
+    if not MANIFEST.exists():
+        build_base()
+    m = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    m["manifest_sha256"] = sha_bytes(MANIFEST.read_bytes())
+    return m
 
 
-# ---------------------------------------------------------------- прогноз и проверка
+# ---------------------------------------------------------------- журнал
 def _read() -> list[dict]:
     return [json.loads(x) for x in LOG.read_text(encoding="utf-8").splitlines() if x.strip()] if LOG.exists() else []
 
@@ -144,75 +215,17 @@ def _append(rec: dict) -> None:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
-def forecast(sym: str, day: date, levels: list[tuple[str, float]] = ()) -> dict | None:
-    """Прогноз от 08:00 `day`: P0 = open минуты 08:00, ATR по 15 закрытым часам до 08:00, коридор по квантилю 90%
-    каждой стороны, шанс коснуться каждого уровня. Пишется один раз на (день, монету)."""
-    for r in _read():
-        if r.get("kind") == "forecast" and r["date"] == day.isoformat() and r["sym"] == sym:
-            return r
-    a = anchor_ms(day)
-    k = klines(sym, "1m", a, a + MIN)
-    hrs = klines(sym, "1h", a - 15 * HOUR, a)
-    if not k or int(k[0][0]) != a or len(hrs) != 15 or any(int(hrs[i][6]) >= a for i in range(15)):
-        return None
-    p0 = float(k[0][1])
-    atr = atr14([float(x[2]) for x in hrs], [float(x[3]) for x in hrs], [float(x[4]) for x in hrs])
-    t = table()[sym]
-    hi = p0 + float(np.quantile(t["up"], Q)) * atr
-    lo = p0 - float(np.quantile(t["dn"], Q)) * atr
-    lv = []
-    for name, price in levels:
-        side = "up" if price > p0 else "dn"
-        dist = abs(price - p0) / atr
-        lv.append({"name": name, "price": price, "side": side, "dist_atr": round(dist, 3),
-                   "chance": round(chance(sym, side, dist), 3)})
-    rec = {"kind": "forecast", "date": day.isoformat(), "sym": sym, "A_ms": a, "P0": p0, "atr": atr,
-           "corridor": [lo, hi], "q": Q, "median_move": [float(np.median(t["dn"])) * atr, float(np.median(t["up"])) * atr],
-           "levels": lv, "table_days": t["days"], "made_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    _append(rec)
-    return rec
+def _mine(kind: str) -> list[dict]:
+    return [r for r in _read() if r.get("algo") == ALGO and r.get("kind") == kind]
 
 
-def check(sym: str, day: date, now: datetime) -> dict | None:
-    """Исход прогноза `day`: полные 1440 минут — коридор удержан? уровни задеты? Пишется один раз."""
-    for r in _read():
-        if r.get("kind") == "check" and r["date"] == day.isoformat() and r["sym"] == sym:
-            return r
-    f = next((r for r in _read() if r.get("kind") == "forecast" and r["date"] == day.isoformat() and r["sym"] == sym),
-             None)
-    if f is None or now.timestamp() * 1000 < f["A_ms"] + 1440 * MIN + MIN:
-        return None
-    rows = klines(sym, "1m", f["A_ms"], f["A_ms"] + 1440 * MIN)
-    if len(rows) != 1440 or any(int(r[0]) != f["A_ms"] + i * MIN for i, r in enumerate(rows)):
-        return None
-    h, lw = max(float(r[2]) for r in rows), min(float(r[3]) for r in rows)
-    lo, hi = f["corridor"]
-    rec = {"kind": "check", "date": day.isoformat(), "sym": sym, "high": h, "low": lw,
-           "inside": h <= hi and lw >= lo, "broke_up": h > hi, "broke_down": lw < lo,
-           "levels": [{**x, "touched": (h >= x["price"]) if x["side"] == "up" else (lw <= x["price"])}
-                      for x in f["levels"]]}
-    _append(rec)
-    return rec
-
-
-def stats(sym: str) -> dict:
-    ch = [r for r in _read() if r.get("kind") == "check" and r["sym"] == sym]
-    lv = [x for r in ch for x in r["levels"]]
-    return {"days": len(ch), "inside": sum(r["inside"] for r in ch),
-            "levels": len(lv), "promised": (sum(x["chance"] for x in lv) / len(lv)) if lv else None,
-            "realized": (sum(x["touched"] for x in lv) / len(lv)) if lv else None}
-
-
-def _p(x: float, sym: str) -> str:
-    return f"{x:,.0f}" if sym.startswith("BTC") else f"{x:,.1f}"
-
-
-def zones_at(day: date) -> list[tuple[str, float]]:
-    """Ближние края первых зон CoinGlass из снимка 08:00 этого дня (снят в [07:50; 08:10]). Позже снятые зоны
-    не берём: цена могла уже дойти до них после 08:00, и сверка касаний врала бы в пользу прогноза."""
+# ---------------------------------------------------------------- зоны, известные до выдачи
+def zones_known(issued: datetime, max_age_min: int = 70) -> dict | None:
+    """Последний снимок CoinGlass, полученный ДО момента выдачи и не старше 70 мин: ближние края первых зон
+    + происхождение (run_id, время получения, SHA записи снимка)."""
     p = DIR / "snapshots.jsonl"
-    a = anchor_ms(day)
-    best = None
+    t_iss = issued.timestamp()
+    best, best_line = None, None
     for line in (p.read_text(encoding="utf-8").splitlines() if p.exists() else []):
         try:
             s = json.loads(line)
@@ -221,62 +234,178 @@ def zones_at(day: date) -> list[tuple[str, float]]:
         cap = s.get("levels_captured")
         if not s.get("levels") or not cap:
             continue
-        t = datetime.fromisoformat(cap).timestamp() * 1000
-        if a - 10 * MIN <= t <= a + 10 * MIN:
-            best = s
+        t = datetime.fromisoformat(cap).timestamp()
+        if t_iss - max_age_min * 60 <= t < t_iss:
+            best, best_line = s, line
     if best is None:
-        return []
-    lv, out = best["levels"], []
+        return None
+    lv, z = best["levels"], []
     zs, zl = (lv.get("zones_short") or [None])[0], (lv.get("zones_long") or [None])[0]
     if zs:
-        out.append(("зоны шортов сверху", float(zs["lo"])))
+        z.append(("зоны шортов сверху", float(zs["lo"])))
     if zl:
-        out.append(("зоны лонгов снизу", float(zl["hi"])))
-    return out
+        z.append(("зоны лонгов снизу", float(zl["hi"])))
+    return {"levels": z, "run_id": best.get("run_id", best.get("ts")), "levels_captured": best["levels_captured"],
+            "snapshot_record_sha256": sha_bytes(best_line.encode("utf-8"))}
 
 
-def lines(now: datetime | None = None, zones: list[tuple[str, float]] | None = None) -> list[str]:
-    """Блок карточки: прогноз на сегодня (BTC с зонами CoinGlass из снимка 08:00, ETH) + вчерашний итог + сверка."""
-    now = now or datetime.now(timezone.utc)
-    loc = now.astimezone(WARSAW)
-    today = loc.date() if loc.hour >= HOUR_LOCAL else loc.date() - timedelta(days=1)
-    zones = zones_at(today) if zones is None else zones
-    out = ["📏 Прогноз на сутки — размах, не направление (от 08:00 до 08:00 завтра):"]
+# ---------------------------------------------------------------- прогноз
+def issue_day(issued: datetime) -> date:
+    loc = issued.astimezone(WARSAW)
+    return loc.date() if loc.hour >= HOUR_LOCAL else loc.date() - timedelta(days=1)
+
+
+def forecast(sym: str, issued: datetime, zones: dict | None = None) -> dict | None:
+    """Прогноз, выданный в момент `issued` на окно [A; следующее 08:00). Один на (день, монету, версию)."""
+    day = issue_day(issued)
+    for r in _mine("forecast"):
+        if r["date"] == day.isoformat() and r["sym"] == sym:
+            return r
+    t_ms = int(issued.timestamp() * 1000)
+    a = (t_ms // MIN + 1) * MIN                                    # первая полная минута после выдачи
+    an, end = anchor_ms(day), anchor_ms(day + timedelta(days=1))
+    H = (t_ms // HOUR) * HOUR                                      # часы ATR закрыты до начала часа выдачи
+    k_min, h_off = (a - an) // MIN, (H - an) // HOUR
+    if a >= end - 60 * MIN:
+        return None
+    pk = [r for r in klines(sym, "1m", a - 2 * MIN, a - MIN) if int(r[0]) == a - 2 * MIN]
+    hrs = klines(sym, "1h", H - 15 * HOUR, H)
+    if not pk or len(hrs) != 15 or any(int(hrs[i][0]) != H - (15 - i) * HOUR for i in range(15)) \
+            or int(hrs[-1][6]) >= t_ms:
+        return None
+    p = float(pk[0][4])
+    atr = atr14([float(x[2]) for x in hrs], [float(x[3]) for x in hrs], [float(x[4]) for x in hrs])
+    B = _load(sym)
+    up, dn = _hist(B, int(k_min), int(h_off))
+    up, dn = up[~np.isnan(up)], dn[~np.isnan(dn)]
+    man = manifest()
+    lv = []
+    for name, price in ((zones or {}).get("levels") or []):
+        side = "up" if price > p else "dn"
+        dist = abs(price - p) / atr
+        lv.append({"name": name, "price": price, "side": side, "dist_atr": round(dist, 3),
+                   "chance": round(float(np.mean((up if side == "up" else dn) >= dist)), 3)})
+    rec = {"algo": ALGO, "kind": "forecast", "date": day.isoformat(), "sym": sym,
+           "issued_utc": issued.astimezone(timezone.utc).isoformat(timespec="seconds"),
+           "late": issued.timestamp() * 1000 > an + LATE_MIN * MIN, "A_ms": a, "end_ms": end,
+           "window_min": (end - a) // MIN, "phase": {"k_min": int(k_min), "h_off": int(h_off)},
+           "P_ref": p, "P_ref_minute_ms": a - 2 * MIN, "atr": atr, "atr_hours_open_ms": [int(x[0]) for x in hrs],
+           "corridor": [p - float(np.quantile(dn, Q)) * atr, p + float(np.quantile(up, Q)) * atr], "q_each_side": Q,
+           "median_move": [float(np.median(dn)) * atr, float(np.median(up)) * atr], "history_days": int(len(up)),
+           "levels": lv, "zones_source": {k: v for k, v in (zones or {}).items() if k != "levels"} or None,
+           "base_npz_sha256": man["symbols"][sym]["npz_sha256"], "manifest_sha256": man["manifest_sha256"]}
+    rec["record_sha256"] = sha_bytes(json.dumps(rec, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+    _append(rec)
+    return rec
+
+
+# ---------------------------------------------------------------- проверка (все созревшие)
+def _check_one(f: dict) -> dict:
+    rows = klines(f["sym"], "1m", f["A_ms"], f["end_ms"])
+    n = (f["end_ms"] - f["A_ms"]) // MIN
+    if len(rows) != n or any(int(r[0]) != f["A_ms"] + i * MIN for i, r in enumerate(rows)):
+        raise ValueError(f"минут {len(rows)} из {n}")
+    h, lw = max(float(r[2]) for r in rows), min(float(r[3]) for r in rows)
+    lo, hi = f["corridor"]
+    return {"algo": ALGO, "kind": "check", "date": f["date"], "sym": f["sym"], "minutes": n, "high": h, "low": lw,
+            "inside": h <= hi and lw >= lo, "broke_up": h > hi, "broke_down": lw < lo,
+            "levels": [{**x, "touched": (h >= x["price"]) if x["side"] == "up" else (lw <= x["price"])}
+                       for x in f["levels"]],
+            "checked_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
+def resolve_all(clock=lambda: datetime.now(timezone.utc)) -> int:
+    """Каждый созревший и ещё не оценённый прогноз — проверить; сбой → pending с причиной (повтор при следующем
+    запуске). Зрелость — по фактическому времени в момент проверки."""
+    done = {(r["date"], r["sym"]) for r in _mine("check")}
+    new = 0
+    for f in _mine("forecast"):
+        if (f["date"], f["sym"]) in done or clock().timestamp() * 1000 < f["end_ms"] + MIN:
+            continue
+        try:
+            _append(_check_one(f))
+            new += 1
+        except Exception as exc:                                # noqa: BLE001
+            _append({"algo": ALGO, "kind": "pending", "date": f["date"], "sym": f["sym"],
+                     "reason": f"{type(exc).__name__}: {exc}"[:160],
+                     "at_utc": clock().isoformat(timespec="seconds")})
+    return new
+
+
+def stats(sym: str, clock=lambda: datetime.now(timezone.utc)) -> dict:
+    fc = [r for r in _mine("forecast") if r["sym"] == sym]
+    ch = {r["date"]: r for r in _mine("check") if r["sym"] == sym}
+    now_ms = clock().timestamp() * 1000
+    mature = [f for f in fc if now_ms >= f["end_ms"] + MIN]
+    issued_days = {f["date"] for f in fc}
+    missing = 0
+    if fc:                                                     # прошедшие дни без прогноза (сегодня ещё не пропуск)
+        d, last = date.fromisoformat(min(issued_days)), issue_day(clock()) - timedelta(days=1)
+        while d <= last:
+            missing += d.isoformat() not in issued_days
+            d += timedelta(days=1)
+    lv = [x for r in ch.values() for x in r["levels"]]
+    return {"issued": len(fc), "resolved": len(ch), "pending": sum(1 for f in mature if f["date"] not in ch),
+            "waiting": len(fc) - len(mature), "missing_days": missing, "late": sum(1 for f in fc if f["late"]),
+            "inside": sum(r["inside"] for r in ch.values()), "levels": len(lv),
+            "promised": (sum(x["chance"] for x in lv) / len(lv)) if lv else None,
+            "realized": (sum(x["touched"] for x in lv) / len(lv)) if lv else None}
+
+
+# ---------------------------------------------------------------- блок карточки
+def _p(x: float, sym: str) -> str:
+    return f"{x:,.0f}" if sym.startswith("BTC") else f"{x:,.1f}"
+
+
+def lines(issued: datetime | None = None, zones: dict | None = None,
+          clock=lambda: datetime.now(timezone.utc)) -> list[str]:
+    issued = issued or clock()
+    try:
+        resolve_all(clock)
+    except Exception:                                           # noqa: BLE001
+        pass
+    zones = zones_known(issued) if zones is None else zones
+    man = manifest()
+    out = ["📏 Прогноз на сутки — размах, не направление:"]
     for sym in SYMS:
         name = sym[:3]
         try:
-            f = forecast(sym, today, zones if sym == "BTCUSDT" else ())
+            f = forecast(sym, issued, zones if sym == "BTCUSDT" else None)
         except Exception as exc:                                # noqa: BLE001
             out.append(f"• {name}: не посчитано ({type(exc).__name__})")
             continue
         if f is None:
-            out.append(f"• {name}: нет полных свечей Binance на 08:00 — пропуск")
+            out.append(f"• {name}: нет закрытых свечей Binance на момент выдачи — пропуск")
             continue
+        v = man["symbols"][sym]["validation"]
         lo, hi = f["corridor"]
         dn, up = f["median_move"]
-        out.append(f"• {name} от {_p(f['P0'], sym)}: коридор {_p(lo, sym)}–{_p(hi, sym)} (≈3 дня из 4 цена "
-                   f"внутри); обычный ход за сутки вверх до +{_p(up, sym)}, вниз до −{_p(dn, sym)}")
+        a_loc = datetime.fromtimestamp(f["A_ms"] / 1000, timezone.utc).astimezone(WARSAW)
+        out.append(f"• {name} {_p(f['P_ref'], sym)}, с {a_loc:%H:%M} до 08:00 завтра: коридор {_p(lo, sym)}–{_p(hi, sym)} "
+                   f"(на проверке {v['test'][0][:4]}–{v['test'][1][:4]} цена целиком внутри {v['joint_inside'] * 100:.0f}% "
+                   f"дней); обычный ход вверх до +{_p(up, sym)}, вниз до −{_p(dn, sym)}")
+        if f["levels"]:
+            out.append("  шанс коснуться (по расстоянию в ATR, сила зоны не учитывается):")
         for x in f["levels"]:
-            pct = (x["price"] / f["P0"] - 1) * 100
-            out.append(f"  шанс коснуться {x['name']} {_p(x['price'], sym)} ({pct:+.1f}%): {x['chance'] * 100:.0f}%")
-    for sym in SYMS:
-        try:
-            c = check(sym, today - timedelta(days=1), now)
-        except Exception:                                       # noqa: BLE001
-            c = None
-        if c:
-            how = "удержан" if c["inside"] else ("пробит вверх" if c["broke_up"] else "") + \
-                (" и " if c["broke_up"] and c["broke_down"] else "") + ("пробит вниз" if c["broke_down"] else "")
-            tl = "; ".join(f"{x['name']} {'задета' if x['touched'] else 'нет'} (шанс был {x['chance'] * 100:.0f}%)"
-                           for x in c["levels"])
-            out.append(f"  вчера {sym[:3]}: коридор {how}" + (f"; {tl}" if tl else ""))
-    s = stats("BTCUSDT")
-    if s["days"]:
-        tail = (f"; шансы касания — обещано в среднем {s['promised'] * 100:.0f}%, сбылось {s['realized'] * 100:.0f}% "
+            pct = (x["price"] / f["P_ref"] - 1) * 100
+            out.append(f"  {x['name']} {_p(x['price'], sym)} ({pct:+.1f}%): {x['chance'] * 100:.0f}%")
+    yday = (issue_day(issued) - timedelta(days=1)).isoformat()
+    for c in (r for r in _mine("check") if r["date"] == yday):
+        how = "удержан" if c["inside"] else " и ".join(w for w, b in (("пробит вверх", c["broke_up"]),
+                                                                     ("пробит вниз", c["broke_down"])) if b)
+        tl = "; ".join(f"{x['name']} {'задета' if x['touched'] else 'нет'} (шанс был {x['chance'] * 100:.0f}%)"
+                       for x in c["levels"])
+        out.append(f"  вчера {c['sym'][:3]}: коридор {how}" + (f"; {tl}" if tl else ""))
+    s = stats("BTCUSDT", clock)
+    if s["issued"]:
+        tail = (f"; касания — обещано {s['promised'] * 100:.0f}%, сбылось {s['realized'] * 100:.0f}% "
                 f"({s['levels']} уровней)") if s["levels"] else ""
-        out.append(f"  сверка BTC за {s['days']} дн.: коридор держался {s['inside']}/{s['days']}{tail}"
-                   + (" — мало дней" if s["days"] < 30 else ""))
-    v = table()["BTCUSDT"]["validation"]["promised_realized_n"]
-    out.append("  на истории вне выборки: обещано " + "/".join(f"{b[0] * 100:.0f}" for b in v) + "% → сбылось "
-               + "/".join(f"{b[1] * 100:.0f}" for b in v) + "%")
+        out.append(f"  сверка BTC: выдано {s['issued']}, проверено {s['resolved']}, ждут {s['waiting']}"
+                   + (f", не проверено {s['pending']}" if s["pending"] else "")
+                   + (f", дней без прогноза {s['missing_days']}" if s["missing_days"] else "")
+                   + (f"; коридор держался {s['inside']}/{s['resolved']}" if s["resolved"] else "") + tail
+                   + (" — мало дней" if s["resolved"] < 30 else ""))
+    b = man["symbols"]["BTCUSDT"]["validation"]["touch_bins"]
+    out.append("  на истории вне выборки: обещано " + "/".join(f"{x['promised'] * 100:.0f}" for x in b)
+               + "% → сбылось " + "/".join(f"{x['realized'] * 100:.0f}" for x in b) + "%")
     return out
