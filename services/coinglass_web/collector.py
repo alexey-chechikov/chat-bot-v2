@@ -165,9 +165,71 @@ def collect_text() -> tuple[dict, dict, dict, dict]:
     return texts, fails, caps, seen
 
 
+LOADER_JS = """() => [...document.querySelectorAll('body *')].some(e => e.children.length === 0 &&
+  (e.offsetWidth || e.offsetHeight) && /^(Загрузка|Loading)/.test((e.innerText || '').trim()))"""
+# доля «не фона» на снимке: замер 18–19.10 — стакан загружен 0.27–0.40, недогружен (только свечи) 0.05; дельта
+# 0.14–0.18; тепловая карта с картой ликвидаций 0.55–0.67; пустой холст с заголовком 0.002
+MIN_SHARE = {"liq_heatmap": 0.20, "book_heatmap": 0.15, "depth_delta": 0.07}
+
+
+def nonbackground_share(path: Path) -> float:
+    """Доля пикселей, отличных от самого частого цвета (фона), на уменьшенной копии снимка."""
+    from collections import Counter
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((400, 400))
+    q = [(r >> 3, g >> 3, b >> 3) for r, g, b in im.get_flattened_data()]
+    bg = Counter(q).most_common(1)[0][0]
+    return sum(1 for c in q if max(abs(c[i] - bg[i]) for i in range(3)) > 3) / len(q)
+
+
+def image_check(path: Path, key: str) -> dict:
+    share = nonbackground_share(path)
+    return {"method": "доля пикселей не цвета фона на сохранённом JPEG", "nonbackground_share": round(share, 3),
+            "threshold": MIN_SHARE[key], "nonblank": share >= MIN_SHARE[key]}
+
+
+def _shot(br, key: str, url: str, path: Path) -> tuple[dict, dict]:
+    """Одна попытка снимка: настройки эталона → ждать исчезновения загрузчика (до 45 с) → снимок → проверка картинки."""
+    pg = _page(br, url)
+    try:
+        pg.wait_for_timeout(12_000)                             # холст рисуется после загрузки данных
+        if key == "liq_heatmap":                                # подпись — отдельный <label for=…>
+            box = pg.get_by_label("Карта Ликвидаций")
+            if box.count() and not box.first.is_checked():
+                box.first.check()
+                pg.wait_for_timeout(4_000)
+        if key == "book_heatmap":                               # эталон GPT: интервал 15 мин (по умолчанию 5)
+            sel = pg.locator("button.MuiSelect-button", has_text="минута").first
+            if sel.count() and sel.inner_text().strip() != "15 минута":
+                sel.click()
+                pg.get_by_role("option", name="15 минута", exact=True).click()
+                pg.wait_for_timeout(6_000)
+        t0 = datetime.now(timezone.utc)
+        try:                                                    # 19.10: стакан снят со свечами и «Загрузка…»
+            pg.wait_for_function(f"() => !({LOADER_JS})()", timeout=45_000)
+        except Exception:                                       # noqa: BLE001 — решает проверка ниже
+            pass
+        loader = bool(pg.evaluate(f"({LOADER_JS})()"))
+        waited = round((datetime.now(timezone.utc) - t0).total_seconds(), 1)
+        seen = observe(pg)
+        clip = {"liq_heatmap": {"x": 290, "y": 360, "width": 1100, "height": 840},
+                "book_heatmap": {"x": 0, "y": 80, "width": 1400, "height": 1000}}.get(
+                    key, {"x": 240, "y": 80, "width": 1160, "height": 1100})
+        pg.screenshot(path=str(path), type="jpeg", quality=70, clip=clip)
+        captured = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    finally:
+        pg.close()
+    img = image_check(path, key)
+    check = {"loader_visible_at_capture": loader, "loader_wait_s": waited, "image": img,
+             "ok": (not loader) and img["nonblank"], "checked_utc": captured}
+    return {"captured": captured, "chart_check": check}, seen
+
+
 def collect_shots(shots_dir: Path, now: datetime) -> tuple[dict, dict, dict]:
     """Этап 2: снимки страниц с холстом. Тепловая карта — с включённой «Картой ликвидаций» (как у Windows-сбора GPT).
-    → (файлы с SHA256, сбои, наблюдаемые настройки)."""
+    График не догрузился (загрузчик на экране или почти пустой снимок) → вторая попытка; снова нет → fail с причиной
+    (файл сохраняется, но загруженным не считается). → (файлы с SHA256 и проверкой, сбои, наблюдаемые настройки)."""
     import hashlib
     from playwright.sync_api import sync_playwright
     files, fails, seen = {}, {}, {}
@@ -176,32 +238,23 @@ def collect_shots(shots_dir: Path, now: datetime) -> tuple[dict, dict, dict]:
         br = p.chromium.launch(headless=True)
         try:
             for key, url in SHOTS.items():
-                try:
-                    pg = _page(br, url)
-                    pg.wait_for_timeout(12_000)                 # холст рисуется после загрузки данных
-                    if key == "liq_heatmap":                    # подпись — отдельный <label for=…>
-                        box = pg.get_by_label("Карта Ликвидаций")
-                        if box.count() and not box.first.is_checked():
-                            box.first.check()
-                            pg.wait_for_timeout(4_000)
-                    if key == "book_heatmap":                   # эталон GPT: интервал 15 мин (по умолчанию 5)
-                        sel = pg.locator("button.MuiSelect-button", has_text="минута").first
-                        if sel.count() and sel.inner_text().strip() != "15 минута":
-                            sel.click()
-                            pg.get_by_role("option", name="15 минута", exact=True).click()
-                            pg.wait_for_timeout(6_000)
-                    seen[key] = observe(pg)
-                    clip = {"liq_heatmap": {"x": 290, "y": 360, "width": 1100, "height": 840},
-                            "book_heatmap": {"x": 0, "y": 80, "width": 1400, "height": 1000}}.get(
-                                key, {"x": 240, "y": 80, "width": 1160, "height": 1100})
-                    path = shots_dir / f"{now:%H%M}_{key}.jpg"
-                    pg.screenshot(path=str(path), type="jpeg", quality=70, clip=clip)
+                path = shots_dir / f"{now:%H%M}_{key}.jpg"
+                for attempt in (1, 2):
+                    try:
+                        info, seen[key] = _shot(br, key, url, path)
+                    except Exception as exc:                    # noqa: BLE001
+                        fails[key] = f"попытка {attempt}: {type(exc).__name__}: {exc}"[:200]
+                        continue
                     files[key] = {"file": f"{shots_dir.name}/{path.name}",
-                                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                                  "captured": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
-                    pg.close()
-                except Exception as exc:                        # noqa: BLE001
-                    fails[key] = f"{type(exc).__name__}: {exc}"[:200]
+                                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), **info,
+                                  "attempts": attempt}
+                    ck = info["chart_check"]
+                    if ck["ok"]:
+                        fails.pop(key, None)
+                        break
+                    fails[key] = (f"попытка {attempt}: график не догрузился (загрузчик {ck['loader_visible_at_capture']}, "
+                                  f"доля не фона {ck['image']['nonbackground_share']} < {ck['image']['threshold']})"
+                                  if not ck["image"]["nonblank"] or ck["loader_visible_at_capture"] else "")
         finally:
             br.close()
     return files, fails, seen

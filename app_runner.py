@@ -1029,12 +1029,20 @@ async def _run_regime_watch(stop_event: asyncio.Event, *, telegram_app=None) -> 
         chat_ids = list(telegram_app.allowed_chat_ids)
         bot = telegram_app.bot
 
-        def _send(text: str) -> None:
+        def _send(text: str) -> dict:
+            # 19.10: раньше ошибки глотались — карточка помечалась отправленной, даже если не ушла никому.
+            # Теперь ни одной успешной отправки → исключение → карточка не помечена, повтор через 15 мин.
+            ok, ids = 0, []
             for cid in chat_ids:
                 try:
-                    bot.send_message(cid, text)
+                    m = bot.send_message(cid, text)
+                    ok += 1
+                    ids.append(getattr(m, "message_id", None))
                 except Exception:
                     logger.exception("regime_watch.send_failed cid=%s", cid)
+            if not ok:
+                raise RuntimeError(f"regime_watch: отправка не прошла ни в один из {len(chat_ids)} чатов")
+            return {"sent_ok": ok, "recipients": len(chat_ids), "message_ids": ids}
 
         send_fn = _send
     while not stop_event.is_set():

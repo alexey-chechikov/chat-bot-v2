@@ -1,6 +1,6 @@
 {
  "role": "Mac handover metadata — derived only; no raw DOM/JPEG, prices, market series, Telegram IDs, keys, account",
- "generated_utc": "2026-10-19T09:31:33+00:00",
+ "generated_utc": "2026-10-19T09:38:25+00:00",
  "reference_file": "research/coinglass_v1_reply_review_20261018/WINDOWS_SETTINGS_REFERENCE.json",
  "reference_sha256": "95d87156f770311caff7183ca56a72e9a9e2bc4321dea3401af4bc12a3c99535",
  "run": {
@@ -64,8 +64,30 @@
      "published": false
     }
    ],
-   "chart_loaded": true,
-   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+   "chart_check": {
+    "loader_visible_at_capture": null,
+    "loader_reason": "в этом прогоне сборщик загрузчик ещё не проверял",
+    "file_sha256_reverified": true,
+    "image": {
+     "method": "доля пикселей не цвета фона на сохранённом JPEG",
+     "nonbackground_share": 0.561,
+     "threshold": 0.2,
+     "nonblank": true
+    },
+    "checked_utc": "2026-10-19T09:38:24+00:00",
+    "ok": true
+   },
+   "visual_check": {
+    "run_id": "2026-10-19T06:00:04+00:00",
+    "source": "liq_heatmap",
+    "file": "0600_liq_heatmap.jpg",
+    "sha256": "e54aef1db2006ab2d02c1e5fe0ec09e690cd657a2c1700fb18250aac97db7a61",
+    "checked_utc": "2026-10-19T09:37:23+00:00",
+    "method": "визуальная проверка сохранённого JPEG разработчиком Mac (Claude), без OCR",
+    "observation": "отрисован: тепловая карта Model 1 с горизонтальными уровнями и свечами 10-18 08:05…10-19 06:05, шкала до 42.89M, флажок «Карта Ликвидаций» отмечен, порог 0.85; загрузчика/ошибки/заглушки нет",
+    "chart_rendered": true
+   },
+   "chart_loaded": true
   },
   {
    "id": "coinglass_btc_actual_liquidations",
@@ -167,8 +189,30 @@
      "published": false
     }
    ],
-   "chart_loaded": true,
-   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+   "chart_check": {
+    "loader_visible_at_capture": null,
+    "loader_reason": "в этом прогоне сборщик загрузчик ещё не проверял",
+    "file_sha256_reverified": true,
+    "image": {
+     "method": "доля пикселей не цвета фона на сохранённом JPEG",
+     "nonbackground_share": 0.392,
+     "threshold": 0.15,
+     "nonblank": true
+    },
+    "checked_utc": "2026-10-19T09:38:25+00:00",
+    "ok": true
+   },
+   "visual_check": {
+    "run_id": "2026-10-19T06:00:04+00:00",
+    "source": "book_heatmap",
+    "file": "0600_book_heatmap.jpg",
+    "sha256": "87bde473c435ed600c6e8e8d2b6f8669c06d4846db340ed7bb519f424baffee7",
+    "checked_utc": "2026-10-19T09:37:23+00:00",
+    "method": "визуальная проверка сохранённого JPEG разработчиком Mac (Claude), без OCR",
+    "observation": "отрисован: слой стакана по всей ширине поверх свечей 15m, шапка «Time: 2026-10-19 08:00», слияние 1; загрузчика/ошибки/заглушки нет",
+    "chart_rendered": true
+   },
+   "chart_loaded": true
   },
   {
    "id": "coinglass_spot_book_delta_btc",
@@ -213,8 +257,30 @@
      "published": false
     }
    ],
-   "chart_loaded": true,
-   "chart_loaded_basis": "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+   "chart_check": {
+    "loader_visible_at_capture": null,
+    "loader_reason": "в этом прогоне сборщик загрузчик ещё не проверял",
+    "file_sha256_reverified": true,
+    "image": {
+     "method": "доля пикселей не цвета фона на сохранённом JPEG",
+     "nonbackground_share": 0.148,
+     "threshold": 0.07,
+     "nonblank": true
+    },
+    "checked_utc": "2026-10-19T09:38:25+00:00",
+    "ok": true
+   },
+   "visual_check": {
+    "run_id": "2026-10-19T06:00:04+00:00",
+    "source": "depth_delta",
+    "file": "0600_depth_delta.jpg",
+    "sha256": "6b61c795ae149b79693f88fa0b58f02dde47d79acf52f25a51ed14a6c988ff1e",
+    "checked_utc": "2026-10-19T09:37:23+00:00",
+    "method": "визуальная проверка сохранённого JPEG разработчиком Mac (Claude), без OCR",
+    "observation": "отрисован: первая панель Spot BTC 15m ±1% Дельта — столбцы дельты и линия цены 10-16 05:15…10-19 03:15+; загрузчика/ошибки/заглушки нет",
+    "chart_rendered": true
+   },
+   "chart_loaded": true
   },
   {
    "id": "coinglass_liquidation_levels",
@@ -305,16 +371,35 @@
     "snapshot_run_id": "2026-10-19T06:00:04+00:00",
     "snapshot_levels_captured": "2026-10-19T06:00:15.747+00:00",
     "section_sha256": "19fee1e8bee29bdeacda4dc3b535a78a3268c10fa16b57f75c94fd0eac8e1238",
-    "line_sha256": "aa4a18f8f958d8fc45c236d45365a1e5a28f91395fc6ff29a00322ccc0748f07"
+    "line_sha256": "aa4a18f8f958d8fc45c236d45365a1e5a28f91395fc6ff29a00322ccc0748f07",
+    "expected_local": "2026-10-19T08:00 Europe/Warsaw",
+    "delay_reason": "карточка опрашивается раз в 15 мин (app_runner, окно 08:00–11:00) и собирается ~1–2 мин",
+    "snapshot_record_sha256": "bbc3b43c55d98bfc388bc211c4a8eae067a7af57902703658fd4f328ce0104a0",
+    "snapshot_files_sha256": {
+     "liq_heatmap": "e54aef1db2006ab2d02c1e5fe0ec09e690cd657a2c1700fb18250aac97db7a61",
+     "depth_delta": "6b61c795ae149b79693f88fa0b58f02dde47d79acf52f25a51ed14a6c988ff1e",
+     "book_heatmap": "87bde473c435ed600c6e8e8d2b6f8669c06d4846db340ed7bb519f424baffee7"
+    },
+    "snapshot_text_sha256": {
+     "levels": "5749a3a78767b108d0ffdff8b4f5cd1f5fc0087fa4464748a340da026765ec41",
+     "liquidations": "406e5b00a8b269e75de95098a4d407636ea12f14e93ab913f5ebc2867d6279ab"
+    },
+    "log_regime_card_sent": {
+     "time_local": "2026-10-19 08:03:02,109",
+     "line_sha256": "59ae5ae8d1f21519ba3aa2d818e67340181224c453b137f1e4da57be69551b06"
+    },
+    "send_failed_lines_that_day": 0,
+    "success_basis": "в логе есть «regime_card.sent», строк «regime_watch.send_failed» за день — 0 (каждая неудача bot.send_message логируется)"
    }
   ],
   "reason_if_null": null
  },
  "code_sha256": {
-  "services/coinglass_web/collector.py": "48d04f1351a6a6499b9e322d2e6913ec449ee7795113ece4954a505eda3b22a4",
+  "services/coinglass_web/collector.py": "c1d7fa97885896f8f1f4ca3d83d090900d279c27d8a0be1f2f716cc771f6ba2b",
   "services/coinglass_web/c1.py": "ee1c791bb62e8567dfbb5ca38838880f702831fb240265b848f47d33345824f1",
   "services/coinglass_web/section.py": "129c04f02df43bc54e5c3fe8d6dc367858097ea0807ab218575499c7ae63f10d",
-  "services/coinglass_web/handover.py": "64f1cb27e3ef9179a1a525f2d9f1d87f4b0a22e9b8919840e0f519b102d2b5ee",
-  "services/regime_watch.py": "579ba9d4f24aae4a36c1c17fd88a684324f809f927f20da509442eb04fcbaf73"
+  "services/coinglass_web/handover.py": "dc281570fd39a29375205ffe4e8b66718f15422b237970bf2bea1b8cb2fe4ab7",
+  "services/regime_watch.py": "f6f49816069066313a4e2ed0e5b0f30bef60a40b5749f52d8b4504dd6e9446f0",
+  "app_runner.py": "66f12abc5a91cfb63e5b2c86541ae32b2884789b1a8928fcb1aee0496ffb520e"
  }
 }

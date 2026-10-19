@@ -297,9 +297,10 @@ def _card_push_enabled() -> bool:
 DELIVERY_LOG = ROOT / "state" / "coinglass" / "delivery_log.jsonl"
 
 
-def _log_delivery(day: str, card: str) -> None:
-    """Доказательство доставки для GPT: время отправки, SHA карточки и блока CoinGlass, какой снимок в нём.
-    Без чатов и личных идентификаторов. Сбой записи не ломает отправку."""
+def _log_delivery(day: str, card: str, res: dict | None = None) -> None:
+    """Доказательство доставки для GPT: время отправки, SHA карточки и блока CoinGlass, какой снимок в нём, сколько
+    отправок прошло (send_fn бросает, если ни одной). Без чатов: id сообщений только хешем. Сбой записи не ломает
+    отправку."""
     try:
         import hashlib
         import json
@@ -307,6 +308,9 @@ def _log_delivery(day: str, card: str) -> None:
         rec = {"date": day, "sent_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "card_sha256": hashlib.sha256(card.encode("utf-8")).hexdigest(),
                "coinglass_block_in_card": "🧲 CoinGlass" in card, **cg.LAST}
+        if res:
+            rec.update(sent_ok=res.get("sent_ok"), recipients=res.get("recipients"),
+                       message_ids_sha256=hashlib.sha256(json.dumps(res.get("message_ids")).encode()).hexdigest())
         DELIVERY_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(DELIVERY_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -331,10 +335,10 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         _write_state(CARD_STATE, {"date": day})
         return True
     try:
-        send_fn(card)
+        res = send_fn(card)
         _write_state(CARD_STATE, {"date": day})
         logger.info("regime_card.sent date=%s", day)
-        _log_delivery(day, card)
+        _log_delivery(day, card, res if isinstance(res, dict) else None)
         return True
     except Exception:
         logger.exception("regime_card.send_failed")

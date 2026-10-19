@@ -46,6 +46,40 @@ def test_evidence_hides_prices_keeps_settings():
     assert handover._clean("Порог ликвидности = 0.85") == "Порог ликвидности = 0.85"
 
 
+def test_image_check_blank_vs_drawn(tmp_path):
+    from PIL import Image, ImageDraw
+
+    from services.coinglass_web.collector import image_check
+    blank = Image.new("RGB", (1100, 840), (250, 250, 250))
+    ImageDraw.Draw(blank).text((40, 40), "Загрузка...", fill=(0, 0, 0))   # загрузчик на пустом холсте
+    blank.save(tmp_path / "b.jpg")
+    drawn = Image.effect_noise((1100, 840), 90).convert("RGB")       # «отрисованный» холст
+    drawn.save(tmp_path / "d.jpg")
+    assert image_check(tmp_path / "b.jpg", "book_heatmap")["nonblank"] is False
+    assert image_check(tmp_path / "d.jpg", "book_heatmap")["nonblank"] is True
+
+
+def test_regime_card_send_failure_not_marked_sent(tmp_path, monkeypatch):
+    """19.10: ошибки отправки глотались — карточка считалась отправленной. Теперь send_fn бросает → не помечена."""
+    from datetime import datetime, timezone
+
+    from services import regime_watch
+    monkeypatch.setattr(regime_watch, "DELIVERY_LOG", tmp_path / "d.jsonl")
+    monkeypatch.setattr(regime_watch, "CARD_STATE", tmp_path / "card.json")
+    monkeypatch.setattr(regime_watch, "_card_push_enabled", lambda: True)
+    monkeypatch.setattr(regime_watch, "build_card", lambda now: "🧲 CoinGlass")
+
+    def fail(text):
+        raise RuntimeError("ни один чат")
+    now = datetime(2026, 10, 19, 6, 5, tzinfo=timezone.utc)
+    assert regime_watch.maybe_send_regime_card(send_fn=fail, now=now) is False
+    assert not (tmp_path / "card.json").exists() and not (tmp_path / "d.jsonl").exists()
+    assert regime_watch.maybe_send_regime_card(
+        send_fn=lambda t: {"sent_ok": 1, "recipients": 1, "message_ids": [77]}, now=now)
+    rec = json.loads((tmp_path / "d.jsonl").read_text().splitlines()[0])
+    assert rec["sent_ok"] == 1 and rec["recipients"] == 1 and "77" not in json.dumps(rec)
+
+
 def test_delivery_log_records_hashes_without_ids(tmp_path, monkeypatch):
     from services import regime_watch
     monkeypatch.setattr(regime_watch, "DELIVERY_LOG", tmp_path / "d.jsonl")

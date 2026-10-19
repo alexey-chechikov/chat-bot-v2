@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from services.coinglass_web import c1
-from services.coinglass_web.collector import DIR, ROOT
+from services.coinglass_web.collector import DIR, ROOT, image_check
 
 OUT = ROOT / "docs" / "COINGLASS_MAC_HANDOVER_METADATA_2026-10-18.json"
 REF = ROOT / "research" / "coinglass_v1_reply_review_20261018" / "WINDOWS_SETTINGS_REFERENCE.json"
@@ -143,12 +143,48 @@ def _sha_file(p: Path) -> str | None:
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
 
 
+def _delivery_evidence(d: dict) -> dict:
+    """Связь доставки с пакетом и основание успеха: SHA записи снимка, строка лога «regime_card.sent», число ошибок
+    отправки за день. Ошибки отправки логируются всегда (regime_watch.send_failed); до 19.10 ~11:40 они не прерывали
+    отправку, поэтому для ранних записей успех = нет ни одной такой строки за день."""
+    out = {"expected_local": f"{d['date']}T08:00 Europe/Warsaw",
+           "delay_reason": "карточка опрашивается раз в 15 мин (app_runner, окно 08:00–11:00) и собирается ~1–2 мин"}
+    run = d.get("snapshot_run_id")
+    for line in (DIR / "snapshots.jsonl").read_text(encoding="utf-8").splitlines():
+        if run and f'"run_id": "{run}"' in line:
+            out["snapshot_record_sha256"] = hashlib.sha256(line.encode("utf-8")).hexdigest()
+            r = json.loads(line)
+            out["snapshot_files_sha256"] = {k: v["sha256"] for k, v in (r.get("files") or {}).items()}
+            out["snapshot_text_sha256"] = r.get("text_sha256")
+            break
+    sent_line, failed = None, 0
+    for lp in sorted((ROOT / "logs").glob("app.log*")):
+        for line in lp.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.startswith(d["date"]):
+                continue
+            if f"regime_card.sent date={d['date']}" in line and sent_line is None:
+                sent_line = line
+            if "regime_watch.send_failed" in line:
+                failed += 1
+    out["log_regime_card_sent"] = ({"time_local": sent_line[:23],
+                                    "line_sha256": hashlib.sha256(sent_line.encode("utf-8")).hexdigest()}
+                                   if sent_line else None)
+    out["send_failed_lines_that_day"] = failed
+    out["success_basis"] = (f"send_fn вернул успешных отправок {d['sent_ok']} из {d['recipients']}"
+                            if d.get("sent_ok") is not None else
+                            "в логе есть «regime_card.sent», строк «regime_watch.send_failed» за день — "
+                            f"{failed} (каждая неудача bot.send_message логируется)")
+    return out
+
+
 def build(run_id: str | None = None) -> dict:
     rows = [json.loads(x) for x in (DIR / "snapshots.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     full = [r for r in rows if r.get("settings_observed") and all(v == "ok" for v in (r.get("status") or {"x": 0}).values())]
     rec = next(r for r in full if r["run_id"] == run_id) if run_id else full[-1]
     ref = {s["id"]: s for s in json.loads(REF.read_text(encoding="utf-8"))["sources"]}
     seen_all = rec["settings_observed"]
+    vp = DIR / "visual_checks.jsonl"
+    visual = [json.loads(x) for x in vp.read_text(encoding="utf-8").splitlines() if x.strip()] if vp.exists() else []
     sources = []
     for key, sid in SOURCE_IDS.items():
         seen = seen_all.get(key) or {}
@@ -180,18 +216,33 @@ def build(run_id: str | None = None) -> dict:
         else:
             src["local_files"] = [{"name": f["file"].split("/")[-1], "type": "image/jpeg", "sha256": f["sha256"],
                                    "published": False}] if f else None
-            src["chart_loaded"] = bool(f)
-            src["chart_loaded_basis"] = "снимок после 12 с ожидания холста; распознавания цифр с холста нет"
+            ck = (f or {}).get("chart_check")
+            if ck:
+                src["chart_check"] = {**ck, "basis": "сборщик: загрузчик «Загрузка…/Loading» не виден в момент снимка "
+                                                     "+ доля пикселей не цвета фона на JPEG выше порога"}
+            elif f:                                             # прогон до 19.10 ~11:35 — проверка по файлу
+                p = DIR / "shots" / f["file"]
+                sha_ok = _sha_file(p) == f["sha256"]
+                img = image_check(p, key) if sha_ok else None
+                src["chart_check"] = {"loader_visible_at_capture": None,
+                                      "loader_reason": "в этом прогоне сборщик загрузчик ещё не проверял",
+                                      "file_sha256_reverified": sha_ok, "image": img,
+                                      "checked_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                      "ok": bool(img and img["nonblank"])}
+            vis = [v for v in visual if v["run_id"] == rec["run_id"] and v["source"] == key]
+            src["visual_check"] = vis[-1] if vis else None
+            src["chart_loaded"] = bool(src.get("chart_check", {}).get("ok")) and \
+                (src["visual_check"] is None or src["visual_check"]["chart_rendered"])
         sources.append(src)
     c1dir = DIR / "c1"
     man = json.loads((c1dir / "base_manifest.json").read_text(encoding="utf-8"))
     dl = DIR / "delivery_log.jsonl"
     dlines = [x for x in dl.read_text(encoding="utf-8").splitlines() if x.strip()] if dl.exists() else []
     delivered = [json.loads(x) | {"line_sha256": hashlib.sha256(x.encode("utf-8")).hexdigest()} for x in dlines]
-    delivery = [d for d in delivered if d.get("coinglass_block_in_card")]
+    delivery = [d | _delivery_evidence(d) for d in delivered if d.get("coinglass_block_in_card")]
     code = {p: _sha_file(ROOT / p) for p in ("services/coinglass_web/collector.py", "services/coinglass_web/c1.py",
                                              "services/coinglass_web/section.py", "services/coinglass_web/handover.py",
-                                             "services/regime_watch.py")}
+                                             "services/regime_watch.py", "app_runner.py")}
     return {
         "role": "Mac handover metadata — derived only; no raw DOM/JPEG, prices, market series, Telegram IDs, keys, account",
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -227,7 +278,8 @@ def main() -> int:
     doc = build(a.run_id)
     OUT.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     for s in doc["sources"]:
-        print(s["id"], s["status"], s["mac_self_check"])
+        print(s["id"], s["status"], s["mac_self_check"], "chart_loaded" if "chart_loaded" in s else "",
+              s.get("chart_loaded", ""))
     print("delivery:", "есть" if doc["delivery"]["records"] else "нет —", doc["delivery"]["reason_if_null"] or "")
     print("->", OUT)
     return 0
