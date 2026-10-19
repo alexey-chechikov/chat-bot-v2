@@ -93,6 +93,7 @@ PENDING_RECHECK = 30.0
 PENDING_ABSENT_READS = 2
 HANDOVER = "передано оператору"     # вид записи журнала о передаче стороны оператору
 FEE_WINDOW = 3600.0      # с: сколько ждать появления комиссии по исполненному ордеру
+TRADES_LIMIT = 100       # предел ответа /capi/v3/userTrades (client.user_trades limit=100, страниц нет)
 FEE_POLL = 60.0          # с: как часто досверять комиссии
 FEE_BATCH = 5            # курсоров комиссий за одну досверку (по кругу, давно не проверявшиеся первыми)
 ORDER_FILLS_KEEP = 7 * 86400.0   # с: сколько хранить курсор исполнения завершённого ордера
@@ -379,6 +380,7 @@ class Grid:
         st.setdefault("day", None)
         st.setdefault("day_start_pnl", 0.0)
         st.setdefault("fee_checked", 0.0)
+        st.setdefault("fee_incomplete", {})                      # ордер → время: ответ сделок упёрся в предел 100
         # миграция курсора комиссии из учёта до 10.10 (entry/stray['fee_done']) — иначе следующий
         # прирост прибавил бы уже учтённую комиссию заново (разбор GPT, перепроверка 10.10)
         for s in ("LONG", "SHORT"):
@@ -490,8 +492,22 @@ class Grid:
             self._issue(f"{what} ордера {order_id}: ответ сделок не список ({str(rows)[:80]})")
             return None
         sym = self.cfg["symbol"]
+        if len(rows) >= TRADES_LIMIT:
+            self._mark_fee_incomplete(order_id, len(rows))
         return [r for r in rows if isinstance(r, dict) and str(r.get("orderId") or "") == str(order_id)
                 and str(r.get("symbol") or sym) == sym]
+
+    def _mark_fee_incomplete(self, order_id: str, n: int) -> None:
+        """20.10 (разбор GPT ec48a3a §2): userTrades отдаёт не больше 100 строк и без страниц — ответ на пределе может
+        быть обрезан. Сумма таких строк — нижняя оценка комиссии, а не итог: ордер помечается «комиссия неполная»
+        (один раз: предупреждение + журнал), поздняя дозапись его больше не перечитывает. Проход не считается
+        неуспешным — торговля от этого не зависит; итог сверяет pnl_reconcile с биржей."""
+        inc = self.st.setdefault("fee_incomplete", {})
+        if str(order_id) in inc:
+            return
+        inc[str(order_id)] = self.now()
+        logger.warning("weex_grid.fee_incomplete order=%s rows=%d", order_id, n)
+        self._journal({"kind": "комиссия неполная (ответ сделок на пределе 100)", "order_id": order_id, "rows": n})
 
     def _fee_delta(self, side: str, order_id: str) -> tuple[float, bool | None]:
         """Прирост комиссии ордера против уже записанной (курсор в fee_book). Ордер остаётся в
@@ -551,7 +567,13 @@ class Grid:
         self.st["fee_checked"] = now
         refs = {sd: self._referenced(sd) for sd in ("LONG", "SHORT")}
         books.sort(key=lambda b: float(b[2].get("checked") or 0))
+        incomplete = self.st.get("fee_incomplete") or {}
+        for oid in [k for k, t in incomplete.items() if now - float(t) > 30 * 86400]:
+            incomplete.pop(oid, None)                           # отметка живёт 30 суток (карточка, разбор)
         for sd, oid, rec in books[:FEE_BATCH]:
+            if str(oid) in incomplete:                          # перечитывание даст те же 100 строк
+                rec["checked"] = now
+                continue
             trades = self._own_trades(oid, "поздняя комиссия")
             if trades is None:
                 continue                                        # негодный ответ — не проверка (7ecda96 §2.1)
@@ -607,6 +629,9 @@ class Grid:
         cfg, s = self.cfg, self.st[side]
         if self.st["halted"]:
             return False, "стоп: " + self.st["halt_reason"]
+        blk = (cfg.get("audit_block") or {}).get(side)
+        if blk:                                                 # 20.10: общая сверка позиции (loop.position_gaps)
+            return False, "сверка позиции: " + blk
         if any(x.get("kind") == "e" for x in s["strays"]):
             return False, "разбираю лишний входной ордер"
         taken = self._slots(side)
@@ -993,8 +1018,13 @@ class Grid:
                            side, o.get("reduceOnly"))
             if not o.get("reduceOnly"):
                 # ранее неучтённый вход занимает место общего потолка СРАЗУ: свободное этого прохода посчитано
-                # без него (12.10, разбор GPT R5: место выдавалось новому входу поверх сироты)
-                self._room_used += max(float(o.get("origQty") or 0) - float(o.get("executedQty") or 0), 0.0) * price
+                # без него (12.10, разбор GPT R5: место выдавалось новому входу поверх сироты). 20.10, разбор GPT
+                # ec48a3a §4: резервировалась только неисполненная часть, а уже исполненная уходила в лот без
+                # резерва — противоположная сторона в том же проходе занимала её место (потолок $201 → занято $240).
+                # Теперь — весь ещё не учтённый объём: заявка минус исполненное, известное по курсору (оно уже в
+                # лотах и в «свободном» этого прохода). Двойного резерва нет: учтённое по курсору не входит.
+                rec = float(order.get("filled") or 0)
+                self._room_used += max(float(o.get("origQty") or 0) - rec, 0.0) * price
                 if s["entry"] is None and not s.get("pending"):
                     s["entry"] = order                      # неучтённое исполненное пойдёт в лоты
                     continue
@@ -2015,6 +2045,9 @@ class Grid:
         lines.append(f"итог сетки с мешком ${tot:+.2f}"
                      + (f" (в т.ч. мешок, переданный оператору, ${tm_all:+.2f} — по цене передачи)" if tm_all else "")
                      + f" · оборот ${turn:,.0f}")
+        inc = self.st.get("fee_incomplete") or {}
+        if inc:
+            lines.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
         return "\n".join(lines)
 
     def _card_compact(self, mid: float) -> str:
@@ -2042,6 +2075,9 @@ class Grid:
                         f"закрыто ${s['realized']:+.2f}, ком. ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}")
         turn = sum(self.st[s]["turnover"] for s in DIR)
         rows.append(f"итог с мешком ${self.bot_pnl(mid):+.2f} · оборот ${turn:,.0f}")
+        inc = self.st.get("fee_incomplete") or {}
+        if inc:
+            rows.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
         return "\n".join(rows)
 
 
@@ -2076,7 +2112,9 @@ class DryExchange:
         return bid, ask
 
     def open_orders(self, symbol):
-        return [{"orderId": k, **v} for k, v in self.orders.items() if v["status"] in ("NEW", "CANCELING")]
+        # 20.10 (разбор GPT ec48a3a): как живая биржа — частично исполненный ордер тоже открыт. Раньше имитатор его
+        # прятал, и тесты не видели сценариев с частичным исполнением сирот/входов
+        return [{"orderId": k, **v} for k, v in self.orders.items() if v["status"] in LIVE]
 
     def order_info(self, oid):
         return {"orderId": oid, **self.orders[str(oid)]}

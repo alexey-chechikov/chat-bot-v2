@@ -21,6 +21,40 @@ logger = logging.getLogger(__name__)
 # проход, начатый до /weex start, сохранял старый halted=true поверх команды).
 STATE_LOCK = threading.RLock()
 _SIGMA: dict[str, dict] = {}
+# 20.10 (разбор GPT ec48a3a §2, пример okxbot): общая сверка позиции биржи с суммой лотов ВСЕХ живых сеток символа/стороны.
+# Сетка сама сравнивает позицию только со своими лотами: на BTC LONG четыре сетки, и каждой хватает всей позиции —
+# нехватку под лоты соседей она не видит. Лотов больше позиции AUDIT_PASSES проходов подряд → новые входы на стороне
+# запрещены (стоящий вход снимается, тейки работают), одно сообщение; столько же совпадений подряд → снято.
+# Позиция больше лотов (ручная/неизвестная) — без блокировки. Сторона из release_sides и сторона с эпизодом тренда — не
+# сверяются. Нечитаемые данные — проход сверки пропускается, состояние не меняется.
+AUDIT_PASSES = 3
+AUDIT_FILE = eg.STATE.with_name("weex_position_audit.json")
+
+
+def position_gaps(grids: list[dict], busy: set, positions: list) -> dict:
+    """grids — живые сетки: {"symbol", "release_sides", "qty_step", "state"}; busy — {(symbol, side)} без сверки
+    (эпизод тренда); positions — ответ futures_positions. → {"SYM:SIDE": {"lots", "exchange", "deficit"}}."""
+    want, tol, skip = {}, {}, set(busy)
+    for g in grids:
+        for side in ("LONG", "SHORT"):
+            key = (g["symbol"], side)
+            if side in (g.get("release_sides") or []):
+                skip.add(key)
+                continue
+            lots = (g.get("state") or {}).get(side, {}).get("lots") or []
+            want[key] = want.get(key, 0.0) + sum(float(l["qty"]) for l in lots)
+            tol[key] = min(tol.get(key, 1.0), float(g.get("qty_step") or 0.0001) / 2)
+    have = {}
+    for p in positions or []:
+        key = (p.get("symbol"), p.get("side"))
+        have[key] = have.get(key, 0.0) + float(p.get("size") or 0)
+    out = {}
+    for key, q in want.items():
+        if key in skip:
+            continue
+        size = have.get(key, 0.0)
+        out[f"{key[0]}:{key[1]}"] = {"lots": round(q, 8), "exchange": round(size, 8), "deficit": q - size > tol[key]}
+    return out
 
 
 def sigma24(symbol: str = "BTCUSDT") -> float | None:
@@ -67,6 +101,77 @@ class Runner:
         self.last_halt: dict[str, float] = {}
         self.mode: dict[str, tuple] = {}
         self.trend = None
+        self.audit = self._audit_load()
+
+    # ---------------------------------------------------------------- общая сверка позиции (20.10)
+    def _audit_load(self) -> dict:
+        """Блокировки сверки переживают перезапуск: иначе рестарт молча вернул бы входы при нехватке позиции."""
+        try:
+            return json.loads(AUDIT_FILE.read_text(encoding="utf-8")) if AUDIT_FILE.exists() else {}
+        except (OSError, ValueError):
+            logger.exception("weex_grid.position_audit_load_failed")
+            return {}
+
+    def _audit_blocks(self, symbol: str) -> dict:
+        return {k.split(":")[1]: r["reason"] for k, r in self.audit.items()
+                if k.split(":")[0] == symbol and r.get("blocked")}
+
+    def _trend_busy(self) -> set:
+        """Стороны с эпизодом тренда (его объём не в лотах сеток) — не сверяются; нечитаемо → исключение."""
+        from services.weex_trend import engine as te
+        from services.weex_trend.loop import files as trend_files, symbols as trend_symbols
+        busy = set()
+        for sym in trend_symbols(te.load_config()):
+            p = trend_files(False, sym)[0]
+            ep = json.loads(p.read_text(encoding="utf-8")).get("episode") if p.exists() else None
+            if ep:
+                busy.add((sym, ep.get("side")))
+        return busy
+
+    def _position_audit(self) -> None:
+        try:
+            grids = []
+            for name in eg.GRIDS:
+                cfg = grid_config(name)
+                if cfg["dry_run"]:
+                    continue
+                p = run_files(name, False)[0]
+                grids.append({"symbol": cfg["symbol"], "release_sides": cfg.get("release_sides") or [],
+                              "qty_step": cfg.get("qty_step"),
+                              "state": json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}})
+            gaps = position_gaps(grids, self._trend_busy(), self._client().futures_positions())
+        except Exception:                                       # noqa: BLE001 — неполно: сверку пропускаем
+            logger.exception("weex_grid.position_audit_skipped")
+            return
+        self._audit_apply(gaps)
+
+    def _audit_apply(self, gaps: dict) -> None:
+        changed = False
+        for key, g in gaps.items():
+            r = self.audit.setdefault(key, {"bad": 0, "ok": 0, "blocked": False, "reason": ""})
+            r["last"] = {"lots": g["lots"], "exchange": g["exchange"], "t": time.time()}
+            if g["deficit"]:
+                r["bad"], r["ok"] = r["bad"] + 1, 0
+            else:
+                r["ok"], r["bad"] = r["ok"] + 1, 0
+            if not r["blocked"] and r["bad"] >= AUDIT_PASSES:
+                r["blocked"], changed = True, True
+                r["reason"] = f"на бирже {g['exchange']:g}, лотов сеток {g['lots']:g}"
+                logger.error("weex_grid.position_mismatch %s lots=%s exchange=%s", key, g["lots"], g["exchange"])
+                self._send(f"🛑 Сверка позиции {key}: на бирже {g['exchange']:g}, а лотов всех сеток {g['lots']:g} — "
+                           f"{AUDIT_PASSES} прохода подряд. Новые входы на этой стороне остановлены, тейки работают. "
+                           f"Снимется само после {AUDIT_PASSES} совпадений подряд.") if self.send else None
+            elif r["blocked"] and r["ok"] >= AUDIT_PASSES:
+                r["blocked"], r["reason"], changed = False, "", True
+                logger.warning("weex_grid.position_restored %s", key)
+                self._send(f"✅ Сверка позиции {key} восстановлена: на бирже {g['exchange']:g}, лотов "
+                           f"{g['lots']:g} — входы снова разрешены.") if self.send else None
+        try:
+            eg.atomic_write(AUDIT_FILE, json.dumps(self.audit, ensure_ascii=False, indent=1))
+        except OSError:
+            logger.exception("weex_grid.position_audit_save_failed")
+        if changed:
+            logger.info("weex_grid.position_audit %s", {k: r["blocked"] for k, r in self.audit.items()})
 
     def _client(self):
         from services.weex_api.client import WeexClient
@@ -102,6 +207,8 @@ class Runner:
             except Exception as exc:                            # noqa: BLE001
                 logger.exception("weex_grid.tick_failed grid=%s", name)
                 first = first or RuntimeError(f"{name}: {exc}")
+        with STATE_LOCK:
+            self._position_audit()                              # после всех сеток: их лоты уже в учёте
         # трендовый бот ETH (services/weex_trend) — в том же цикле, ошибки отделены от сеток
         try:
             with STATE_LOCK:
@@ -138,6 +245,8 @@ class Runner:
         cfg = grid_config(name)
         if not cfg["dry_run"] and free is not None:
             cfg = {**cfg, "portfolio_free_usd": free}
+        if not cfg["dry_run"]:
+            cfg = {**cfg, "audit_block": self._audit_blocks(cfg["symbol"])}
         dry = bool(cfg["dry_run"])
         if dry:
             self._live_leftovers(name, cfg)
