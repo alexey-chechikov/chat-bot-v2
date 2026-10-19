@@ -1,0 +1,141 @@
+{
+  "schema": "public-code-comparison-v1",
+  "created_utc": "2026-10-19 23:16:17 UTC",
+  "report": "../../docs/IGORAUTS_GRID_COMPARISON_2026-10-20.md",
+  "method": "Static source review by root and three Codex reviewers. Findings are source-level conditional paths, not observed live incidents.",
+  "refs": [
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "scope": "active 0.7.16 engine, FIFO/telemetry/accounting/manager modules, selected current and historical tests and release docs"
+    },
+    {
+      "repository": "igorauts/okx-eth-grid-bot",
+      "commit": "489ea4da58559e2fdc0f9eef45ebb7682ebfc500",
+      "scope": "legacy 0.5.9 engine and built-in tests"
+    },
+    {
+      "repository": "igorauts/weex-strk-grid-bot",
+      "commit": "23238337455fcae094c1bf0a675dc777d173f1f0",
+      "scope": "bot06.py, repository tree and README"
+    },
+    {
+      "repository": "alexey-chechikov/chat-bot-v2",
+      "commit": "e346b3ffcbbf526e6472a443f10b93313bb77a1d",
+      "scope": "services/weex_grid, services/weex_api, selected related tests and research simulators; no configuration or state"
+    }
+  ],
+  "root_fetched_files": [
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "README.md",
+      "github_blob_sha1": "d720359959505d470e72ff4c7aad2abcc1c1ab5c"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "RELEASE_NOTES_v0716.md",
+      "github_blob_sha1": "cabd0f9f15c2cd0dab0d5c8e4bbc638a79b0c81a"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "RELEASE_NOTES_v0715.md",
+      "github_blob_sha1": "c2c62159576679b04a8c2facf3fb93857998245d"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_bot.py",
+      "github_blob_sha1": "2bfcc05c1f565e70638801420e411eda7ab0eaca"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_positions_fifo.py",
+      "github_blob_sha1": "55e092d54abe99e5de01364175a6d0fb5edcac19"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_fill_singleflight.py",
+      "github_blob_sha1": "13ba3046f083d7438851093888516084120c4737"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_latency.py",
+      "github_blob_sha1": "a2f33fec8eb24d33229e4e4be2f750b590382571"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_execution_observer.py",
+      "github_blob_sha1": "9d9a168a47348625738d0a39f76e316966fbb7e6"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_telegram_events.py",
+      "github_blob_sha1": "220e731611342d61204c00d6b1a16e03949c04ba"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_rollout_transaction.py",
+      "github_blob_sha1": "afeb3da2a7d0b3a4ef03784bb56a69b6bd7c328d"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_rollout_fencing.py",
+      "github_blob_sha1": "3cd3849e3f1aa709e2162118cff186d7a5df343e"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "okx_rollout_installer.py",
+      "github_blob_sha1": "13277a1b9666445870850eb1e7d15d85f3a64bcc"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "engine_manifest.json",
+      "github_blob_sha1": "a04af1412f191f6d97e09024c7998e0647aa169f"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "requirements.txt",
+      "github_blob_sha1": "b46dc37de963d35e04ce18f6c3a66c6c5c5ff734"
+    },
+    {
+      "repository": "igorauts/okxbot",
+      "commit": "416da1864185683c7691d6b693c07739d2b0680e",
+      "path": "SAFETY_REVIEW.md",
+      "github_blob_sha1": "f5c78199b6238948f7cdecb3a86e4996ef0eae57"
+    },
+    {
+      "repository": "alexey-chechikov/chat-bot-v2",
+      "commit": "e346b3ffcbbf526e6472a443f10b93313bb77a1d",
+      "path": "services/weex_grid/engine.py",
+      "github_blob_sha1": "81b01b7257986619b523db6bd70e83c59f01045c"
+    }
+  ],
+  "external_code_executed": false,
+  "external_dependencies_installed": false,
+  "tests_executed": false,
+  "market_requests": 0,
+  "account_or_key_access": false,
+  "bot_or_automation_changed": false,
+  "profitability_validated": false,
+  "raw_private_data_published": false,
+  "scope_limits": [
+    "No actual production configurations, account state or deployed executable verification.",
+    "Historical test counts and author live-operation claims not independently reproduced.",
+    "Our partial-orphan cap finding is a static conditional trace; no claim of actual live overspend.",
+    "Absence findings apply to inspected code scope."
+  ],
+  "publication": "Prepared locally. User subsequently authorized publication of this report and metadata to our GitHub repository; no external messaging or live deployment."
+}

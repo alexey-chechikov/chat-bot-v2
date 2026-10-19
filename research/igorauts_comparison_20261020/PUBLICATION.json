@@ -1,0 +1,26 @@
+{
+  "schema": "research-publication-allowlist-v1",
+  "created_at_utc": "2026-10-19T23:18:59.6565634Z",
+  "reviewed_our_commit": "e346b3ffcbbf526e6472a443f10b93313bb77a1d",
+  "user_authorized": true,
+  "self_excluded": true,
+  "files": [
+    {
+      "path": "docs/IGORAUTS_GRID_COMPARISON_2026-10-20.md",
+      "bytes": 28138,
+      "sha256": "1adf18b77219ddb2c2eaf7efd83f9d160336f8c80b37a1244b4bfab7040e8eb5"
+    },
+    {
+      "path": "research/igorauts_comparison_20261020/REVIEW_META.json",
+      "bytes": 5545,
+      "sha256": "69395ea19657d6dce7d2510b6807f6b656830c6d6144b6372d699ba70ec4072d"
+    }
+  ],
+  "qa": {
+    "static_scope_review": "PASS independent Codex reviewer",
+    "tests_executed": false,
+    "external_code_executed": false,
+    "production_files_changed": false,
+    "account_or_key_data_included": false
+  }
+}
