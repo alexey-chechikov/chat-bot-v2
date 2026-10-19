@@ -254,6 +254,11 @@ def build() -> str:
                               if notes and all("большой ход" in n for n in notes) else "; ".join(notes) if notes else
                               "по этим данным следующие сутки как обычный день — ни по направлению, ни по размаху. "
                               "Контекст, не сигнал входа."))
+    try:                                                        # 19.10 оператор: «примерный прогноз на день»
+        from services.coinglass_web import day_range
+        lines += day_range.lines(now_utc)
+    except Exception:                                           # noqa: BLE001
+        logger.exception("market_brief.day_range_failed")
     lines += bodies
     try:                                                        # 18.10: цифры CoinGlass со страницы (сбор раз в час)
         from services.coinglass_web.section import section
