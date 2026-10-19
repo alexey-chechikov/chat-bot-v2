@@ -37,13 +37,24 @@ def tmp_dr(tmp_path, monkeypatch):
     monkeypatch.setattr(dr, "DIR", tmp_path)
     monkeypatch.setattr(dr, "LOG", tmp_path / "log.jsonl")
     monkeypatch.setattr(dr, "MANIFEST", tmp_path / "manifest.json")
-    v = {"joint_inside": 0.76, "test": ["2025-10-14", "2026-10-13"],
+    v = {"joint_inside": 0.76, "test": ["2025-10-14", "2026-10-13"], "n_test_days": 365,
          "touch_bins": [{"promised": 0.1, "realized": 0.1, "queries": 5, "days": 5}]}
     (tmp_path / "manifest.json").write_text(json.dumps({"algo": dr.ALGO, "symbols": {
         s: {"npz_sha256": "x", "validation": v} for s in dr.SYMS}}))
-    B = synth_base(date(2026, 9, 1), date(2026, 10, 10))
-    monkeypatch.setattr(dr, "_B", {s: B for s in dr.SYMS})
+    B = {**synth_base(date(2026, 9, 1), date(2026, 10, 10)), "npz_sha256": "x"}
+    monkeypatch.setattr(dr, "_B", {s: ("x", B) for s in dr.SYMS})
     return tmp_path
+
+
+class Clock:
+    """Часы для тестов: каждое обращение сдвигает время на step секунд (эмуляция медленной сборки)."""
+    def __init__(self, t: datetime, step: float = 0.5, jumps=None):
+        self.t, self.step, self.jumps, self.n = t, step, dict(jumps or {}), 0
+
+    def __call__(self):
+        self.n += 1
+        self.t = self.jumps.get(self.n, self.t + timedelta(seconds=self.step))
+        return self.t
 
 
 def fake_klines(calls, p=100.0, hi_at_ms=(), fail=False):
@@ -95,7 +106,7 @@ def test_zone_after_issue_ignored_and_touch_before_A_not_counted(tmp_dr, monkeyp
     calls = []
     touch_0805 = int(datetime(2026, 10, 19, 6, 5, tzinfo=UTC).timestamp() * 1000)
     monkeypatch.setattr(dr, "klines", fake_klines(calls, hi_at_ms={touch_0805}))
-    f = dr.forecast("BTCUSDT", issued, z)
+    f = dr.forecast("BTCUSDT", issued, z, Clock(issued))
     assert f["A_ms"] == int(datetime(2026, 10, 19, 6, 10, tzinfo=UTC).timestamp() * 1000)
     assert f["P_ref_minute_ms"] == f["A_ms"] - 2 * MIN and f["zones_source"]["run_id"] == "r1"
     assert f["late"] is False and f["window_min"] == 1430
@@ -108,10 +119,61 @@ def test_forecast_atr_hours_closed_before_issue_hour(tmp_dr, monkeypatch):
     calls = []
     monkeypatch.setattr(dr, "klines", fake_klines(calls))
     issued = datetime(2026, 10, 19, 7, 30, 10, tzinfo=UTC)         # 09:30 Варшавы → часы до 09:00
-    f = dr.forecast("BTCUSDT", issued, None)
+    f = dr.forecast("BTCUSDT", issued, None, Clock(issued))
     H = int(datetime(2026, 10, 19, 7, 0, tzinfo=UTC).timestamp() * 1000)
     assert f["atr_hours_open_ms"][-1] == H - HOUR and f["phase"] == {"k_min": 91, "h_off": 1}
     assert f["late"] is True and f["atr"] == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------- dr-3: фиксация строго до начала окна
+def test_slow_build_recomputes_from_new_cut_and_never_scores_pre_fix_minutes(tmp_dr, monkeypatch):
+    """Разбор GPT c52f01b: срез 08:09:30, запись в 08:11:00 — касание в минуте 08:10 засчитывалось."""
+    issued = datetime(2026, 10, 19, 6, 9, 30, tzinfo=UTC)
+    touch_0810 = int(datetime(2026, 10, 19, 6, 10, tzinfo=UTC).timestamp() * 1000)
+    monkeypatch.setattr(dr, "klines", fake_klines([], hi_at_ms={touch_0810}))
+    clk = Clock(issued, jumps={1: datetime(2026, 10, 19, 6, 11, 0, tzinfo=UTC),        # 1-я фиксация — уже после A
+                               2: datetime(2026, 10, 19, 6, 11, 5, tzinfo=UTC)})       # новый срез T
+    z = {"levels": [("зоны шортов сверху", 105.0)], "run_id": "r1"}
+    f = dr.forecast("BTCUSDT", issued, z, clk)
+    assert f["attempt"] == 2 and f["A_ms"] == int(datetime(2026, 10, 19, 6, 12, tzinfo=UTC).timestamp() * 1000)
+    assert datetime.fromisoformat(f["fixed_utc"]).timestamp() * 1000 < f["A_ms"]
+    assert f["issued_utc"].startswith("2026-10-19T06:11:05")
+    assert dr._check_one(f)["levels"][0]["touched"] is False         # минута 08:10 — до фиксации, не в исходе
+
+
+def test_never_fixed_before_A_is_skipped_with_reason(tmp_dr, monkeypatch):
+    monkeypatch.setattr(dr, "klines", fake_klines([]))
+    clk = Clock(datetime(2026, 10, 19, 6, 9, 59, tzinfo=UTC), step=90)   # каждая операция дольше минуты
+    assert dr.forecast("BTCUSDT", None, None, clk) is None
+    skip = [r for r in dr._read() if r.get("kind") == "skip"]
+    assert len(skip) == 1 and "до начала окна" in skip[0]["reason"]
+    assert not [r for r in dr._read() if r.get("kind") == "forecast"]
+
+
+def test_base_cache_follows_manifest_sha_and_old_base_archived(tmp_path, monkeypatch):
+    monkeypatch.setattr(dr, "DIR", tmp_path)
+    monkeypatch.setattr(dr, "MANIFEST", tmp_path / "manifest.json")
+    monkeypatch.setattr(dr, "_B", {})
+    path = dr._base_path("BTCUSDT")
+
+    def put(v: float):
+        dr._archive(path, "BTCUSDT_")
+        np.savez(path, ts=np.array([1, 2]), open=np.array([v, v]), high=np.array([v, v]), low=np.array([v, v]),
+                 close=np.array([v, v]), days=np.array(["2026-10-01"]))
+        sha = dr.sha_bytes(path.read_bytes())
+        (tmp_path / "manifest.json").write_text(json.dumps({"symbols": {"BTCUSDT": {"npz_sha256": sha}}}))
+        return sha
+    s1 = put(1.0)
+    assert dr._load("BTCUSDT")["close"][0] == 1.0
+    s2 = put(2.0)                                                   # пересборка в том же процессе
+    b = dr._load("BTCUSDT")
+    assert b["close"][0] == 2.0 and b["npz_sha256"] == s2 != s1     # не старая база с новым SHA
+    assert (tmp_path / "day_range_archive" / f"BTCUSDT_{s1}.npz").exists()
+    np.savez(path, ts=np.array([1]), open=np.array([9.0]), high=np.array([9.0]), low=np.array([9.0]),
+             close=np.array([9.0]), days=np.array(["x"]))
+    monkeypatch.setattr(dr, "_B", {})
+    with pytest.raises(RuntimeError):                               # файл не совпал с манифестом — отказ
+        dr._load("BTCUSDT")
 
 
 # ---------------------------------------------------------------- P2: все созревшие проверки, pending, зрелость
@@ -172,3 +234,13 @@ def test_lines_survive_network_failure(tmp_dr, monkeypatch):
     out = dr.lines(datetime(2026, 10, 19, 6, 5, tzinfo=UTC), zones={},
                    clock=lambda: datetime(2026, 10, 19, 6, 5, tzinfo=UTC))
     assert out[0].startswith("📏") and any("не посчитано" in x for x in out)
+
+
+def test_card_labels_validation_phase_separately_and_marks_late(tmp_dr, monkeypatch):
+    """Разбор GPT: 76/78% — для выдачи 08:01; у поздних прогнозов не вставлять в строку коридора."""
+    monkeypatch.setattr(dr, "klines", fake_klines([]))
+    t = datetime(2026, 10, 19, 7, 30, 10, tzinfo=UTC)               # 09:30 Варшавы — поздно
+    out = dr.lines(t, zones={}, clock=Clock(t))
+    btc = next(x for x in out if x.startswith("• BTC"))
+    assert "выдан поздно" in btc and "76%" not in btc
+    assert any("для выдачи в 08:01" in x and "76%" in x and "не измерялось" in x for x in out)

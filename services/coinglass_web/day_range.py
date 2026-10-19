@@ -12,6 +12,10 @@ docs/COINGLASS_HANDOVER_PASS_AND_DAY_RANGE_REVIEW_2026-10-19.md).
   - шанс коснуться уровня — частота, с которой цена проходила то же расстояние в ATR. Это геометрия и волатильность:
     сила/плотность зоны CoinGlass в расчёт не входит, добавочной ценности карты это не доказывает (её проверяет C1);
   - зоны — только из снимка, полученного ДО T (не старше 70 мин), с run_id, временем получения и SHA записи снимка;
+  - dr-3: прогноз записывается, только если фактическое время фиксации (fixed_utc) раньше A; иначе пересчёт целиком
+    с нового среза (до 3 раз), затем пропуск с причиной; сначала догружаются проверки, срез T — свежий на монету;
+    проверка метода подписана своей фазой (08:01) отдельной строкой; кеш базы привязан к SHA, прежние базы
+    и манифесты архивируются по SHA перед пересборкой (база и валидация dr-2 и dr-3 одни и те же);
   - каждый запуск проверяет все созревшие и ещё не оценённые прогнозы; сбой → запись pending с причиной и повтор;
     зрелость — по фактическому текущему времени; сводка: выдано / проверено / ждут / пропущено;
   - записи прежней версии (без "algo") не переписываются и в статистику dr-2 не входят.
@@ -30,7 +34,7 @@ import numpy as np
 
 from services.coinglass_web.collector import DIR, ROOT
 
-ALGO = "dr-2"
+ALGO = "dr-3"                              # dr-3 (19.10): дедлайн фиксации до A, подпись фазы проверки, кеш по SHA
 WARSAW = ZoneInfo("Europe/Warsaw")
 SYMS = ("BTCUSDT", "ETHUSDT")
 LOG = DIR / "day_range_log.jsonl"
@@ -165,6 +169,7 @@ def build_base(syms=SYMS) -> dict:
         lo_ms = anchor_ms(date.fromisoformat(days[0])) - 16 * HOUR
         m = ts >= lo_ms
         path = _base_path(sym)
+        _archive(path, f"{sym}_")                               # прежняя база — в архив по SHA, не теряется
         np.savez(path, ts=ts[m], open=d.open.to_numpy()[m], high=d.high.to_numpy()[m], low=d.low.to_numpy()[m],
                  close=d.close.to_numpy()[m], days=np.array(days))
         B = _load(sym, verify=False)
@@ -172,28 +177,44 @@ def build_base(syms=SYMS) -> dict:
                                "npz_sha256": sha_bytes(path.read_bytes()), "cutoff_utc": cutoff.isoformat(),
                                "days": [days[0], days[-1]], "n_days": len(days), "skipped_incomplete": skipped,
                                "validation": _validate(B)}
+    _archive(MANIFEST, "manifest_")
     MANIFEST.write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
     man["manifest_sha256"] = sha_bytes(MANIFEST.read_bytes())
+    _B.clear()
     return man
 
 
-_B: dict = {}
+def _archive(path, prefix: str) -> None:
+    """Перед перезаписью — копия по SHA в day_range_archive/: старые прогнозы остаются воспроизводимыми."""
+    if path.exists():
+        arch = DIR / "day_range_archive"
+        arch.mkdir(parents=True, exist_ok=True)
+        dst = arch / f"{prefix}{sha_bytes(path.read_bytes())}{path.suffix}"
+        if not dst.exists():
+            dst.write_bytes(path.read_bytes())
 
 
-def _load(sym: str, verify: bool = True) -> dict:
-    if sym not in _B or not verify:
-        path = _base_path(sym)
-        if verify:
-            want = json.loads(MANIFEST.read_text(encoding="utf-8"))["symbols"][sym]["npz_sha256"]
-            if sha_bytes(path.read_bytes()) != want:
-                raise RuntimeError(f"day_range: SHA базы {sym} не совпадает с манифестом")
+_B: dict = {}                             # sym → (npz_sha256, база): кеш привязан к SHA из манифеста
+
+
+def _load(sym: str, verify: bool = True, want: str | None = None) -> dict:
+    """База монеты, согласованная с манифестом (SHA `want` из уже прочитанного манифеста): SHA файла сверяется;
+    кеш привязан к SHA — сменился SHA в манифесте → перечитать, файл не тот → отказ."""
+    path = _base_path(sym)
+    if not verify:
         z = np.load(path)
         B = {k: z[k] for k in z.files}
         B["days"] = [str(x) for x in B["days"]]
-        if not verify:
-            return B
-        _B[sym] = B
-    return _B[sym]
+        return B
+    want = want or json.loads(MANIFEST.read_text(encoding="utf-8"))["symbols"][sym]["npz_sha256"]
+    if sym in _B and _B[sym][0] == want:
+        return _B[sym][1]
+    if sha_bytes(path.read_bytes()) != want:
+        raise RuntimeError(f"day_range: SHA базы {sym} не совпадает с манифестом")
+    B = _load(sym, verify=False)
+    B["npz_sha256"] = want
+    _B[sym] = (want, B)
+    return B
 
 
 def manifest() -> dict:
@@ -255,12 +276,36 @@ def issue_day(issued: datetime) -> date:
     return loc.date() if loc.hour >= HOUR_LOCAL else loc.date() - timedelta(days=1)
 
 
-def forecast(sym: str, issued: datetime, zones: dict | None = None) -> dict | None:
-    """Прогноз, выданный в момент `issued` на окно [A; следующее 08:00). Один на (день, монету, версию)."""
-    day = issue_day(issued)
+def forecast(sym: str, issued: datetime | None = None, zones: dict | None = None,
+             clock=lambda: datetime.now(timezone.utc), tries: int = 3) -> dict | None:
+    """Прогноз со срезом данных T на окно [A; следующее 08:00), A — первая полная минута после T.
+    dr-3 (разбор GPT c52f01b): запись допускается, только если фактическое время фиксации (clock после расчёта)
+    раньше A; иначе расчёт целиком повторяется с новым T (новые A, P_ref, фаза истории), до `tries` раз, затем —
+    пропуск с причиной. Один прогноз на (день, монету, версию)."""
+    day = issue_day(issued or clock())
     for r in _mine("forecast"):
         if r["date"] == day.isoformat() and r["sym"] == sym:
             return r
+    t = issued or clock()
+    for attempt in range(1, tries + 1):
+        rec = _compute(sym, t, zones)
+        if rec is None:
+            return None
+        fixed = clock()
+        if fixed.timestamp() * 1000 < rec["A_ms"]:
+            rec.update(fixed_utc=fixed.astimezone(timezone.utc).isoformat(timespec="milliseconds"), attempt=attempt)
+            rec["record_sha256"] = sha_bytes(json.dumps(rec, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+            _append(rec)
+            return rec
+        t = clock()                                             # не успели до A — пересчёт целиком с нового среза
+    _append({"algo": ALGO, "kind": "skip", "date": day.isoformat(), "sym": sym,
+             "reason": f"не зафиксирован до начала окна за {tries} попытки",
+             "at_utc": clock().isoformat(timespec="seconds")})
+    return None
+
+
+def _compute(sym: str, issued: datetime, zones: dict | None) -> dict | None:
+    day = issue_day(issued)
     t_ms = int(issued.timestamp() * 1000)
     a = (t_ms // MIN + 1) * MIN                                    # первая полная минута после выдачи
     an, end = anchor_ms(day), anchor_ms(day + timedelta(days=1))
@@ -275,10 +320,10 @@ def forecast(sym: str, issued: datetime, zones: dict | None = None) -> dict | No
         return None
     p = float(pk[0][4])
     atr = atr14([float(x[2]) for x in hrs], [float(x[3]) for x in hrs], [float(x[4]) for x in hrs])
-    B = _load(sym)
+    man = manifest()                                            # одна пара манифест/база на весь расчёт
+    B = _load(sym, want=man["symbols"][sym]["npz_sha256"])
     up, dn = _hist(B, int(k_min), int(h_off))
     up, dn = up[~np.isnan(up)], dn[~np.isnan(dn)]
-    man = manifest()
     lv = []
     for name, price in ((zones or {}).get("levels") or []):
         side = "up" if price > p else "dn"
@@ -286,16 +331,14 @@ def forecast(sym: str, issued: datetime, zones: dict | None = None) -> dict | No
         lv.append({"name": name, "price": price, "side": side, "dist_atr": round(dist, 3),
                    "chance": round(float(np.mean((up if side == "up" else dn) >= dist)), 3)})
     rec = {"algo": ALGO, "kind": "forecast", "date": day.isoformat(), "sym": sym,
-           "issued_utc": issued.astimezone(timezone.utc).isoformat(timespec="seconds"),
+           "issued_utc": issued.astimezone(timezone.utc).isoformat(timespec="milliseconds"),   # срез данных T
            "late": issued.timestamp() * 1000 > an + LATE_MIN * MIN, "A_ms": a, "end_ms": end,
            "window_min": (end - a) // MIN, "phase": {"k_min": int(k_min), "h_off": int(h_off)},
            "P_ref": p, "P_ref_minute_ms": a - 2 * MIN, "atr": atr, "atr_hours_open_ms": [int(x[0]) for x in hrs],
            "corridor": [p - float(np.quantile(dn, Q)) * atr, p + float(np.quantile(up, Q)) * atr], "q_each_side": Q,
            "median_move": [float(np.median(dn)) * atr, float(np.median(up)) * atr], "history_days": int(len(up)),
            "levels": lv, "zones_source": {k: v for k, v in (zones or {}).items() if k != "levels"} or None,
-           "base_npz_sha256": man["symbols"][sym]["npz_sha256"], "manifest_sha256": man["manifest_sha256"]}
-    rec["record_sha256"] = sha_bytes(json.dumps(rec, ensure_ascii=False, sort_keys=True).encode("utf-8"))
-    _append(rec)
+           "base_npz_sha256": B["npz_sha256"], "manifest_sha256": man["manifest_sha256"]}
     return rec
 
 
@@ -359,37 +402,37 @@ def _p(x: float, sym: str) -> str:
 
 def lines(issued: datetime | None = None, zones: dict | None = None,
           clock=lambda: datetime.now(timezone.utc)) -> list[str]:
-    issued = issued or clock()
-    try:
+    try:                                                        # сначала все созревшие проверки, потом срез T
         resolve_all(clock)
     except Exception:                                           # noqa: BLE001
         pass
-    zones = zones_known(issued) if zones is None else zones
     man = manifest()
     out = ["📏 Прогноз на сутки — размах, не направление:"]
     for sym in SYMS:
         name = sym[:3]
+        t = issued or clock()                                   # свежий срез на каждую монету
+        z = (zones_known(t) if zones is None else zones) if sym == "BTCUSDT" else None
         try:
-            f = forecast(sym, issued, zones if sym == "BTCUSDT" else None)
+            f = forecast(sym, t, z, clock)
         except Exception as exc:                                # noqa: BLE001
             out.append(f"• {name}: не посчитано ({type(exc).__name__})")
             continue
+        issued = None
         if f is None:
-            out.append(f"• {name}: нет закрытых свечей Binance на момент выдачи — пропуск")
+            out.append(f"• {name}: прогноз не выдан (нет закрытых свечей Binance или не успел до начала окна)")
             continue
-        v = man["symbols"][sym]["validation"]
         lo, hi = f["corridor"]
         dn, up = f["median_move"]
         a_loc = datetime.fromtimestamp(f["A_ms"] / 1000, timezone.utc).astimezone(WARSAW)
-        out.append(f"• {name} {_p(f['P_ref'], sym)}, с {a_loc:%H:%M} до 08:00 завтра: коридор {_p(lo, sym)}–{_p(hi, sym)} "
-                   f"(на проверке {v['test'][0][:4]}–{v['test'][1][:4]} цена целиком внутри {v['joint_inside'] * 100:.0f}% "
-                   f"дней); обычный ход вверх до +{_p(up, sym)}, вниз до −{_p(dn, sym)}")
+        late = " — выдан поздно, окно короче" if f["late"] else ""
+        out.append(f"• {name} {_p(f['P_ref'], sym)}, с {a_loc:%H:%M} до 08:00 завтра{late}: коридор "
+                   f"{_p(lo, sym)}–{_p(hi, sym)}; обычный ход вверх до +{_p(up, sym)}, вниз до −{_p(dn, sym)}")
         if f["levels"]:
             out.append("  шанс коснуться (по расстоянию в ATR, сила зоны не учитывается):")
         for x in f["levels"]:
             pct = (x["price"] / f["P_ref"] - 1) * 100
             out.append(f"  {x['name']} {_p(x['price'], sym)} ({pct:+.1f}%): {x['chance'] * 100:.0f}%")
-    yday = (issue_day(issued) - timedelta(days=1)).isoformat()
+    yday = (issue_day(clock()) - timedelta(days=1)).isoformat()
     for c in (r for r in _mine("check") if r["date"] == yday):
         how = "удержан" if c["inside"] else " и ".join(w for w, b in (("пробит вверх", c["broke_up"]),
                                                                      ("пробит вниз", c["broke_down"])) if b)
@@ -405,7 +448,12 @@ def lines(issued: datetime | None = None, zones: dict | None = None,
                    + (f", дней без прогноза {s['missing_days']}" if s["missing_days"] else "")
                    + (f"; коридор держался {s['inside']}/{s['resolved']}" if s["resolved"] else "") + tail
                    + (" — мало дней" if s["resolved"] < 30 else ""))
-    b = man["symbols"]["BTCUSDT"]["validation"]["touch_bins"]
-    out.append("  на истории вне выборки: обещано " + "/".join(f"{x['promised'] * 100:.0f}" for x in b)
-               + "% → сбылось " + "/".join(f"{x['realized'] * 100:.0f}" for x in b) + "%")
+    v = {s: man["symbols"][s]["validation"] for s in SYMS}
+    b = v["BTCUSDT"]["touch_bins"]
+    out.append(f"  проверка метода — отдельно, для выдачи в 08:01 ({v['BTCUSDT']['n_test_days']} утр "
+               f"{v['BTCUSDT']['test'][0][:4]}–{v['BTCUSDT']['test'][1][:4]}): коридор целиком удержан "
+               + ", ".join(f"{s[:3]} {v[s]['joint_inside'] * 100:.0f}%" for s in SYMS)
+               + "; шансы касания BTC обещано " + "/".join(f"{x['promised'] * 100:.0f}" for x in b)
+               + "% → сбылось " + "/".join(f"{x['realized'] * 100:.0f}" for x in b)
+               + "%; для другой фазы выдачи не измерялось")
     return out
