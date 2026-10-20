@@ -407,7 +407,7 @@ def lines(issued: datetime | None = None, zones: dict | None = None,
     except Exception:                                           # noqa: BLE001
         pass
     man = manifest()
-    out = ["📏 Прогноз на сутки — размах, не направление:"]
+    out, body, head = [], [], None
     for sym in SYMS:
         name = sym[:3]
         t = issued or clock()                                   # свежий срез на каждую монету
@@ -415,45 +415,53 @@ def lines(issued: datetime | None = None, zones: dict | None = None,
         try:
             f = forecast(sym, t, z, clock)
         except Exception as exc:                                # noqa: BLE001
-            out.append(f"• {name}: не посчитано ({type(exc).__name__})")
+            body.append(f"{name}: не посчитано ({type(exc).__name__})")
             continue
         issued = None
         if f is None:
-            out.append(f"• {name}: прогноз не выдан (нет закрытых свечей Binance или не успел до начала окна)")
+            body.append(f"{name}: прогноз не выдан (нет закрытых свечей Binance или не успел до начала окна)")
             continue
         lo, hi = f["corridor"]
         dn, up = f["median_move"]
-        a_loc = datetime.fromtimestamp(f["A_ms"] / 1000, timezone.utc).astimezone(WARSAW)
-        late = " — выдан поздно, окно короче" if f["late"] else ""
-        out.append(f"• {name} {_p(f['P_ref'], sym)}, с {a_loc:%H:%M} до 08:00 завтра{late}: коридор "
-                   f"{_p(lo, sym)}–{_p(hi, sym)}; обычный ход вверх до +{_p(up, sym)}, вниз до −{_p(dn, sym)}")
-        if f["levels"]:
-            out.append("  шанс коснуться (по расстоянию в ATR, сила зоны не учитывается):")
+        if head is None:
+            a_loc = datetime.fromtimestamp(f["A_ms"] / 1000, timezone.utc).astimezone(WARSAW)
+            head = f"с {a_loc:%H:%M} до 08:00" + (" — выдан поздно, окно короче" if f["late"] else "")
+        body.append(f"{name} {_p(f['P_ref'], sym)} → коридор {_p(lo, sym)}–{_p(hi, sym)} · обычный ход "
+                    f"+{_p(up, sym)} / −{_p(dn, sym)}")
         for x in f["levels"]:
             pct = (x["price"] / f["P_ref"] - 1) * 100
-            out.append(f"  {x['name']} {_p(x['price'], sym)} ({pct:+.1f}%): {x['chance'] * 100:.0f}%")
+            arrow = "↑" if x["side"] == "up" else "↓"
+            nm = {"зоны шортов сверху": "зона шортов", "зоны лонгов снизу": "зона лонгов"}.get(x["name"], x["name"])
+            body.append(f"   {arrow} {nm} {_p(x['price'], sym)} ({pct:+.1f}%): шанс {x['chance'] * 100:.0f}%")
+        if f["levels"]:
+            body.append("   (шанс — по расстоянию в ATR, сила зоны не учитывается)")
+    out.append("📏 Прогноз на сутки · размах, не направление" + (f" · {head}" if head else ""))
+    out += body
     yday = (issue_day(clock()) - timedelta(days=1)).isoformat()
+    ych = []
     for c in (r for r in _mine("check") if r["date"] == yday):
         how = "удержан" if c["inside"] else " и ".join(w for w, b in (("пробит вверх", c["broke_up"]),
                                                                      ("пробит вниз", c["broke_down"])) if b)
-        tl = "; ".join(f"{x['name']} {'задета' if x['touched'] else 'нет'} (шанс был {x['chance'] * 100:.0f}%)"
-                       for x in c["levels"])
-        out.append(f"  вчера {c['sym'][:3]}: коридор {how}" + (f"; {tl}" if tl else ""))
+        tl = ", ".join(f"{'↑' if x['side'] == 'up' else '↓'} {'задета' if x['touched'] else 'нет'} "
+                       f"(шанс был {x['chance'] * 100:.0f}%)" for x in c["levels"])
+        ych.append(f"{c['sym'][:3]} коридор {how}" + (f", {tl}" if tl else ""))
+    if ych:
+        out.append("Вчера: " + " · ".join(ych))
     s = stats("BTCUSDT", clock)
     if s["issued"]:
-        tail = (f"; касания — обещано {s['promised'] * 100:.0f}%, сбылось {s['realized'] * 100:.0f}% "
-                f"({s['levels']} уровней)") if s["levels"] else ""
-        out.append(f"  сверка BTC: выдано {s['issued']}, проверено {s['resolved']}, ждут {s['waiting']}"
-                   + (f", не проверено {s['pending']}" if s["pending"] else "")
-                   + (f", дней без прогноза {s['missing_days']}" if s["missing_days"] else "")
-                   + (f"; коридор держался {s['inside']}/{s['resolved']}" if s["resolved"] else "") + tail
+        tail = (f" · касания обещано {s['promised'] * 100:.0f}% → сбылось {s['realized'] * 100:.0f}% "
+                f"({s['levels']} ур.)") if s["levels"] else ""
+        out.append(f"Счёт BTC: проверено {s['resolved']} из {s['issued']}"
+                   + (f" · коридор держался {s['inside']}/{s['resolved']}" if s["resolved"] else "") + tail
+                   + (f" · не проверено {s['pending']}" if s["pending"] else "")
+                   + (f" · дней без прогноза {s['missing_days']}" if s["missing_days"] else "")
                    + (" — мало дней" if s["resolved"] < 30 else ""))
     v = {s: man["symbols"][s]["validation"] for s in SYMS}
     b = v["BTCUSDT"]["touch_bins"]
-    out.append(f"  проверка метода — отдельно, для выдачи в 08:01 ({v['BTCUSDT']['n_test_days']} утр "
-               f"{v['BTCUSDT']['test'][0][:4]}–{v['BTCUSDT']['test'][1][:4]}): коридор целиком удержан "
-               + ", ".join(f"{s[:3]} {v[s]['joint_inside'] * 100:.0f}%" for s in SYMS)
-               + "; шансы касания BTC обещано " + "/".join(f"{x['promised'] * 100:.0f}" for x in b)
-               + "% → сбылось " + "/".join(f"{x['realized'] * 100:.0f}" for x in b)
-               + "%; для другой фазы выдачи не измерялось")
+    out.append(f"Метод (для выдачи в 08:01, {v['BTCUSDT']['n_test_days']} утр "
+               f"{v['BTCUSDT']['test'][0][:4]}–{v['BTCUSDT']['test'][1][:4]}): коридор удержан "
+               + " / ".join(f"{s[:3]} {v[s]['joint_inside'] * 100:.0f}%" for s in SYMS)
+               + "; касания " + "/".join(f"{x['promised'] * 100:.0f}" for x in b)
+               + " → " + "/".join(f"{x['realized'] * 100:.0f}" for x in b)
+               + "%; другая фаза не измерялась")
     return out

@@ -169,22 +169,15 @@ def block(sym: str, now: dict, labeled: list[dict], th: dict) -> tuple[list[str]
     t, y = now["today"], now["yday"]
     ct = conditions(t["ret"], t["oi_chg_pct"], t["funding"], t["taker"], t["dls"], th)
     cy = conditions(y["ret"], y["oi_chg_pct"], y["funding"], y["taker"], y["dls"], th)
-    lines = [f"{sym[:3]} {now['price']:,.0f} ({_pct(t['ret'])} за сутки)"]
-    expl = {"OI↑ цена↑": "входят новые позиции по росту", "OI↓ цена↑": "рост на закрытии шортов",
-            "OI↑ цена↓": "входят новые позиции по падению", "OI↓ цена↓": "падение на закрытии лонгов"}
+    expl = {"OI↑ цена↑": "новые позиции в рост", "OI↓ цена↑": "закрывают шорты",
+            "OI↑ цена↓": "новые позиции в падение", "OI↓ цена↓": "закрывают лонги"}
     op = ct.get("oi_price", "")
-    lines.append(f"• OI {t['oi_chg_pct']:+.1f}% при цене {_pct(t['ret'])} — {expl.get(op, 'без выраженного потока')} "
-                 f"(вчера: OI {y['oi_chg_pct']:+.1f}%, цена {_pct(y['ret'])})")
-    lines.append(f"• фандинг {t['funding'] * 100:.3f}%/сутки — {ct.get('funding', '?').split()[-1]} "
-                 f"(вчера {y['funding'] * 100:.3f}%)")
-    lines.append(f"• агрессор покупки/продажи {t['taker']:.2f} — {ct.get('taker', '?').split('— ')[-1]} "
-                 f"(вчера {y['taker']:.2f})")
-    lines.append(f"• топ-трейдеры L/S {t['top_ls']:.2f} ({t['dls']:+.2f} за сутки; вчера {y['dls']:+.2f})")
+    lines = [f"{sym[:3]} {now['price']:,.0f} ({_pct(t['ret'])}) · OI {t['oi_chg_pct']:+.1f}%"
+             + (f" ({expl[op]})" if op in expl else "") + f" · фандинг {t['funding'] * 100:.3f}%/сут"]
     lq = now["liq"]
-    if lq["long_usd"] is not None:
-        cl = f", больше всего лонгов ликвидировано у {lq['cluster'][0]:,.0f}" if lq["cluster"] else ""
-        lines.append(f"• ликвидации за сутки (Bybit/OKX/Binance): лонги ${lq['long_usd'] / 1e6:.1f}M, "
-                     f"шорты ${lq['short_usd'] / 1e6:.1f}M{cl}")
+    cl = (f" · лонги ликвидировали больше всего у {lq['cluster'][0]:,.0f}"
+          if lq.get("long_usd") is not None and lq.get("cluster") else "")
+    lines.append(f"   агрессор {t['taker']:.2f} · топ-трейдеры L/S {t['top_ls']:.2f} ({t['dls']:+.2f}){cl}")
     stats, notes, plain = [], [], []
     for key in ("oi_price", "funding", "taker", "top_ls"):
         v = ct.get(key)
@@ -202,8 +195,6 @@ def block(sym: str, now: dict, labeled: list[dict], th: dict) -> tuple[list[str]
         if s["big_diff"]:
             notes.append(f"{sym[:3]}: после «{v}» большой ход бывал {'чаще' if s['big'] > s['big_base'] else 'реже'} "
                          f"({s['big'] * 100:.0f}% против {s['big_base'] * 100:.0f}%)")
-    if plain:
-        stats.append("  статистика 2 лет: следующие сутки как обычный день после — " + ", ".join(plain))
     return lines + stats, {"cond": ct, "price": now["price"]}, notes
 
 
@@ -234,10 +225,12 @@ def yesterday_check() -> list[str]:
 
 
 def build() -> str:
+    """Сводка карточки (20.10, оператор: «только нужное, компактней, визуально читабельней»): прогноз размаха на сутки →
+    CoinGlass → рынок по 2 строки на монету и один вывод. Статистика 2 лет считается как раньше; строки «обычный
+    день» по каждому условию свёрнуты в вывод, необычное показывается с цифрами."""
     now_utc = datetime.now(timezone.utc)
-    lines, notes, log = [f"🧭 Рынок на день · {now_utc:%d.%m}"], [], {"date": now_utc.strftime("%Y-%m-%d"),
-                                                                       "symbols": {}}
-    bodies = []
+    log = {"date": now_utc.strftime("%Y-%m-%d"), "symbols": {}}
+    notes, bodies, lines = [], [], []
     for sym in SYMS:
         try:
             labeled, th = label_days(read_features(sym))
@@ -250,22 +243,23 @@ def build() -> str:
         notes += nt
         rec["verdict"] = "; ".join(n for n in nt if n.startswith(sym[:3])) or "как обычный день"
         log["symbols"][sym] = rec
-    lines.append("Вывод: " + ("; ".join(notes) + ". Направление этим не задаётся — это про размах."
-                              if notes and all("большой ход" in n for n in notes) else "; ".join(notes) if notes else
-                              "по этим данным следующие сутки как обычный день — ни по направлению, ни по размаху. "
-                              "Контекст, не сигнал входа."))
     try:                                                        # 19.10 оператор: «примерный прогноз на день»
         from services.coinglass_web import day_range
         lines += day_range.lines()                              # момент выдачи = фактическое время сборки
     except Exception:                                           # noqa: BLE001
         logger.exception("market_brief.day_range_failed")
-    lines += bodies
     try:                                                        # 18.10: цифры CoinGlass со страницы (сбор раз в час)
         from services.coinglass_web.section import section
-        lines.append(section())
+        lines += ["", section()]
     except Exception:                                           # noqa: BLE001
         logger.exception("market_brief.coinglass_failed")
-    lines += yesterday_check()
+    lines += ["", "🧭 Рынок за сутки"] + bodies
+    if notes:
+        lines.append("Необычно по 2 годам статистики: " + "; ".join(notes)
+                     + (". Направление этим не задаётся — это про размах." if all("большой ход" in n for n in notes)
+                        else "."))
+    else:
+        lines.append("Вывод: по 2 годам статистики — обычный день, ни по направлению, ни по размаху. Не сигнал входа.")
     try:
         DIR.mkdir(parents=True, exist_ok=True)
         if not any(json.loads(x).get("date") == log["date"] for x in

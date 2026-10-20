@@ -220,8 +220,8 @@ def build_card(now: Optional[datetime] = None) -> str:
     мешок сейчас. Прежние строки SMA20д/шорт-гейта/гридов GinArea убраны: GinArea остановлена с 07.10, шорт-сеток нет,
     «гриды: 0 живых» при пяти живых сетках WEEX вводило в заблуждение."""
     now = now or datetime.now(timezone.utc)
-    lines = [f"☀️ {now:%d.%m} · сетки WEEX"]
     prices: dict[str, float] = {}
+    sma = []
     for sym in ("BTCUSDT", "ETHUSDT"):
         try:
             got = _sma_exit(sym)
@@ -229,11 +229,12 @@ def build_card(now: Optional[datetime] = None) -> str:
             logger.exception("regime_card.sma_failed %s", sym)
             got = None
         if not got:
-            lines.append(f"{sym[:3]}: SMA100 не прочитана — режим неизвестен")
+            sma.append(f"{sym[:3]} SMA100 не прочитана — режим неизвестен")
             continue
         px, thr = got
         prices[sym] = px
-        lines.append(f"{sym[:3]} {px:,.0f} · лонги закроются при дневном закрытии ниже {thr:,.0f} ({thr / px - 1:+.1%})")
+        sma.append(f"{sym[:3]} ниже {thr:,.0f} ({thr / px - 1:+.1%})")
+    lines = [f"☀️ {now.astimezone():%d.%m} · сетки WEEX — за сутки · мешок сейчас (без фандинга)"]
     try:
         rows = _grid_rows(prices, now.timestamp() - 86_400)
     except Exception:                                           # noqa: BLE001
@@ -241,11 +242,11 @@ def build_card(now: Optional[datetime] = None) -> str:
         rows = []
     if not rows:
         lines.append("живых сеток нет")
-        return "\n".join(lines)
-    lines.append("за сутки закрыто · мешок сейчас (без фандинга):")
     for label, closed, cycles, bag, nlots in rows:
-        lines.append(f"• {label}: {closed:+,.2f}$ ({cycles} цикл.) · мешок {bag:+,.2f}$ ({nlots} лот.)")
-    lines.append(f"итого: закрыто {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
+        lines.append(f"{label}: {closed:+,.2f}$ · {cycles} цикл. · мешок {bag:+,.2f}$ ({nlots} лот.)")
+    if rows:
+        lines.append(f"Итого: {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
+    lines.append("🛡 Лонги закроются, если день закроется: " + " · ".join(sma))
     return "\n".join(lines) + _market_brief()
 
 

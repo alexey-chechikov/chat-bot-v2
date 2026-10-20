@@ -241,6 +241,6 @@ def test_card_labels_validation_phase_separately_and_marks_late(tmp_dr, monkeypa
     monkeypatch.setattr(dr, "klines", fake_klines([]))
     t = datetime(2026, 10, 19, 7, 30, 10, tzinfo=UTC)               # 09:30 Варшавы — поздно
     out = dr.lines(t, zones={}, clock=Clock(t))
-    btc = next(x for x in out if x.startswith("• BTC"))
-    assert "выдан поздно" in btc and "76%" not in btc
-    assert any("для выдачи в 08:01" in x and "76%" in x and "не измерялось" in x for x in out)
+    btc = next(x for x in out if x.startswith("BTC"))
+    assert "выдан поздно" in out[0] and "76%" not in btc and "76%" not in out[0]   # 20.10: пометка — в заголовке блока
+    assert any("для выдачи в 08:01" in x and "76%" in x and "не измерялась" in x for x in out)
