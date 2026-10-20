@@ -321,6 +321,11 @@ def main() -> int:
         c1.evaluate()
     except Exception as exc:                                    # noqa: BLE001
         print(f"c1.evaluate: {type(exc).__name__}: {exc}"[:200])
+    try:                                                        # 14:00 и 16:00 — что изменилось с утра (оператор 20.10)
+        from services.coinglass_web import intraday
+        intraday.maybe_send()
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"intraday: {type(exc).__name__}: {exc}"[:200])
     lv, lq = rec.get("levels") or {}, rec.get("liquidations") or {}
     print(f"{rec['ts']} цена {lv.get('price')}; зоны {len(lv.get('zones_short', []))}/{len(lv.get('zones_long', []))}; "
           f"ликвидации 24ч {lq.get('total_24h')}; c1 {rec.get('c1')}; сбои {fails or 'нет'}")
