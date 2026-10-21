@@ -112,6 +112,8 @@ def grid_levels(names=None, peek=None, state_path=None, blocks=None) -> dict[str
         cfg = peek(name)
         if not cfg or not cfg.get("enabled") or cfg.get("dry_run"):
             continue
+        if "LONG" not in (cfg.get("sides") or ["LONG"]):
+            continue                                            # шорт-сетки (SB/SE) — не уровни лонгов
         d = out.setdefault(cfg["symbol"], {"expected": 0, "grids": [], "skipped": [], "detail": [], "entries": [],
                                            "tps": [], "qty": 0.0, "cost": 0.0, "lots": 0})
         d["expected"] += 1

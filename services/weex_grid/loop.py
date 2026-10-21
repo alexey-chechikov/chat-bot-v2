@@ -32,14 +32,19 @@ AUDIT_FILE = eg.STATE.with_name("weex_position_audit.json")
 
 
 def position_gaps(grids: list[dict], busy: set, positions: list) -> dict:
-    """grids — живые сетки: {"symbol", "release_sides", "qty_step", "state"}; busy — {(symbol, side)} без сверки
-    (эпизод тренда); positions — ответ futures_positions. → {"SYM:SIDE": {"lots", "exchange", "deficit"}}."""
+    """grids — живые сетки: {"symbol", "sides", "release_sides", "qty_step", "state"}; busy — {(symbol, side)} без
+    сверки (эпизод тренда); positions — ответ futures_positions. → {"SYM:SIDE": {"lots", "exchange", "deficit"}}.
+    Сторона, переданная оператору (release_sides), не сверяется, ПОКА ею не владеет другая живая сетка (21.10: шорт-сетка
+    SB на BTCUSDT SHORT рядом с переданным шортом основной BTC — её лоты сверяются; ручной шорт оператора даёт избыток,
+    а не нехватку, и входы не блокирует)."""
     want, tol, skip = {}, {}, set(busy)
+    owned = {(g["symbol"], s) for g in grids for s in (g.get("sides") or [])}
     for g in grids:
         for side in ("LONG", "SHORT"):
             key = (g["symbol"], side)
-            if side in (g.get("release_sides") or []):
-                skip.add(key)
+            if side in (g.get("release_sides") or []) and side not in (g.get("sides") or []):
+                if key not in owned:
+                    skip.add(key)
                 continue
             lots = (g.get("state") or {}).get(side, {}).get("lots") or []
             want[key] = want.get(key, 0.0) + sum(float(l["qty"]) for l in lots)
@@ -136,7 +141,8 @@ class Runner:
                 if cfg["dry_run"]:
                     continue
                 p = run_files(name, False)[0]
-                grids.append({"symbol": cfg["symbol"], "release_sides": cfg.get("release_sides") or [],
+                grids.append({"symbol": cfg["symbol"], "sides": cfg.get("sides") or [],
+                              "release_sides": cfg.get("release_sides") or [],
                               "qty_step": cfg.get("qty_step"),
                               "state": json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}})
             gaps = position_gaps(grids, self._trend_busy(), self._client().futures_positions())
@@ -391,7 +397,10 @@ NAMES = {"btc": "BTC", "бтк": "BTC", "биток": "BTC", "биткоин": "
          "eth": "ETH", "эфир": "ETH", "эth": "ETH",
          "xau": "XAU", "gold": "XAU", "золото": "XAU", "голд": "XAU",
          # 15.10: три сетки BTCUSDT для сравнения (шаг 0.1, цели 0.34/0.49/0.89) — /weex b34 live|start|stop|set …
-         "b34": "B34", "b49": "B49", "b89": "B89"}
+         "b34": "B34", "b49": "B49", "b89": "B89",
+         # 21.10: заряженные шорт-сетки (без режима SMA), запуск — /weex sb go или кнопкой /panel
+         "sb": "SB", "se": "SE"}
+BUMP_USD = 50.0          # шаг кнопок «ордер ±» (21.10): ≈$50 по текущей цене, округлённо к шагу объёма контракта
 
 
 def _label(name: str, cfg: dict) -> str:
@@ -469,6 +478,67 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
             f"Действует на новые ордера; уже стоящие тейки остаются на старой цели.")
 
 
+def _live_sides(name: str) -> list[str]:
+    """Стороны, где у живого учёта сетки есть что закрывать (лоты, вход, незавершённое закрытие)."""
+    p = run_files(name, False)[0]
+    if not p.exists():
+        return []
+    try:
+        st = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise eg.StateCorrupt(f"живой учёт {p.name} не читается: {exc}") from exc
+    return [s for s in eg.DIR if (st.get(s) or {}).get("lots") or (st.get(s) or {}).get("entry")
+            or (st.get(s) or {}).get("flatten")]
+
+
+def close_grid(name: str) -> str:
+    """Закрыть позиции сетки по рынку (только лоты бота) и выключить её: enabled=false + flatten_request — движок на
+    следующем проходе снимает вход и тейки и шлёт один reduceOnly на объём лотов (как закрытие по режиму)."""
+    cfg = grid_config(name)
+    sides = [s for s in _live_sides(name) if s not in (cfg.get("release_sides") or []) or s in cfg["sides"]]
+    cfg["enabled"] = False
+    cfg["flatten_request"] = sides
+    save_grid_config(cfg, name)
+    tag = f"Сетка WEEX {_label(name, cfg)}"
+    if not sides:
+        return f"⏸ {tag}: позиций бота нет — сетка выключена."
+    return (f"⛔ {tag}: закрываю по рынку лоты бота ({', '.join(sides)}) и выключаю. Ручные позиции не трогаю. "
+            f"Включить снова — {_cmd(name)}go.")
+
+
+def bump_qty(name: str, sign: int, price_fn) -> str:
+    """Ордер ± ≈$50 (кнопки панели): новый объём = текущий ± round(50 / цена, шаг объёма), в пределах [шаг; qty_max]
+    сетки — через set_params (та же проверка, что /weex set)."""
+    cfg = grid_config(name)
+    qstep, qmax = float(cfg["qty_step"]), float(cfg["qty_max"])
+    price = price_fn()
+    delta = max(qstep, round(BUMP_USD / price / qstep) * qstep)
+    new = min(qmax, max(qstep, float(cfg["order_qty"]) + sign * delta))
+    if abs(new - float(cfg["order_qty"])) < qstep / 2:
+        return f"Ордер {_label(name, cfg)} уже на границе: {cfg['order_qty']} (допустимо {qstep:g}…{qmax:g})."
+    qdec = max(0, -int(math.floor(math.log10(qstep) + 1e-9)))
+    return set_params(f"qty {new:.{qdec}f}", lambda: price, name)
+
+
+def pause_all() -> str:
+    """Пауза всем живым сеткам: enabled=false — новые входы сняты, тейки работают, закрытие по режиму — как было."""
+    done = []
+    for name in eg.GRIDS:
+        cfg = grid_config(name)
+        if cfg["enabled"] and not cfg["dry_run"]:
+            cfg["enabled"] = False
+            save_grid_config(cfg, name)
+            done.append(_label(name, cfg))
+    return ("⏸ Пауза: " + ", ".join(done) + " — новые входы сняты, тейки остаются.") if done else \
+        "⏸ Живых включённых сеток нет — пауза не нужна."
+
+
+def close_all() -> str:
+    """Закрыть позиции всех ботов (только лоты бота, ручные позиции не трогаются) и выключить сетки."""
+    out = [close_grid(name) for name in eg.GRIDS if not grid_config(name)["dry_run"] and _live_sides(name)]
+    return "\n".join(out) if out else "Позиций ботов нет — закрывать нечего."
+
+
 def command(arg: str) -> str:
     """/weex [eth|btc] [start|stop|live|dry|set ...] — управление; без аргумента — карточки всех сеток.
     Без имени монеты команды относятся к BTC (как было до 09.10)."""
@@ -482,6 +552,10 @@ def command(arg: str) -> str:
 def _command(arg: str) -> str:
     raw = (arg or "").strip()
     first = raw.split(None, 1)[0].lower() if raw else ""
+    if first in ("pauseall", "паузавсем"):             # 21.10: кнопка «пауза всем»
+        return pause_all()
+    if first in ("closeall", "закрытьвсе"):            # 21.10: кнопка «закрыть позиции ботов»
+        return close_all()
     if first in ("тренд", "trend"):                    # трендовый бот ETH: /weex тренд …
         from services.weex_trend.loop import command as trend_command
         return trend_command(raw.split(None, 1)[1] if " " in raw else "")
@@ -516,8 +590,21 @@ def _command(arg: str) -> str:
     name = name or "BTC"
     cfg = grid_config(name)
     tag = f"Сетка WEEX {_label(name, cfg)}"
+    if arg in ("qty+", "ордер+", "qty-", "ордер-"):
+        from services.weex_api.client import WeexClient
+
+        def price():
+            b, a = WeexClient().book(cfg["symbol"])
+            return (b + a) / 2
+        return bump_qty(name, 1 if arg.endswith("+") else -1, price)
+    if arg in ("close", "закрыть"):
+        return close_grid(name)
+    if arg in ("go", "запуск"):                          # 21.10: живой запуск одной кнопкой (заряженные сетки)
+        cfg["dry_run"] = False
+        arg = "start"
     if arg in ("start", "старт"):
         cfg["enabled"] = True
+        cfg.pop("flatten_request", None)                # закрытие по команде снято — сетка снова набирает
         for dry in (False, True):
             p, _ = run_files(name, dry)
             if not p.exists():

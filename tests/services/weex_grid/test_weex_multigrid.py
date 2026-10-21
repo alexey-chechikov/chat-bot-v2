@@ -459,7 +459,8 @@ def test_new_grids_created_off_dry_with_template(grid_files):
         assert cfg["cid_tag"] == tag and "release_sides" not in cfg
         assert json.loads((grid_files / f"{name}_cfg.json").read_text())["cid_tag"] == tag
     tags = eg.grid_tags()
-    assert tags == {"BTC": "B", "ETH": "E", "XAU": "X", "B34": "3", "B49": "4", "B89": "8"}
+    assert tags == {"BTC": "B", "ETH": "E", "XAU": "X", "B34": "3", "B49": "4", "B89": "8",
+                    "SB": "5", "SE": "6"}                       # 21.10: заряженные шорт-сетки пульта
     assert len({t.upper() for t in tags.values()}) == len(tags)
     assert len({lp.run_files(n, False)[0] for n in eg.GRIDS}) == len(eg.GRIDS)      # у каждой свой учёт
 

@@ -64,7 +64,12 @@ DEFAULT = {
 # B34/B49/B89 (15.10, оператор: «запусти 3х ботов и сравнивай неделю») — три лонг-сетки BTCUSDT шаг 0.1%, ордер ≈$100,
 # цели 0.34/0.49/0.89%, тот же режим SMA100, что у живой BTC; на одном символе с ней — свои знаки ордеров 3/4/8.
 # Шаг 0.1 на истории хуже (CLAUDE.md, «мелкий шаг 0.1–0.15 хуже при любой комиссии») — это живая проверка малым размером.
-GRIDS = ("BTC", "ETH", "XAU", "B34", "B49", "B89")
+# SB/SE (21.10, оператор: «заранее настроенный шорт-бот — нажимаю кнопку в Telegram»): шорт-сетки BTCUSDT и ETHUSDT
+# БЕЗ режима SMA, созданы выключенными (enabled=false по умолчанию), запуск — кнопкой /panel или /weex sb go.
+# История против: постоянная шорт-сетка ETH — минус во всех 30 ячейках развёртки, шорт-сетки в ралли 19–22.08 —
+# мешок $16k (CLAUDE.md, память project_liquidation_0822); держит только потолок позиции. Сторона SHORT BTC у основной
+# сетки BTC передана оператору (release_sides) — SB делит её с ручными шортами оператора (решение оператора 21.10).
+GRIDS = ("BTC", "ETH", "XAU", "B34", "B49", "B89", "SB", "SE")
 _BTC_CMP = {"symbol": "BTCUSDT", "sides": ["LONG"], "regime_sma": 100, "step_pct": 0.1, "order_qty": "0.0012",
             "qty_step": 0.0001, "price_tick": 0.1, "qty_max": 0.01, "max_lots_per_side": 15, "max_notional_usd": 1500.0,
             "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0, "trail_min_move_pct": 0.05, "poll_sec": 10}
@@ -72,6 +77,14 @@ TEMPLATES = {
     "B34": {**_BTC_CMP, "cid_tag": "3", "target_pct": 0.34},
     "B49": {**_BTC_CMP, "cid_tag": "4", "target_pct": 0.49},
     "B89": {**_BTC_CMP, "cid_tag": "8", "target_pct": 0.89},
+    "SB": {"symbol": "BTCUSDT", "sides": ["SHORT"], "regime_sma": 0, "cid_tag": "5", "step_pct": 0.6,
+           "target_pct": 1.4, "order_qty": "0.0012", "qty_step": 0.0001, "price_tick": 0.1, "qty_max": 0.01,
+           "max_lots_per_side": 30, "max_notional_usd": 3000.0, "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0,
+           "trail_min_move_pct": 0.05, "poll_sec": 10},
+    "SE": {"symbol": "ETHUSDT", "sides": ["SHORT"], "regime_sma": 0, "cid_tag": "6", "step_pct": 0.6,
+           "target_pct": 1.4, "order_qty": "0.040", "qty_step": 0.001, "price_tick": 0.01, "qty_max": 0.5,
+           "max_lots_per_side": 30, "max_notional_usd": 3000.0, "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0,
+           "trail_min_move_pct": 0.05, "poll_sec": 10},
     # 09.10 развёртка 10 мес XAUUSDT (лонг+шорт, $100, потолок $4 000): шаг 0.75 итог +$349 — но «+$116 во
     # второй половине» был второй старт без старого мешка. После исправления методики (ордер 0.023, 50
     # ордеров, непрерывные половины) итог +$270.76, первая половина +$304.99, ВТОРАЯ −$34.23 — проверку по
@@ -1332,6 +1345,17 @@ class Grid:
         for side in DIR:
             if self.st[side].get("flatten"):
                 closing.add(side)
+        # закрытие по команде оператора (21.10: кнопка «закрыть позиции ботов», /weex <сетка> close): тот же путь, что
+        # закрытие по режиму — снять вход и тейки, один рыночный reduceOnly на объём лотов бота; ручные позиции не
+        # трогаются. Флаг снимает только /weex start|go.
+        req = cfg.get("flatten_request") or []
+        if not isinstance(req, list) or any(x not in DIR for x in req):
+            raise ConfigError(f"flatten_request {req!r} негоден: нужен список из LONG/SHORT")
+        self._requested = set(req)
+        for side in req:
+            st_ = self.st[side]
+            if st_["lots"] or st_.get("entry") or st_.get("flatten"):
+                closing.add(side)
         self._closing = closing - released
         for side in closing - released:
             self._phase = f"flatten:{side}"
@@ -1907,7 +1931,8 @@ class Grid:
             return
         if r and r.get("success") and r.get("orderId"):
             s["flatten"]["id"] = str(r["orderId"])
-            self._notify(f"↩️ Сетка WEEX {self.label}: режим сменился — закрываю {side} {self._qty_str(q)} "
+            why = "по команде оператора" if side in getattr(self, "_requested", set()) else "режим сменился"
+            self._notify(f"↩️ Сетка WEEX {self.label}: {why} — закрываю {side} {self._qty_str(q)} "
                          f"по рынку (лоты бота).")
         elif r and not r.get("success"):
             # явный отказ (чаще всего позиции на бирже меньше лотов — часть закрыта вручную): учёт к позиции
