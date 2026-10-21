@@ -1824,6 +1824,10 @@ async def _main_locked(
         app.bot.stop_polling()
     except Exception:
         logger.exception("app_runner.stop_polling_failed")
+    try:                                    # 21.10: собственный цикл опроса bot.stop_polling() не останавливал
+        app.stop_polling_loop()
+    except Exception:
+        logger.exception("app_runner.stop_polling_loop_failed")
 
     for task in pending:
         if task is stop_task:

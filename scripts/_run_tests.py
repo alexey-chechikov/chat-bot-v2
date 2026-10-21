@@ -50,6 +50,7 @@ TEST_DIRS = [
     "tests/research_manual/",
     "tests/research_trend/",
     "tests/test_app_runner_lock.py",
+    "tests/test_telegram_polling_stop.py",
     "tests/services/tv_levels/",
     # main() — только с заглушками задач (фикстура файла); два старых теста Telegram-раннеров висят — не здесь
     "tests/test_app_runner.py::test_main_starts_no_real_service",

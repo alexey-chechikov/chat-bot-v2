@@ -72,6 +72,7 @@ def test_app_runner_starts_and_stops_cleanly(monkeypatch):
     assert rc == 0
     fake_orchestrator.stop.assert_called_once()
     fake_app.bot.stop_polling.assert_called_once()
+    fake_app.stop_polling_loop.assert_called_once()     # 21.10: собственный цикл опроса тоже останавливается
 
 
 def test_app_runner_orchestrator_crash_stops_polling(monkeypatch):

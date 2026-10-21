@@ -22,6 +22,9 @@ from storage.transition_alerts import build_transition_alert
 
 logger = logging.getLogger(__name__)
 _MAX_MESSAGE_LEN = 3800
+# 21.10: длинный опрос getUpdates 25 → 10 с — остановка процесса ждёт поток опроса не дольше одного опроса
+# (launchd ExitTimeOut по умолчанию 20 с, раньше старый процесс добивался SIGKILL, код −9)
+POLL_TIMEOUT_SEC = 10
 
 
 SLASH_COMMAND_ALIASES: dict[str, str] = {
@@ -1185,6 +1188,7 @@ class TelegramBotApp:
         # и логируются нашим циклом (update_dispatch_failed); долгие команды
         # обязаны уходить в свой поток (как /card).
         self.bot = telebot.TeleBot(token, parse_mode=None, threaded=False)
+        self._polling_stop = threading.Event()           # остановка собственного цикла опроса (stop_polling_loop)
         self.responder = TelegramResponder(self.bot)
         self.command_handler = CommandHandler(self.responder.send)
         self.alert_worker = MarketAlertWorker(
@@ -3701,9 +3705,11 @@ class TelegramBotApp:
         # Same custom-polling pattern as run_polling_blocking (handles 409 cleanly).
         offset = 0
         consecutive_errors = 0
-        while True:
+        stop = self._poll_stop_event()
+        while not stop.is_set():
             try:
-                updates = self.bot.get_updates(offset=offset, timeout=25, long_polling_timeout=25)
+                updates = self.bot.get_updates(offset=offset, timeout=POLL_TIMEOUT_SEC,
+                                               long_polling_timeout=POLL_TIMEOUT_SEC)
                 for upd in updates:
                     offset = upd.update_id + 1
                     try:
@@ -3720,11 +3726,24 @@ class TelegramBotApp:
                 if '409' in msg or 'Conflict' in msg:
                     backoff = min(60, 5 * consecutive_errors)
                     logger.warning('telegram_bot.polling_conflict (409); backoff %ds', backoff)
-                    time.sleep(backoff)
+                    stop.wait(backoff)
                 else:
                     backoff = min(30, 2 * consecutive_errors)
                     logger.exception('telegram_bot.polling_failed; backoff %ds (consecutive=%d)', backoff, consecutive_errors)
-                    time.sleep(backoff)
+                    stop.wait(backoff)
+        logger.info('telegram_bot.polling_stopped')
+
+    def _poll_stop_event(self) -> threading.Event:
+        ev = getattr(self, '_polling_stop', None)
+        if ev is None:                                   # объект без __init__ (тесты через __new__)
+            ev = self._polling_stop = threading.Event()
+        return ev
+
+    def stop_polling_loop(self) -> None:
+        """Остановить собственный цикл опроса (run / run_polling_blocking). bot.stop_polling() библиотеки на него не
+        действует: без этого поток опроса жил вечно, остановка процесса ждала его до SIGKILL launchd, а замок одного
+        экземпляра (F5) держался всё это время (разбор GPT к a25c763). Выход — не дольше одного длинного опроса."""
+        self._poll_stop_event().set()
 
     def run_polling_blocking(self) -> None:
         if (
@@ -3751,9 +3770,11 @@ class TelegramBotApp:
         # get_updates() manually so any error exits cleanly with backoff.
         offset = 0
         consecutive_errors = 0
-        while True:
+        stop = self._poll_stop_event()
+        while not stop.is_set():
             try:
-                updates = self.bot.get_updates(offset=offset, timeout=25, long_polling_timeout=25)
+                updates = self.bot.get_updates(offset=offset, timeout=POLL_TIMEOUT_SEC,
+                                               long_polling_timeout=POLL_TIMEOUT_SEC)
                 for upd in updates:
                     offset = upd.update_id + 1
                     try:
@@ -3773,11 +3794,12 @@ class TelegramBotApp:
                         'telegram_bot.polling_conflict (409) — likely concurrent poller; backoff %ds',
                         backoff,
                     )
-                    _time.sleep(backoff)
+                    stop.wait(backoff)
                 else:
                     backoff = min(30, 2 * consecutive_errors)
                     logger.exception(
                         'telegram_bot.polling_failed; backoff %ds (consecutive=%d)',
                         backoff, consecutive_errors,
                     )
-                    _time.sleep(backoff)
+                    stop.wait(backoff)
+        logger.info('telegram_bot.polling_stopped')
