@@ -1623,7 +1623,24 @@ async def main(
         return await _main_locked(stop_event=stop_event, signal_handler_installer=signal_handler_installer,
                                   shutdown_timeout=shutdown_timeout)
     finally:
-        os.close(lock_fd)
+        await _release_after_workers(lock_fd)
+
+
+_KEPT_LOCKS: list[int] = []      # замки, которые держим до выхода процесса (рабочие потоки не дождались)
+
+
+async def _release_after_workers(lock_fd: int) -> None:
+    """Отпустить замок только после конца рабочих потоков (21.10, разбор GPT 8252cc0 F5): проход сеток идёт через
+    asyncio.to_thread, а отмена задачи по таймауту остановки поток не останавливает — он может ещё ставить ордера и
+    писать учёт. Ждём пул потоков по умолчанию (там же поток Telegram и команды /weex); ожидание прервали — замок не
+    отпускаем: его снимет ядро при выходе процесса."""
+    try:
+        await asyncio.get_running_loop().shutdown_default_executor()
+    except BaseException:
+        _KEPT_LOCKS.append(lock_fd)
+        logger.warning("app_runner.lock_kept_until_exit — рабочие потоки не дождались, замок до выхода процесса")
+        raise
+    os.close(lock_fd)
 
 
 async def _main_locked(

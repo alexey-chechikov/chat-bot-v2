@@ -128,3 +128,94 @@ def test_main_defaults_to_shared_lock():
     kw = inspect.signature(app_runner.main).parameters
     assert kw["lock_path"].default == app_runner.LOCK_PATH
     assert kw["lock_wait_sec"].default == app_runner.LOCK_WAIT_SEC
+
+
+def _blocked_worker_body(monkeypatch):
+    """Как проход сеток: asyncio.to_thread(tick); остановка отменяет задачу по таймауту (_shutdown_task), а поток жив."""
+    import threading
+    ev = {"release": threading.Event(), "started": threading.Event(), "body_done": threading.Event()}
+
+    def worker():
+        ev["started"].set()
+        ev["release"].wait(10)
+
+    async def body(**kw):
+        t = asyncio.ensure_future(asyncio.to_thread(worker))
+        while not ev["started"].is_set():
+            await asyncio.sleep(0.01)
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+        ev["body_done"].set()
+        return 0
+
+    monkeypatch.setattr(app_runner, "_main_locked", body)
+    return ev
+
+
+def test_f5_lock_held_until_worker_thread_finishes(tmp_path, monkeypatch):
+    """Разбор GPT 8252cc0 F5: вторая копия не получает замок, пока поток прохода первой ещё работает."""
+    import threading
+    path = str(tmp_path / "app_runner.lock")
+    ev = _blocked_worker_body(monkeypatch)
+    res = {}
+    th = threading.Thread(target=lambda: res.setdefault("rc", _main(path, 0)))
+    th.start()
+    try:
+        assert ev["body_done"].wait(5)
+        time.sleep(0.2)
+        assert app_runner._acquire_single_instance_lock(path, wait_sec=0) is None   # поток жив — замок держится
+    finally:
+        ev["release"].set()
+        th.join(10)
+    assert res["rc"] == 0
+    fd = app_runner._acquire_single_instance_lock(path, wait_sec=0)                # поток закончил — замок свободен
+    assert fd is not None
+    os.close(fd)
+
+
+def test_f5_cancelled_wait_keeps_lock_until_process_exit(tmp_path, monkeypatch):
+    """Ожидание потоков прервано (отмена main): замок не отпущен ни пока поток жив, ни после — его снимет ядро при
+    выходе процесса. (В Python 3.10 отменённый shutdown_default_executor всё равно дожидается потоков в finally.)"""
+    import threading
+    path = str(tmp_path / "app_runner.lock")
+    ev = _blocked_worker_body(monkeypatch)
+    seen, checked = {}, threading.Event()
+
+    async def runner():
+        task = asyncio.ensure_future(app_runner.main(signal_handler_installer=lambda loop, e: None, lock_path=path,
+                                                     lock_wait_sec=0))
+        while not ev["body_done"].is_set():
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        seen["kept"] = len(app_runner._KEPT_LOCKS)
+        seen["held"] = app_runner._acquire_single_instance_lock(path, wait_sec=0) is None
+        checked.set()
+
+    def run():
+        try:
+            asyncio.run(runner())
+        except RuntimeError:                                 # пул уже закрыт main — завершение asyncio.run
+            pass
+
+    th = threading.Thread(target=run)
+    th.start()
+    try:
+        assert ev["body_done"].wait(5)
+        time.sleep(0.4)                                      # отмена уже прошла, поток ещё жив
+        assert app_runner._acquire_single_instance_lock(path, wait_sec=0) is None
+    finally:
+        ev["release"].set()
+    assert checked.wait(10) and seen == {"kept": 1, "held": True}   # и после конца потока — до выхода процесса
+    th.join(10)
+    os.close(app_runner._KEPT_LOCKS.pop())                                         # «выход процесса» в тесте
+    fd = app_runner._acquire_single_instance_lock(path, wait_sec=0)
+    assert fd is not None
+    os.close(fd)
