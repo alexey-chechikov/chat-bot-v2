@@ -126,9 +126,12 @@ def regime_line(sym: str, n: int, c) -> tuple[str, str]:
 
 
 def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path: Path, c,
-                   size_of: dict, own: str = eg.PREFIX, others: tuple = ()) -> tuple[bool, bool]:
+                   size_of: dict, own: str = eg.PREFIX, others: tuple = (), legit_prefixes: tuple = (),
+                   legit_registry: set | frozenset = frozenset()) -> tuple[bool, bool]:
     """(проблема, не прочитано) по сторонам, переданным оператору. own — префикс ордеров этой сетки (b7g+знак), others —
-    префиксы других сеток: их ордера/сделки на переданной стороне — тоже бот на стороне оператора (ПРОБЛЕМА)."""
+    префиксы других сеток: их ордера/сделки на переданной стороне — тоже бот на стороне оператора (ПРОБЛЕМА).
+    legit_prefixes / legit_registry — сетки, которые САМИ ведут эту сторону (sides; 21.10 шорт-сетка SB на BTCUSDT SHORT):
+    их ордера (по префиксу) и сделки (по номерам ордеров их учёта и журнала) — не нарушение передачи."""
     sides = cfg.get("sides") or []
     released = [s for s in (cfg.get("release_sides") or []) if s in eg.DIR and s not in sides]
     if not released:
@@ -146,7 +149,8 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
     who_open = [(o, mc.cid_owner(o.get("clientOrderId"), o.get("orderId"), own, registry, others, eg.PREFIX))
                 for o in on_side]
     mine = [o for o, w in who_open if w == mc.BOT]
-    open_other = [o for o, w in who_open if w == mc.OTHER]
+    open_other = [o for o, w in who_open if w == mc.OTHER
+                  and not str(o.get("clientOrderId") or "").startswith(tuple(legit_prefixes))]
     open_unk = [o for o, w in who_open if w is None]
     algo = [a for a in (c.open_algo_orders(sym) or []) if str(a.get("clientAlgoId", "")).startswith("b7")
             and a.get("positionSide") in released]
@@ -175,6 +179,8 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
                 n_unread += 1
                 continue
             if who == mc.OTHER:
+                if str(t["orderId"]) in legit_registry:
+                    continue                             # сетка, которая сама ведёт эту сторону (SB) — законно
                 other_fills.append(t)                    # другая сетка бота на стороне оператора — за всё время
                 continue
             if who != mc.BOT:
@@ -202,7 +208,10 @@ def check_released(name: str, sym: str, cfg: dict, st: dict | None, journal_path
         else:
             verdict = "бот сторону не трогал"
         print(f"{name} {sym} {s} передан оператору {when} (записей {len(recs)}): позиция на бирже "
-              f"{size_of.get((sym, s), 0):g} — сверить с прошлым значением (память project_portfolio_now); "
+              f"{size_of.get((sym, s), 0):g}"
+              + (" (в т.ч. лоты сеток, которые сами ведут сторону — ручная часть = позиция − их лоты, см. ниже)"
+                 if legit_prefixes else "")
+              + " — сверить с прошлым значением (память project_portfolio_now); "
               f"ордеров бота {n_ord}, algo бота {n_algo}, сделок бота после передачи "
               f"{len(bot_after) if recs else 'н/д'}"
               + (f"; последняя сделка бота на стороне {datetime.fromtimestamp(last_bot / 1000):%m-%d %H:%M}"
@@ -234,6 +243,14 @@ def main() -> None:
               "средняя", round(float(p.get("openValue") or 0) / size, 4), "PnL", p.get("unrealizePnl"),
               "фандинг", p.get("cumFundingFee"))
     tags = eg.grid_tags()
+    # 21.10: сетки, которые САМИ ведут сторону (sides) на символе, — их ордера на стороне, переданной оператору другой
+    # сеткой, не нарушение передачи (шорт-сетка SB на BTCUSDT SHORT рядом с переданным шортом основной BTC)
+    side_owners: dict[tuple, set] = {}
+    for n in eg.GRIDS:
+        c_n = eg.peek_config(n) or {}
+        for s_n in c_n.get("sides") or []:
+            if tags.get(n):
+                side_owners.setdefault((c_n.get("symbol"), s_n), set()).add(n)
     regimes_done: set = set()
     lots_by: dict[tuple, dict[str, float]] = {}       # (символ, сторона) → {сетка: объём лотов}
     for name in eg.GRIDS:
@@ -268,7 +285,11 @@ def main() -> None:
         problem |= level == "bad"
         unread |= level == "check"
         print(f"{name} {sym}: ведётся живьём ({mode}) → {verdict}")
-        p, u = check_released(name, sym, cfg, st, Path(journal), c, size_of, own, others)
+        rel = [s for s in (cfg.get("release_sides") or []) if s in eg.DIR and s not in (cfg.get("sides") or [])]
+        legit = sorted(set().union(*[side_owners.get((sym, s), set()) for s in rel]) - {name}) if rel else []
+        p, u = check_released(name, sym, cfg, st, Path(journal), c, size_of, own, others,
+                              legit_prefixes=tuple(eg.PREFIX + tags[n] for n in legit),
+                              legit_registry=set().union(*[mc.grid_registry(eg, n) for n in legit]) if legit else set())
         problem |= p
         unread |= u
         for s in ("LONG", "SHORT"):

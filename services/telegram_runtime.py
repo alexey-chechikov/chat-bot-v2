@@ -2690,6 +2690,92 @@ class TelegramBotApp:
             for part in split_message(text):
                 self.bot.send_message(chat_id, part)
 
+        # ── /panel — пульт сеток WEEX кнопками (21.10, оператор: «пауза всем, закрыть все позиции, старт бота,
+        # заряженные шорт-боты, ордер +/−»). Кнопки шлют те же команды, что /weex (services/weex_grid/panel.py);
+        # опасные — в два нажатия, подтверждение живёт 2 мин; «закрыть» — только лоты ботов.
+        def _panel_markup(rows):
+            from telebot import types
+            kb = types.InlineKeyboardMarkup()
+            for row in rows:
+                kb.row(*[types.InlineKeyboardButton(t, callback_data=d) for t, d in row])
+            return kb
+
+        def _send_panel(chat_id: int) -> None:
+            from services.weex_grid import panel
+            infos = panel.collect()
+            prices = {}
+            try:
+                from services.weex_api.client import WeexClient
+                c = WeexClient()
+                for sym in {i['symbol'] for i in infos}:
+                    b, a = c.book(sym)
+                    prices[sym] = (b + a) / 2
+            except Exception:
+                logger.exception('panel.prices_failed')
+            text, rows = panel.build(infos, prices)
+            self.bot.send_message(chat_id, text, reply_markup=_panel_markup(rows))
+
+        def _panel_job(chat_id: int, cmd: str | None) -> None:
+            if cmd:
+                try:
+                    from services.weex_grid.loop import command, split_message
+                    for part in split_message(command(cmd)):
+                        self.bot.send_message(chat_id, part)
+                except Exception as exc:
+                    logger.exception('panel.command_failed %s', cmd)
+                    self.bot.send_message(chat_id, f'❌ {cmd}: {exc}')
+            try:
+                _send_panel(chat_id)
+            except Exception as exc:
+                logger.exception('panel.render_failed')
+                self.bot.send_message(chat_id, f'❌ /panel: {exc}')
+
+        @self.bot.message_handler(commands=['panel'])
+        def handle_panel(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            threading.Thread(target=_panel_job, args=(chat_id, None), name='panel', daemon=True).start()
+
+        @self.bot.callback_query_handler(func=lambda call: str(getattr(call, 'data', '')).startswith('wx:'))
+        def handle_panel_cb(call) -> None:
+            chat_id = int(call.message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.answer_callback_query(call.id, 'Доступ запрещён.')
+                return
+            from services.weex_grid import panel
+            p = panel.parse(call.data)
+            if p is None:
+                self.bot.answer_callback_query(call.id, 'Неизвестная кнопка')
+                return
+            if p['kind'] == 'n':
+                self.bot.answer_callback_query(call.id, 'Отменено')
+                self.bot.edit_message_text('✖️ Отменено.', chat_id, call.message.message_id)
+                return
+            if p['kind'] == 'r':
+                self.bot.answer_callback_query(call.id, 'Обновляю…')
+                threading.Thread(target=_panel_job, args=(chat_id, None), name='panel', daemon=True).start()
+                return
+            if p['kind'] == 'a' and panel.needs_confirm(p['action']):
+                info = next((i for i in panel.collect() if i['name'] == p['name']), None)
+                self.bot.answer_callback_query(call.id)
+                kb = _panel_markup([[('✅ Да', panel.confirm_data(p['action'], p['name'], panel.now())),
+                                     ('✖️ Отмена', 'wx:n')]])
+                self.bot.send_message(chat_id, panel.question(p['action'], p['name'], info), reply_markup=kb)
+                return
+            if p['kind'] == 'y':
+                if panel.expired(p, panel.now()):
+                    self.bot.answer_callback_query(call.id, 'Подтверждение устарело — нажми кнопку на пульте ещё раз')
+                    return
+                try:                                     # кнопки подтверждения — одноразовые
+                    self.bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
+                except Exception:
+                    logger.exception('panel.confirm_markup_failed')
+            self.bot.answer_callback_query(call.id, 'Выполняю…')
+            threading.Thread(target=_panel_job, args=(chat_id, panel.command_for(p['action'], p['name'])),
+                             name='panel-cmd', daemon=True).start()
+
         # ── /scalp — место под помощника ручного интрадей-скальпинга (WEEX,
         # план оператора 02.10.2026). Пока заготовка: что будет и что нужно.
         @self.bot.message_handler(commands=['scalp'])
