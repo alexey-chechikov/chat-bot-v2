@@ -2586,6 +2586,28 @@ class TelegramBotApp:
                 return
             self.bot.send_message(chat_id, text)
 
+        # ── /tv — уровни ботов для TradingView одной строкой (21.10, оператор: «хочу, чтобы всё вставлялось
+        # автоматически»). Только чтение учёта сеток и прогноза дня (services/tv_levels.py); строка — в <code>,
+        # копируется одним нажатием в поле «Строка из бота» индикатора docs/tv_pine_scripts/bot7_regime_grids.pine.
+        @self.bot.message_handler(commands=['tv'])
+        def handle_tv(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+
+            def _build_and_send() -> None:
+                try:
+                    from services import tv_levels
+                    text = tv_levels.tv_message(tv_levels.collect())
+                except Exception as exc:
+                    logger.exception('handle_tv.failed')
+                    self.bot.send_message(chat_id, f'❌ /tv failed: {exc}')
+                    return
+                self.bot.send_message(chat_id, text, parse_mode='HTML')
+
+            threading.Thread(target=_build_and_send, name='tv-levels', daemon=True).start()
+
         # ── /odds — шансы касания на 1ч/4ч/12ч/сутки по часовой z-модели,
         # уровни ботов рядом с ценой, неделя/месяц фоном. /odds дни — полная
         # дневная карточка. Замеры — services/grid_model/odds_intraday.py.

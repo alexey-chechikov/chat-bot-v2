@@ -215,12 +215,16 @@ def _grid_rows(prices: dict, since: float) -> list[tuple[str, float, int, float,
     return out
 
 
+_LAST_THR: dict[str, float] = {}
+
+
 def build_card(now: Optional[datetime] = None) -> str:
     """Карточка дня под WEEX (оператор 18.10): расстояние до выключателя SMA100 и живые сетки — закрыто за сутки и
     мешок сейчас. Прежние строки SMA20д/шорт-гейта/гридов GinArea убраны: GinArea остановлена с 07.10, шорт-сеток нет,
     «гриды: 0 живых» при пяти живых сетках WEEX вводило в заблуждение."""
     now = now or datetime.now(timezone.utc)
     prices: dict[str, float] = {}
+    thrs: dict[str, float] = {}
     sma = []
     for sym in ("BTCUSDT", "ETHUSDT"):
         try:
@@ -233,7 +237,10 @@ def build_card(now: Optional[datetime] = None) -> str:
             continue
         px, thr = got
         prices[sym] = px
+        thrs[sym] = thr
         sma.append(f"{sym[:3]} ниже {thr:,.0f} ({thr / px - 1:+.1%})")
+    _LAST_THR.clear()
+    _LAST_THR.update(thrs)                                      # строке TradingView после отправки — без 2-го запроса
     lines = [f"☀️ {now.astimezone():%d.%m} · сетки WEEX — за сутки · мешок сейчас (без фандинга)"]
     try:
         rows = _grid_rows(prices, now.timestamp() - 86_400)
@@ -247,6 +254,11 @@ def build_card(now: Optional[datetime] = None) -> str:
     if rows:
         lines.append(f"Итого: {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
     lines.append("🛡 Лонги закроются, если день закроется: " + " · ".join(sma))
+    try:                                                        # 21.10 оператор: «в сводке видеть уровни»
+        from services import tv_levels
+        lines += tv_levels.card_lines(tv_levels.collect(now, thr=thrs))
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.tv_levels_failed")
     return "\n".join(lines) + _market_brief()
 
 
@@ -340,10 +352,29 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         _write_state(CARD_STATE, {"date": day})
         logger.info("regime_card.sent date=%s", day)
         _log_delivery(day, card, res if isinstance(res, dict) else None)
-        return True
     except Exception:
         logger.exception("regime_card.send_failed")
         return False
+    _send_tv_line(send_fn, now)
+    return True
+
+
+def _tv_line_enabled() -> bool:
+    """Строка уровней для TradingView отдельным сообщением после карточки (21.10, оператор: «хочу, чтобы всё вставлялось
+    автоматически»): одно сообщение = одно долгое нажатие «Копировать». Выключается ключом tv_line=false в
+    state/report_delivery.json."""
+    return bool(_read_state(ROOT / "state" / "report_delivery.json").get("tv_line", True))
+
+
+def _send_tv_line(send_fn: Callable, now: datetime) -> None:
+    """Сбой не трогает карточку: она уже ушла и помечена."""
+    if not _tv_line_enabled():
+        return
+    try:
+        from services import tv_levels
+        send_fn(tv_levels.tv_line(tv_levels.collect(now, thr=dict(_LAST_THR))))
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.tv_line_failed")
 
 
 def maybe_send_trend_entry(*, send_fn: Optional[Callable] = None,
