@@ -60,6 +60,11 @@ def grid_levels(names=None, peek=None, state_path=None) -> dict[str, dict]:
             d["skipped"].append(name)
             continue
         d["grids"].append(name)
+        d.setdefault("detail", []).append({
+            "name": name, "entry": float(entry["price"]) if entry.get("price") else None,
+            "lots": [(float(x["entry"]), float(x["qty"]), float(x["tp"]) if x.get("tp") else None) for x in lots],
+            "step": float(cfg.get("step_pct") or 0), "target": float(cfg.get("target_pct") or 0),
+            "qty": float(cfg.get("order_qty") or 0), "cap": int(cfg.get("max_lots_per_side") or 0)})
         if entry.get("price"):
             d["entries"].append(float(entry["price"]))
         tps = [float(x["tp"]) for x in lots if x.get("tp")]
@@ -96,10 +101,11 @@ def day_corridor(now: datetime, forecasts=None) -> dict[str, dict]:
     return out
 
 
-def thresholds(syms=SYMS) -> dict[str, float]:
-    """Порог сегодняшнего дневного закрытия (как в карточке): ниже — лонги закроются по рынку на следующий день."""
+def market(syms=SYMS) -> tuple[dict[str, float], dict[str, float]]:
+    """(порог сегодняшнего дневного закрытия, цена сейчас) — как в карточке: ниже порога лонги закроются по рынку на
+    следующий день; цена — закрытие формирующейся дневки Binance."""
     from services.regime_watch import _sma_exit
-    out = {}
+    thr, px = {}, {}
     for sym in syms:
         try:
             got = _sma_exit(sym)
@@ -107,16 +113,113 @@ def thresholds(syms=SYMS) -> dict[str, float]:
             logger.exception("tv_levels.sma_failed %s", sym)
             got = None
         if got:
-            out[sym] = got[1]
-    return out
+            px[sym], thr[sym] = got
+    return thr, px
 
 
-def collect(now: datetime | None = None, *, grids=None, corridor=None, thr=None) -> dict:
+def thresholds(syms=SYMS) -> dict[str, float]:
+    return market(syms)[0]
+
+
+def collect(now: datetime | None = None, *, grids=None, corridor=None, thr=None, px=None) -> dict:
     now = now or datetime.now(timezone.utc)
     grids = grid_levels() if grids is None else grids
     corridor = day_corridor(now) if corridor is None else corridor
-    thr = thresholds() if thr is None else thr
-    return {"now": now, "syms": {s: {"grid": grids.get(s), "day": corridor.get(s), "thr": thr.get(s)} for s in SYMS}}
+    if thr is None:
+        thr, got_px = market()
+        px = got_px if px is None else px
+    px = px or {}
+    return {"now": now, "syms": {s: {"grid": grids.get(s), "day": corridor.get(s), "thr": thr.get(s),
+                                     "px": px.get(s)} for s in SYMS}}
+
+
+FEE_MAKER = 0.00016          # мейкер WEEX — замер по исполнениям сеток 09–12.10 (CLAUDE.md); входы и тейки — POST_ONLY
+
+
+def scenarios(data: dict) -> dict[str, dict]:
+    """Что будет с живыми сетками, если цена дойдёт до края коридора дня ПО ПРЯМОЙ (21.10, оператор: сценарии в духе
+    Copilot, но про наши деньги): вверх — тейки, у которых цена тейка ≤ верха, и закрыто (минус комиссия выхода); вниз —
+    доборы от стоящего входа через шаг сетки до потолка ордеров, мешок всех лотов на нижнем краю (с комиссией доборов) и
+    номинал позиции. Отскоки по пути дали бы тейки — по прямой это худший случай для мешка. Арифметика по учёту, не прогноз."""
+    out = {}
+    for sym, d in data["syms"].items():
+        g, day = d["grid"], d["day"]
+        if not g or not day or not g.get("detail"):
+            continue
+        lo, hi = day["lo"], day["hi"]
+        r = {"lo": lo, "hi": hi, "takes": 0, "closed": 0.0, "adds": 0, "bag_lo": 0.0, "notional_lo": 0.0, "capped": []}
+        for gd in g["detail"]:
+            for e, q, tp in gd["lots"]:
+                if tp and tp <= hi:
+                    r["takes"] += 1
+                    r["closed"] += (tp - e) * q - tp * q * FEE_MAKER
+            p, n, new = gd["entry"], len(gd["lots"]), []
+            while p and gd["step"] > 0 and p >= lo and n < gd["cap"]:
+                new.append(p)
+                n += 1
+                p *= 1 - gd["step"] / 100
+            if gd["cap"] and n >= gd["cap"]:
+                r["capped"].append(gd["name"])
+            r["adds"] += len(new)
+            pos = [(e, q) for e, q, _ in gd["lots"]] + [(x, gd["qty"]) for x in new]
+            r["bag_lo"] += sum((lo - e) * q for e, q in pos) - sum(x * gd["qty"] * FEE_MAKER for x in new)
+            r["notional_lo"] += sum(e * q for e, q in pos)
+        out[sym] = r
+    return out
+
+
+def _pct(p: float, px: float) -> str:
+    return f"{(p / px - 1) * 100:+.1f}%"
+
+
+def scenario_lines(data: dict) -> list[str]:
+    sc = scenarios(data)
+    if not sc:
+        return []
+    out = ["🎯 Сетки на сутки — если цена дойдёт до края коридора по прямой"]
+    for sym, r in sc.items():
+        px, c = data["syms"][sym]["px"], sym[:3]
+        up_pct = f" ({_pct(r['hi'], px)})" if px else ""
+        dn_pct = f" ({_pct(r['lo'], px)})" if px else ""
+        out.append(f"{c} ↑ {_h(r['hi'])}{up_pct}: тейков {r['takes']} · закрыто {r['closed']:+,.2f}$")
+        out.append(f"{c} ↓ {_h(r['lo'])}{dn_pct}: доборов {r['adds']}"
+                   + (f" · в потолке: {', '.join(r['capped'])}" if r["capped"] else "")
+                   + f" · мешок {r['bag_lo']:+,.0f}$ · в позиции {r['notional_lo']:,.0f}$")
+    out.append("Коридор — квантиль 90% каждой стороны по 2 годам. Отскоки по пути дали бы тейки — по прямой это худший "
+               "случай для мешка.")
+    return out
+
+
+def level_lines(data: dict) -> list[str]:
+    """Таблица уровней по монете от цены сейчас (сверху вниз): коридор и зоны дня, безубыток лотов, входы и ближайшие
+    тейки сеток, порог дневного закрытия. Процент — первым: в Telegram цифры ровнее слов."""
+    out = []
+    for sym, d in data["syms"].items():
+        px, day, g = d["px"], d["day"], d["grid"]
+        if not px:
+            continue
+        rows = []
+        if day:
+            rows += [(day["hi"], "верх коридора дня"), (day["lo"], "низ коридора дня")]
+            rows += [(p, f"зона {'↑' if s == 'up' else '↓'} · шанс {c * 100:.0f}%") for p, c, s in day["zones"]]
+        if g and g["grids"]:
+            if g["avg"]:
+                rows.append((g["avg"], f"безубыток лотов ({g['lots']})"))
+            if g["entries"]:
+                rows.append((g["entries"][-1], "вход сетки" if len(g["entries"]) == 1 else
+                             f"входы сеток ({len(g['entries'])}): {_span(g['entries'])}"))
+            if g["tps"]:
+                rows.append((g["tps"][0], "ближайший тейк" if len(g["tps"]) == 1 else
+                             f"ближайшие тейки ({len(g['tps'])}): {_span(g['tps'])}"))
+            if g["skipped"]:
+                rows.append((px, "учёт не прочитан: " + ", ".join(g["skipped"])))
+        if d["thr"]:
+            rows.append((d["thr"], "порог дневного закрытия (SMA100)"))
+        if not rows:
+            continue
+        out += ([""] if out else []) + [f"📍 Уровни {sym[:3]} · цена {_h(px)}"]
+        out += [f"{_pct(p, px):>7}  {_h(p)}  {label}" for p, label in sorted(rows, key=lambda r: -r[0])]
+    return out
 
 
 def tv_line(data: dict) -> str:
@@ -178,7 +281,8 @@ def tv_message(data: dict) -> str:
             lines.append(f"{sym[:3]} коридор дня: прогноза нет")
         if d["thr"]:
             lines.append(f"   лонги закроются, если день UTC закроется ниже {_h(d['thr'])}")
-    lines += [html.escape(x) for x in card_lines(data)]
+    body = scenario_lines(data) + level_lines(data)
+    lines += [""] + [html.escape(x) for x in (body or card_lines(data))]
     lines += ["", "Скопируй строку в поле «Строка из бота» индикатора «bot7 · режим сеток» (на всех графиках одна и та же):",
               f"<code>{html.escape(tv_line(data))}</code>"]
     return "\n".join(lines)

@@ -18,8 +18,10 @@ def _lot(entry, qty, tp):
 
 
 def _grids(tmp_path: Path):
-    cfgs = {"BTC": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False},
-            "B34": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False},
+    grid = {"step_pct": 0.6, "target_pct": 1.4, "order_qty": "0.0012", "max_lots_per_side": 50}
+    cfgs = {"BTC": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **grid},
+            "B34": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **grid, "step_pct": 0.1,
+                    "max_lots_per_side": 4},
             "XAU": {"symbol": "XAUUSDT", "enabled": True, "dry_run": True},       # холостая — не показывать
             "B49": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False},      # учёт битый
             "ETH": {"symbol": "ETHUSDT", "enabled": False, "dry_run": False}}     # выключена
@@ -117,6 +119,56 @@ def test_card_lines_and_message(tmp_path):
     assert f"<code>{tv_levels.tv_line(data)}</code>" in msg
     assert "зоны ↑83,443 (38%) ↓81,194 (20%)" in msg
     assert "лонги закроются, если день UTC закроется ниже 74,739" in msg
+
+
+def _one_grid(entry=98.01, cap=3, lo=97.0, hi=100.0, px=99.5):
+    g = {"grids": ["G"], "skipped": [], "entries": [entry], "tps": [99.99], "lots": 2, "avg": 99.5,
+         "detail": [{"name": "G", "entry": entry, "lots": [(100.0, 0.01, 101.0), (99.0, 0.01, 99.99)],
+                     "step": 1.0, "target": 1.0, "qty": 0.01, "cap": cap}]}
+    day = {"issued_utc": "x", "lo": lo, "hi": hi, "zones": [(99.8, 0.4, "up")]}
+    return {"now": NOW, "syms": {"BTCUSDT": {"grid": g, "day": day, "thr": 90.0, "px": px}}}
+
+
+def test_scenarios_arithmetic_capped():
+    r = tv_levels.scenarios(_one_grid())["BTCUSDT"]
+    assert r["takes"] == 1                                               # тейк 99.99 ≤ верха 100, тейк 101 — нет
+    assert abs(r["closed"] - ((99.99 - 99) * 0.01 - 99.99 * 0.01 * tv_levels.FEE_MAKER)) < 1e-12
+    assert r["adds"] == 1 and r["capped"] == ["G"]                        # 2 лота + 1 добор = потолок 3
+    bag = (97 - 100 + 97 - 99 + 97 - 98.01) * 0.01 - 98.01 * 0.01 * tv_levels.FEE_MAKER
+    assert abs(r["bag_lo"] - bag) < 1e-12 and abs(r["notional_lo"] - (100 + 99 + 98.01) * 0.01) < 1e-12
+
+
+def test_scenarios_adds_step_down_to_corridor_low():
+    r = tv_levels.scenarios(_one_grid(cap=50, lo=96.5))["BTCUSDT"]
+    assert r["adds"] == 2 and r["capped"] == []                          # 98.01, 97.0299; 96.0596 < низа 96.5
+
+
+def test_level_lines_sorted_from_price():
+    lines = tv_levels.level_lines(_one_grid())
+    assert lines[0] == "📍 Уровни BTC · цена 99.50"
+    prices = [float(x.split()[1].replace(",", "")) for x in lines[1:]]
+    assert prices == sorted(prices, reverse=True)
+    assert any("вход сетки" in x and "98.01" in x for x in lines)            # один вход — без перечня
+    assert any("порог дневного закрытия" in x and "-9.5%" in x for x in lines)
+
+
+def test_card_order_scenarios_and_levels_on_top(tmp_path, monkeypatch):
+    corr = {"BTCUSDT": {"issued_utc": "x", "lo": 80683.9, "hi": 84665.5, "zones": [(83442.7, 0.38, "up")]}}
+    monkeypatch.setattr(regime_watch, "_sma_exit",
+                        lambda s: {"BTCUSDT": (83388.0, 74738.75), "ETHUSDT": (2462.24, 2296.62)}[s])
+    monkeypatch.setattr(regime_watch, "_regime", lambda s: "ЛОНГ")
+    monkeypatch.setattr(regime_watch, "_grid_rows", lambda prices, since: [("BTC 0.6/1.4", 13.7, 4, -0.29, 1)])
+    monkeypatch.setattr(regime_watch, "_market_brief", lambda: "\n\n📏 РЫНОК")
+    monkeypatch.setattr(tv_levels, "collect",
+                        lambda now, thr=None, px=None: COLLECT(now, grids=_grids(tmp_path), corridor=corr, thr=thr, px=px))
+    card = regime_watch.build_card(NOW)
+    first = card.splitlines()[0]
+    assert "BTC 83,388" in first and "ETH 2,462.24" in first and "BTC ЛОНГ, ETH ЛОНГ" in first
+    assert card.splitlines()[1].startswith("🛡 Лонги закроются")
+    pos = [card.index(m) for m in ("🎯 Сетки на сутки", "📍 Уровни BTC", "📊 Сетки WEEX", "BTC 0.6/1.4: +13.70$",
+                                   "📏 РЫНОК")]
+    assert pos == sorted(pos)
+    assert "в потолке: B34" in card                                      # B34 потолок 4 лота в тесте
 
 
 def _card_env(tmp_path, monkeypatch, enabled=True):

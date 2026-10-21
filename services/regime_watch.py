@@ -218,10 +218,24 @@ def _grid_rows(prices: dict, since: float) -> list[tuple[str, float, int, float,
 _LAST_THR: dict[str, float] = {}
 
 
+def _regime(sym: str) -> str:
+    """Режим лонг-сеток сегодня по правилу движка (кэш процесса общий с сетками)."""
+    try:
+        from services.weex_grid import engine as eg
+        up = eg.regime_up(sym)
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.regime_failed %s", sym)
+        up = None
+    return "ЛОНГ" if up else ("ВНЕ РЫНКА" if up is False else "неизвестен")
+
+
 def build_card(now: Optional[datetime] = None) -> str:
     """Карточка дня под WEEX (оператор 18.10): расстояние до выключателя SMA100 и живые сетки — закрыто за сутки и
     мешок сейчас. Прежние строки SMA20д/шорт-гейта/гридов GinArea убраны: GinArea остановлена с 07.10, шорт-сеток нет,
-    «гриды: 0 живых» при пяти живых сетках WEEX вводило в заблуждение."""
+    «гриды: 0 живых» при пяти живых сетках WEEX вводило в заблуждение.
+    21.10 (оператор: «делай» — подача как у TradingView Copilot, но про наши деньги): сверху цены и режим, выключатель,
+    сценарии сеток на краях коридора дня, таблица уровней от цены; ниже — сетки за сутки и сводка рынка, как были.
+    Ничего прежнего не убрано (оператор 20.10: «ничего не удали»)."""
     now = now or datetime.now(timezone.utc)
     prices: dict[str, float] = {}
     thrs: dict[str, float] = {}
@@ -241,7 +255,20 @@ def build_card(now: Optional[datetime] = None) -> str:
         sma.append(f"{sym[:3]} ниже {thr:,.0f} ({thr / px - 1:+.1%})")
     _LAST_THR.clear()
     _LAST_THR.update(thrs)                                      # строке TradingView после отправки — без 2-го запроса
-    lines = [f"☀️ {now.astimezone():%d.%m} · сетки WEEX — за сутки · мешок сейчас (без фандинга)"]
+    head = " · ".join(f"{s[:3]} {prices[s]:,.0f}" if s.startswith("BTC") else f"{s[:3]} {prices[s]:,.2f}"
+                      for s in ("BTCUSDT", "ETHUSDT") if s in prices)
+    regimes = ", ".join(f"{s[:3]} {_regime(s)}" for s in ("BTCUSDT", "ETHUSDT"))
+    lines = [f"☀️ {now.astimezone():%d.%m}" + (f" · {head}" if head else "") + f" · режим сеток: {regimes}",
+             "🛡 Лонги закроются, если день закроется: " + " · ".join(sma)]
+    try:                                                        # 21.10: сценарии сеток и уровни от цены
+        from services import tv_levels
+        data = tv_levels.collect(now, thr=thrs, px=prices)
+        for block in (tv_levels.scenario_lines(data), tv_levels.level_lines(data)):
+            if block:
+                lines += [""] + block
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.tv_levels_failed")
+    lines += ["", "📊 Сетки WEEX — за сутки · мешок сейчас (без фандинга)"]
     try:
         rows = _grid_rows(prices, now.timestamp() - 86_400)
     except Exception:                                           # noqa: BLE001
@@ -253,12 +280,6 @@ def build_card(now: Optional[datetime] = None) -> str:
         lines.append(f"{label}: {closed:+,.2f}$ · {cycles} цикл. · мешок {bag:+,.2f}$ ({nlots} лот.)")
     if rows:
         lines.append(f"Итого: {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
-    lines.append("🛡 Лонги закроются, если день закроется: " + " · ".join(sma))
-    try:                                                        # 21.10 оператор: «в сводке видеть уровни»
-        from services import tv_levels
-        lines += tv_levels.card_lines(tv_levels.collect(now, thr=thrs))
-    except Exception:                                           # noqa: BLE001
-        logger.exception("regime_card.tv_levels_failed")
     return "\n".join(lines) + _market_brief()
 
 
