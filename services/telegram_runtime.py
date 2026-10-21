@@ -1796,7 +1796,7 @@ class TelegramBotApp:
                 pass
             self.bot.send_message(chat_id, "\n".join(lines))
 
-        @self.bot.message_handler(commands=['tv_status', 'tv'])
+        @self.bot.message_handler(commands=['tv_status'])         # 21.10: 'tv' снят — это уровни (handle_tv)
         def handle_tv_status(message) -> None:
             """/tv_status [N] — last N TradingView webhook alerts (default 10).
             Verifies the TV → bot7 webhook flow is live + shows recent signals."""
