@@ -71,6 +71,50 @@ def _log_startup_audit() -> None:
         pass
 
 
+# 2026-10-21 (оператор: «делай»): один app_runner на учётку мака. Вторая копия вела бы те же сетки WEEX теми же
+# ключами — двойные входы и чужие ордера в учёте. Замок общий для любой папки и worktree (не state/ репо): защищается
+# счёт биржи, а не каталог. flock снимает ядро при любой смерти процесса — устаревшего замка не бывает.
+LOCK_PATH = os.path.join(os.path.expanduser("~"), ".bot7", "app_runner.lock")
+LOCK_WAIT_SEC = 60.0          # kickstart/KeepAlive: старый процесс может ещё завершаться
+LOCK_BUSY_EXIT = 3
+
+
+def _lock_holder(fd: int) -> str:
+    try:
+        return os.pread(fd, 32, 0).decode(errors="replace").strip() or "?"
+    except OSError:
+        return "?"
+
+
+def _acquire_single_instance_lock(path: str = LOCK_PATH, wait_sec: float = LOCK_WAIT_SEC,
+                                  poll_sec: float = 0.5) -> int | None:
+    """fd с эксклюзивным flock (держать открытым до выхода) или None, если за wait_sec замок не освободился.
+    fd не наследуется дочерними процессами (PEP 446) — потомок не удержит замок после смерти родителя."""
+    import fcntl
+    import time
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    deadline = time.monotonic() + wait_sec
+    warned = False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                logger.error("app_runner.already_running holder_pid=%s lock=%s — вторая копия не запущена",
+                             _lock_holder(fd), path)
+                os.close(fd)
+                return None
+            if not warned:
+                logger.warning("app_runner.lock_busy holder_pid=%s — жду до %.0f с", _lock_holder(fd), wait_sec)
+                warned = True
+            time.sleep(poll_sec)
+    os.ftruncate(fd, 0)
+    os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
+    return fd
+
+
 async def _run_heartbeat(stop_event: asyncio.Event) -> None:
     """Periodic heartbeat to logs/app.log so watchdog freshness check never
     triggers stale-restart on quiet markets.
@@ -1567,6 +1611,26 @@ async def main(
     stop_event: asyncio.Event | None = None,
     signal_handler_installer: Callable[[asyncio.AbstractEventLoop, asyncio.Event], None] = _install_signal_handlers,
     shutdown_timeout: float = 10,
+    lock_path: str = LOCK_PATH,
+    lock_wait_sec: float = LOCK_WAIT_SEC,
+) -> int:
+    # Замок — здесь, а не в __main__: 21.10 тест, вызвавший main() напрямую, 9 минут вёл сетки параллельно живому
+    # процессу на том же учёте (сироты холостого золота 12:08–12:10). Любой запуск набора задач — только под замком.
+    lock_fd = _acquire_single_instance_lock(lock_path, lock_wait_sec)
+    if lock_fd is None:
+        return LOCK_BUSY_EXIT
+    try:
+        return await _main_locked(stop_event=stop_event, signal_handler_installer=signal_handler_installer,
+                                  shutdown_timeout=shutdown_timeout)
+    finally:
+        os.close(lock_fd)
+
+
+async def _main_locked(
+    *,
+    stop_event: asyncio.Event | None,
+    signal_handler_installer: Callable[[asyncio.AbstractEventLoop, asyncio.Event], None],
+    shutdown_timeout: float,
 ) -> int:
     # 2026-05-10 TZ#10: log app_runner startup to audit file for restart-frequency
     # alerts. If >5 restarts/hour observed, watchdog config is too aggressive

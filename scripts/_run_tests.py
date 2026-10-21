@@ -49,6 +49,14 @@ TEST_DIRS = [
     "tests/research_atlas/",
     "tests/research_manual/",
     "tests/research_trend/",
+    "tests/test_app_runner_lock.py",
+    "tests/services/tv_levels/",
+    # main() — только с заглушками задач (фикстура файла); два старых теста Telegram-раннеров висят — не здесь
+    "tests/test_app_runner.py::test_main_starts_no_real_service",
+    "tests/test_app_runner.py::test_app_runner_starts_and_stops_cleanly",
+    "tests/test_app_runner.py::test_app_runner_orchestrator_crash_stops_polling",
+    "tests/test_app_runner.py::test_app_runner_polling_crash_stops_orchestrator",
+    "tests/test_app_runner.py::test_app_runner_sigint_triggers_graceful_shutdown",
 ]
 
 def main():

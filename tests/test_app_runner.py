@@ -14,6 +14,34 @@ import telegram_bot_runner
 from services.telegram_runtime import TelegramBotApp
 
 
+@pytest.fixture(autouse=True)
+def _no_real_services(monkeypatch, tmp_path):
+    """21.10: без подмены main() запускал настоящие сетки WEEX на живом учёте и ключах — вторая копия рядом с живым
+    процессом (сироты холостого золота 12:08–12:10). Каждая задача _run_* — заглушка до stop_event, замок — во
+    временной папке, аудит стартов не пишется."""
+    async def idle(stop_event=None, *args, **kwargs):
+        await (stop_event if isinstance(stop_event, asyncio.Event) else asyncio.Event()).wait()
+
+    for name in dir(app_runner):
+        if (name.startswith("_run_") and name != "_run_polling_in_executor"
+                and asyncio.iscoroutinefunction(getattr(app_runner, name))):
+            monkeypatch.setattr(app_runner, name, idle)
+    monkeypatch.setattr(app_runner, "_log_startup_audit", lambda: None)
+    real_main = app_runner.main
+    monkeypatch.setattr(app_runner, "main",
+                        lambda **kw: real_main(lock_path=str(tmp_path / "app_runner.lock"), **kw))
+
+
+def test_main_starts_no_real_service():
+    import inspect
+    import re
+    src = inspect.getsource(app_runner._main_locked)
+    called = set(re.findall(r"create_task\(\s*([\w.]+)\(", src))
+    assert "_run_weex_grid" in called
+    for name in called - {"_run_polling_in_executor", "orchestrator.start", "stop_event.wait"}:
+        assert getattr(app_runner, name).__name__ == "idle", name
+
+
 def test_app_runner_starts_and_stops_cleanly(monkeypatch):
     stop_event = asyncio.Event()
     fake_app = MagicMock()
@@ -89,7 +117,7 @@ def test_app_runner_sigint_triggers_graceful_shutdown(monkeypatch):
     stop_event = asyncio.Event()
     fake_app = MagicMock()
     fake_app.bot = MagicMock()
-    fake_app.run_polling_blocking = MagicMock(side_effect=lambda: None)
+    fake_app.run_polling_blocking = MagicMock(side_effect=lambda: __import__("time").sleep(0.5))
 
     async def fake_start():
         await asyncio.sleep(60)
