@@ -1,4 +1,5 @@
-"""Уровни для TradingView (21.10): сборка из учёта сеток и прогноза дня, строка для индикатора, отправка после карточки."""
+"""Уровни для TradingView (21.10): сборка из учёта сеток и прогноза дня, строка для индикатора, отправка после карточки,
+сценарии сеток на краях коридора. Разбор GPT 8252cc0 (F1–F4): сценарий доборов сверен с самим движком."""
 from __future__ import annotations
 
 import json
@@ -6,46 +7,73 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from services import regime_watch, tv_levels
+from services.weex_grid import engine as eg
 
 NOW = datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc)
 MS = int(NOW.timestamp() * 1000)
 COLLECT = tv_levels.collect                                     # до подмены в тестах отправки
+GRID = {"step_pct": 0.6, "target_pct": 1.4, "order_qty": "0.0012", "max_lots_per_side": 50,
+        "max_notional_usd": 12000.0, "price_tick": 0.1, "stress_budget_frac": 0.0}
 
 
-def _lot(entry, qty, tp):
-    return {"entry": entry, "qty": qty, "tp": tp, "tp_order": {}, "t": 0.0, "parent": "x"}
+def _lot(entry, qty, tp, parent=None):
+    return {"entry": entry, "qty": qty, "tp": tp, "tp_order": {}, "t": 0.0, "parent": parent or f"o{entry}"}
 
 
-def _grids(tmp_path: Path):
-    grid = {"step_pct": 0.6, "target_pct": 1.4, "order_qty": "0.0012", "max_lots_per_side": 50}
-    cfgs = {"BTC": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **grid},
-            "B34": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **grid, "step_pct": 0.1,
+def _grids(tmp_path: Path, extra_states=None, extra_cfgs=None, blocks=None):
+    cfgs = {"BTC": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID},
+            "B34": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID, "step_pct": 0.1,
                     "max_lots_per_side": 4},
-            "XAU": {"symbol": "XAUUSDT", "enabled": True, "dry_run": True},       # холостая — не показывать
-            "B49": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False},      # учёт битый
-            "ETH": {"symbol": "ETHUSDT", "enabled": False, "dry_run": False}}     # выключена
+            "XAU": {"symbol": "XAUUSDT", "enabled": True, "dry_run": True, **GRID},     # холостая — не показывать
+            "B49": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID},    # учёт битый
+            "ETH": {"symbol": "ETHUSDT", "enabled": False, "dry_run": False, **GRID},   # выключена
+            **(extra_cfgs or {})}
     states = {
-        "BTC": {"LONG": {"entry": {"price": 83127.2}, "lots": [_lot(84000.0, "0.0012", 85176.0)]}},
-        "B34": {"LONG": {"entry": {"price": 83316.3}, "lots": [_lot(83400.0, "0.0012", 83683.3),
-                                                              _lot(83500.0, "0.0024", 83784.0)]}},
+        "BTC": {"LONG": {"entry": {"id": "eb", "price": 83127.2}, "lots": [_lot(84000.0, "0.0012", 85176.0)]}},
+        "B34": {"LONG": {"entry": {"id": "e3", "price": 83316.3}, "lots": [_lot(83400.0, "0.0012", 83683.3),
+                                                                         _lot(83500.0, "0.0024", 83784.0)]}},
         "XAU": {"LONG": {"entry": {"price": 4000.0}, "lots": [_lot(4100.0, "0.023", 4112.3)]}},
-    }
+        **(extra_states or {})}
     for name, st in states.items():
         (tmp_path / f"{name}.json").write_text(json.dumps(st), encoding="utf-8")
     (tmp_path / "B49.json").write_text("{битый", encoding="utf-8")
-    return tv_levels.grid_levels(names=list(cfgs), peek=cfgs.get, state_path=lambda n: tmp_path / f"{n}.json")
+    return tv_levels.grid_levels(names=list(cfgs), peek=cfgs.get, state_path=lambda n: tmp_path / f"{n}.json",
+                                 blocks=blocks or {})
 
 
 def test_grid_levels_live_only_weighted_avg_and_nearest_tp(tmp_path):
     g = _grids(tmp_path)
     assert set(g) == {"BTCUSDT"}                                  # XAU холостая, ETH выключена
     b = g["BTCUSDT"]
-    assert b["grids"] == ["BTC", "B34"] and b["skipped"] == ["B49"]
+    assert b["grids"] == ["BTC", "B34"] and [n for n, _ in b["skipped"]] == ["B49"] and b["expected"] == 3
+    assert b["skipped"][0][1] == "JSONDecodeError"
     assert b["entries"] == [83127.2, 83316.3]
     assert b["tps"] == [83683.3, 85176.0]                         # ближайший тейк КАЖДОЙ сетки
     assert b["lots"] == 3
     assert abs(b["avg"] - (84000 * 0.0012 + 83400 * 0.0012 + 83500 * 0.0024) / 0.0048) < 1e-9
+
+
+def test_f4_bad_number_skips_only_that_grid(tmp_path):
+    """F4: синтаксически верный JSON с qty 'bad' — сетка пропущена с причиной, остальные видны, итог не испорчен."""
+    bad = {"LONG": {"entry": {"id": "e9", "price": 83000.0}, "lots": [_lot(83100.0, "bad", 84000.0)]}}
+    g = _grids(tmp_path, extra_states={"B89": bad},
+               extra_cfgs={"B89": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID}})["BTCUSDT"]
+    assert g["grids"] == ["BTC", "B34"] and ("B89", "ValueError") in g["skipped"] and g["expected"] == 4
+    assert g["lots"] == 3 and 83000.0 not in g["entries"]          # куски битой сетки в итог не попали
+
+
+def test_f4_no_grid_read_is_reported_not_zero(tmp_path):
+    cfgs = {"B49": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID}}
+    (tmp_path / "B49.json").write_text("{битый", encoding="utf-8")
+    g = tv_levels.grid_levels(names=["B49"], peek=cfgs.get, state_path=lambda n: tmp_path / f"{n}.json", blocks={})
+    data = COLLECT(NOW, grids=g, corridor={}, thr={"BTCUSDT": 74738.75}, px={"BTCUSDT": 83388.0}, cap=None)
+    lines = tv_levels.level_lines(data)
+    assert any("учёт прочитан 0 из 1" in x and "B49 (JSONDecodeError)" in x for x in lines)
+    assert " g0/1 " in tv_levels.tv_line(data) and " xB49" in tv_levels.tv_line(data)
+    assert " n0" not in tv_levels.tv_line(data)                    # нечитаемое не подменено нулём лотов
 
 
 def _fc(sym, issued, a_ms, end_ms, lo, hi, levels=()):
@@ -62,14 +90,18 @@ def test_day_corridor_takes_current_window_latest_issue():
     d = tv_levels.day_corridor(NOW, forecasts=fcs)
     assert set(d) == {"BTCUSDT"}
     assert (d["BTCUSDT"]["lo"], d["BTCUSDT"]["hi"]) == (80683.9, 84665.5)
+    assert d["BTCUSDT"]["end"] == (MS + 80_000_000) / 1000
     assert d["BTCUSDT"]["zones"] == [(83442.7, 0.38, "up"), (81194.4, 0.2, "dn")]
 
 
+CORR = {"BTCUSDT": {"issued_utc": "x", "lo": 80683.9, "hi": 84665.5, "end": NOW.timestamp() + 70_000,
+                    "zones": [(83442.7, 0.38, "up"), (81194.4, 0.2, "dn")]},
+        "ETHUSDT": {"issued_utc": "x", "lo": 2349.4189, "hi": 2533.861, "end": NOW.timestamp() + 70_000, "zones": []}}
+
+
 def _data(tmp_path):
-    corr = {"BTCUSDT": {"issued_utc": "x", "lo": 80683.9, "hi": 84665.5,
-                        "zones": [(83442.7, 0.38, "up"), (81194.4, 0.2, "dn")]},
-            "ETHUSDT": {"issued_utc": "x", "lo": 2349.4189, "hi": 2533.861, "zones": []}}
-    return COLLECT(NOW, grids=_grids(tmp_path), corridor=corr, thr={"BTCUSDT": 74738.75, "ETHUSDT": 2296.62})
+    return COLLECT(NOW, grids=_grids(tmp_path), corridor=CORR, thr={"BTCUSDT": 74738.75, "ETHUSDT": 2296.62},
+                   cap=None)
 
 
 def _pine_parse(line: str, base: str) -> dict:
@@ -87,7 +119,11 @@ def _pine_parse(line: str, base: str) -> dict:
             out["z"] = [tuple(float(v) for v in z.split(":")) for z in body.split(",")]
         elif pre in "et":
             out[pre] = [float(v) for v in body.split(",")]
-        elif pre in "uans":
+        elif pre == "g":
+            out["g"] = tuple(int(v) for v in body.split("/"))
+        elif pre == "x":
+            out["x"] = body.split(",")
+        elif pre in "uanswv":
             out[pre] = float(body)
     return out
 
@@ -96,71 +132,155 @@ def test_tv_line_round_trips_through_pine_parser(tmp_path):
     data = _data(tmp_path)
     line = tv_levels.tv_line(data)
     for tok in line.replace("|", " ").split():                          # цены без разделителей тысяч («83,443»)
-        assert re.fullmatch(r"[A-Z]{3}|[uans][\d.]+|k[\d.]+-[\d.]+|z[\d.]+:\d+(,[\d.]+:\d+)*|[et][\d.]+(,[\d.]+)*", tok), tok
+        assert re.fullmatch(r"[A-Z]{3}|[uanswv][\d.]+|g\d+/\d+|x[A-Z0-9,]+|k[\d.]+-[\d.]+|z[\d.]+:\d+(,[\d.]+:\d+)*"
+                            r"|[et][\d.]+(,[\d.]+)*", tok), tok
     btc = _pine_parse(line, "BTC")
-    assert btc["u"] == NOW.timestamp()
-    assert btc["k"] == (80683.9, 84665.5)
+    assert btc["u"] == NOW.timestamp() and btc["g"] == (2, 3) and btc["x"] == ["B49"]
+    assert btc["k"] == (80683.9, 84665.5) and btc["w"] == int(NOW.timestamp() + 70_000)
     assert btc["z"] == [(83442.7, 38.0), (81194.4, 20.0)]
     assert btc["e"] == [83127.2, 83316.3] and btc["t"] == [83683.3, 85176.0]
     assert btc["n"] == 3 and btc["s"] == 74738.8 and abs(btc["a"] - 83600.0) < 0.05
     eth = _pine_parse(line, "ETH")
     assert eth["k"] == (2349.42, 2533.86) and eth["s"] == 2296.62
-    assert "e" in eth and eth["e"] == [] and "a" not in eth             # живых сеток ETH нет — входов и средней нет
+    assert eth["e"] == [] and "a" not in eth and "g" not in eth          # живых сеток ETH нет — нет и полноты
     assert _pine_parse(line, "XAU") == {"z": [], "e": [], "t": []}      # чужая монета ничего не берёт
 
 
 def test_card_lines_and_message(tmp_path):
     data = _data(tmp_path)
     cl = tv_levels.card_lines(data)
-    assert len(cl) == 1 and cl[0].startswith("📍 BTC: средняя 83,600 (3 лот.)")
+    assert len(cl) == 1 and cl[0].startswith("📍 BTC: средняя открытых лотов, без комиссий 83,600 (3 лот.)")
     assert "входы 83,127–83,316 (2)" in cl[0] and "ближайшие тейки 83,683–85,176" in cl[0]
-    assert "учёт не прочитан: B49" in cl[0]
+    assert "учёт прочитан 2 из 3 сеток — не прочитаны: B49 (JSONDecodeError)" in cl[0]
     msg = tv_levels.tv_message(data)
     assert f"<code>{tv_levels.tv_line(data)}</code>" in msg
     assert "зоны ↑83,443 (38%) ↓81,194 (20%)" in msg
     assert "лонги закроются, если день UTC закроется ниже 74,739" in msg
+    assert "безубыток" not in msg                                     # средняя без комиссий — не безубыток
 
 
-def _one_grid(entry=98.01, cap=3, lo=97.0, hi=100.0, px=99.5):
-    g = {"grids": ["G"], "skipped": [], "entries": [entry], "tps": [99.99], "lots": 2, "avg": 99.5,
-         "detail": [{"name": "G", "entry": entry, "lots": [(100.0, 0.01, 101.0), (99.0, 0.01, 99.99)],
-                     "step": 1.0, "target": 1.0, "qty": 0.01, "cap": cap}]}
-    day = {"issued_utc": "x", "lo": lo, "hi": hi, "zones": [(99.8, 0.4, "up")]}
-    return {"now": NOW, "syms": {"BTCUSDT": {"grid": g, "day": day, "thr": 90.0, "px": px}}}
+def _gd(entry=None, lots=(), cap=3, max_notional=1e9, tick=0.01, step=1.0, qty=0.01, **kw):
+    return {"name": "G", "entry": entry, "lots": [dict(x) for x in lots], "step": step, "target": 1.0, "qty": qty,
+            "cap": cap, "max_notional": max_notional, "tick": tick, "stress": 0.0, "halted": False, "blocked": "", **kw}
+
+
+def _L(entry, qty, tp, parent):
+    return {"entry": entry, "qty": qty, "tp": tp, "parent": parent}
+
+
+def _one(gd, lo=97.0, hi=100.0, px=99.5):
+    g = {"grids": ["G"], "skipped": [], "expected": 1, "detail": [gd], "entries": [], "tps": [], "lots": 0, "avg": None}
+    return {"now": NOW, "cap": None,
+            "syms": {"BTCUSDT": {"grid": g, "day": {"issued_utc": "x", "lo": lo, "hi": hi, "zones": []},
+                                 "thr": 90.0, "px": px}}}
+
+
+TWO = (_L(100.0, 0.01, 101.0, "a"), _L(99.0, 0.01, 99.99, "b"))
 
 
 def test_scenarios_arithmetic_capped():
-    r = tv_levels.scenarios(_one_grid())["BTCUSDT"]
+    r = tv_levels.scenarios(_one(_gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, TWO)))["BTCUSDT"]
     assert r["takes"] == 1                                               # тейк 99.99 ≤ верха 100, тейк 101 — нет
     assert abs(r["closed"] - ((99.99 - 99) * 0.01 - 99.99 * 0.01 * tv_levels.FEE_MAKER)) < 1e-12
-    assert r["adds"] == 1 and r["capped"] == ["G"]                        # 2 лота + 1 добор = потолок 3
+    assert r["adds"] == 1 and r["stops"] == {"G": "потолок ордеров"}      # 2 слота + вход = потолок 3
     bag = (97 - 100 + 97 - 99 + 97 - 98.01) * 0.01 - 98.01 * 0.01 * tv_levels.FEE_MAKER
     assert abs(r["bag_lo"] - bag) < 1e-12 and abs(r["notional_lo"] - (100 + 99 + 98.01) * 0.01) < 1e-12
 
 
 def test_scenarios_adds_step_down_to_corridor_low():
-    r = tv_levels.scenarios(_one_grid(cap=50, lo=96.5))["BTCUSDT"]
-    assert r["adds"] == 2 and r["capped"] == []                          # 98.01, 97.0299; 96.0596 < низа 96.5
+    r = tv_levels.scenarios(_one(_gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, TWO, cap=50),
+                                 lo=96.5))["BTCUSDT"]
+    assert r["adds"] == 2 and r["stops"] == {}                           # 98.01, 97.02; 96.04 < низа 96.5
+
+
+def test_f1_notional_cap_stops_adds_before_slots():
+    """F1: потолок позиции движка — max(себестоимость, стоимость) + вход ≤ max_notional_usd."""
+    gd = _gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, TWO, cap=50, max_notional=3.0)
+    adds, _, why = tv_levels._sim_down(gd, 90.0, 99.5)
+    assert len(adds) == 1 and why == "потолок позиции"                  # 1.99 + 0.98 ≤ 3; + 0.97 > 3
+
+
+def test_f2_partial_fills_share_one_slot_and_remainder_not_doubled():
+    """F2: три куска частичного исполнения одного входа — один слот; остаток входа добирается без удвоения объёма."""
+    parts = [_L(99.0, 0.003, 99.99, "e1") for _ in range(3)]
+    gd = _gd({"id": "e1", "price": 99.0, "qty": 0.01, "filled": 0.009}, parts, cap=3)
+    adds, pos, why = tv_levels._sim_down(gd, 96.0, 99.5)
+    assert adds[0] == (99.0, pytest.approx(0.001)) and why == "потолок ордеров"
+    assert [p for p, _ in adds] == [99.0, 98.01, 97.02]                   # остаток + 2 новых слота (потолок 3)
+    assert sum(q for _, q in pos) == pytest.approx(0.009 + 0.001 + 0.02)
+
+
+def test_f3_entry_price_rounded_down_to_tick():
+    """F3: 98.01 × 0.99 = 97.0299 → движок ставит 97.02 — до края 97.025 цена не дошла: один добор, не два."""
+    adds, _, _ = tv_levels._sim_down(_gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, cap=50), 97.025, 99.0)
+    assert [p for p, _ in adds] == [98.01]
+
+
+def test_blocked_or_halted_grid_adds_nothing():
+    for kw, why in (({"halted": True}, "сетка остановлена"), ({"blocked": "нехватка"}, "сверка позиции: входы стоят")):
+        adds, _, w = tv_levels._sim_down(_gd({"id": "e", "price": 98.0, "qty": 0.01, "filled": 0.0}, **kw), 90.0, 99.0)
+        assert adds == [] and w == why
+
+
+class _Px:
+    def __init__(self, mid):
+        self.mid = mid
+
+    def __call__(self):
+        return self.mid - 0.05, self.mid + 0.05
+
+
+@pytest.mark.parametrize("over", [{"max_notional_usd": 300.0, "max_lots_per_side": 50},
+                                  {"max_notional_usd": 10000.0, "max_lots_per_side": 2},
+                                  {"max_notional_usd": 10000.0, "max_lots_per_side": 50}])
+def test_scenario_matches_engine_on_falling_price(tmp_path, over):
+    """Приёмка GPT: на одном снимке движок (имитатор биржи, плавное падение) и сценарий допускают одинаковые доборы
+    по тем же ценам — потолок позиции, потолок ордеров и округление тика."""
+    conf = {**eg.DEFAULT, "enabled": True, "dry_run": True, "sides": ["LONG"], "step_pct": 1.0, "target_pct": 1.0,
+            "order_qty": "0.001", "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0, **over}
+    px, clock = _Px(100_000.0), {"t": 1_800_000_000.0}
+    ex = eg.DryExchange(px, now_fn=lambda: clock["t"])
+
+    def now():
+        clock["t"] += 10
+        return clock["t"]
+
+    g = eg.Grid(ex, conf, state_path=tmp_path / "st.json", journal_path=tmp_path / "j.jsonl", now_fn=now)
+    g.tick()                                                            # первый вход стоит
+    snap = json.loads(json.dumps(g.st))
+    lo = 95_500.0
+    while px.mid > lo:
+        px.mid = max(lo, px.mid - 20.0)
+        g.tick()
+    g.tick()
+    engine_fills = sorted((l["entry"] for l in g.st["LONG"]["lots"]), reverse=True)
+    gd = tv_levels._parse_grid("G", {**conf, "symbol": "BTCUSDT"}, snap, {})
+    adds, _, _ = tv_levels._sim_down(gd, lo, 100_000.0)
+    assert [p for p, _ in adds] == pytest.approx(engine_fills) and len(engine_fills) >= 2
 
 
 def test_level_lines_sorted_from_price():
-    lines = tv_levels.level_lines(_one_grid())
+    gd = _gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, TWO)
+    data = _one(gd)
+    g = data["syms"]["BTCUSDT"]["grid"]
+    g.update(entries=[98.01], tps=[99.99, 101.0], lots=2, avg=99.5)
+    lines = tv_levels.level_lines(data)
     assert lines[0] == "📍 Уровни BTC · цена 99.50"
     prices = [float(x.split()[1].replace(",", "")) for x in lines[1:]]
     assert prices == sorted(prices, reverse=True)
     assert any("вход сетки" in x and "98.01" in x for x in lines)            # один вход — без перечня
     assert any("порог дневного закрытия" in x and "-9.5%" in x for x in lines)
+    assert any("средняя открытых лотов, без комиссий (2)" in x for x in lines)
 
 
 def test_card_order_scenarios_and_levels_on_top(tmp_path, monkeypatch):
-    corr = {"BTCUSDT": {"issued_utc": "x", "lo": 80683.9, "hi": 84665.5, "zones": [(83442.7, 0.38, "up")]}}
     monkeypatch.setattr(regime_watch, "_sma_exit",
                         lambda s: {"BTCUSDT": (83388.0, 74738.75), "ETHUSDT": (2462.24, 2296.62)}[s])
     monkeypatch.setattr(regime_watch, "_regime", lambda s: "ЛОНГ")
     monkeypatch.setattr(regime_watch, "_grid_rows", lambda prices, since: [("BTC 0.6/1.4", 13.7, 4, -0.29, 1)])
     monkeypatch.setattr(regime_watch, "_market_brief", lambda: "\n\n📏 РЫНОК")
-    monkeypatch.setattr(tv_levels, "collect",
-                        lambda now, thr=None, px=None: COLLECT(now, grids=_grids(tmp_path), corridor=corr, thr=thr, px=px))
+    monkeypatch.setattr(tv_levels, "collect", lambda now, thr=None, px=None: COLLECT(
+        now, grids=_grids(tmp_path), corridor=CORR, thr=thr, px=px, cap=None))
     card = regime_watch.build_card(NOW)
     first = card.splitlines()[0]
     assert "BTC 83,388" in first and "ETH 2,462.24" in first and "BTC ЛОНГ, ETH ЛОНГ" in first
@@ -168,7 +288,15 @@ def test_card_order_scenarios_and_levels_on_top(tmp_path, monkeypatch):
     pos = [card.index(m) for m in ("🎯 Сетки на сутки", "📍 Уровни BTC", "📊 Сетки WEEX", "BTC 0.6/1.4: +13.70$",
                                    "📏 РЫНОК")]
     assert pos == sorted(pos)
-    assert "в потолке: B34" in card                                      # B34 потолок 4 лота в тесте
+    assert "B34 — потолок ордеров" in card                               # B34 потолок 4 слота в тесте
+    assert "Не гарантированная граница потерь" in card and "худший случай" not in card
+
+
+def test_gross_cap_note_when_total_exceeds():
+    data = _one(_gd({"id": "e", "price": 98.01, "qty": 0.01, "filled": 0.0}, TWO, cap=50), lo=96.5)
+    data["cap"] = 2.0
+    r = tv_levels.scenarios(data)["BTCUSDT"]
+    assert any("общий потолок $2" in n for n in r["notes"])
 
 
 def _card_env(tmp_path, monkeypatch, enabled=True):

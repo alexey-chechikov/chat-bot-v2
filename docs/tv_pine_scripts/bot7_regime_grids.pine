@@ -1,8 +1,11 @@
 //@version=5
-// bot7 · режим сеток v2.1 (21.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// bot7 · режим сеток v2.2 (21.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
 // v2.1: «дней в режиме» убрано (ничего не решает) → «запас до порога» в дневных размахах ATR(14).
+// v2.2 (разбор GPT 8252cc0): полнота учёта (g/x) и конец окна прогноза (w) из строки бота — истёкший коридор не
+// рисуется; «средняя лотов, без комиссий» вместо «безубыток»; «режим разрешает LONG» (расчёт, не подтверждение работы
+// процесса); фильтр дальних линий — для всех уровней; расстояние до ближайшего входа и тейка; размер текста.
 // Режим = правило движка (services/weex_grid/engine.py, regime_up): закрытие ВЧЕРАШНЕГО дня UTC на BINANCE спот
-// выше средней 100 закрытых дней → лонг-сетки работают; ниже → на следующий день лонги закрываются по рынку.
+// выше средней 100 закрытых дней → лонги разрешены; ниже → на следующий день лонги закрываются по рынку.
 // Порог сегодняшнего закрытия = средняя 99 последних закрытых дней (как research/weex/account_now.py).
 // Сверка 21.10: BTC SMA100 74,615 / порог 74,739; ETH 2,291.42 / 2,296.62.
 // Уровни бота — одной строкой из Telegram (/tv или сообщение после утренней карточки, services/tv_levels.py):
@@ -14,15 +17,18 @@ inBot    = input.string("", "Строка из бота (/tv)", tooltip="Telegra
 srcMode  = input.string("авто", "Дневки для режима", options=["авто", "график"], tooltip="авто: BTC/ETH — BINANCE спот, как у ботов; остальное — дневки графика (справочно, ботов на нём нет)")
 smaLen   = input.int(100, "SMA, дней (боты: 100)", minval=10)
 showLine = input.bool(true, "Линии SMA и порога")
-lineMax  = input.float(6.0, "Рисовать линии, если до цены не дальше, %", minval=0.5, step=0.5, tooltip="Дальние линии сжимают свечи; цифры всё равно в таблице")
-showBg   = input.bool(true, "Подсветка режима (зелёный — лонги работают, серый — вне рынка)")
+lineMax  = input.float(6.0, "Рисовать линии, если до цены не дальше, %", minval=0.5, step=0.5, tooltip="Для всех линий: SMA, порог и уровни бота. Дальние сжимают свечи; цифры всё равно в таблице")
+showBg   = input.bool(true, "Подсветка режима (зелёный — лонги разрешены, серый — нет)")
 warnPct  = input.float(3.0, "Красный и тревога: до порога меньше, %", minval=0.1, step=0.5)
 showTp   = input.bool(true, "Ближайшие тейки сеток")
 tabPos   = input.string("сверху справа", "Таблица", options=["сверху справа", "снизу справа", "сверху слева", "снизу слева"])
+txtSize  = input.string("мелкий", "Размер текста", options=["мелкий", "обычный", "крупный"])
 
+tsz   = txtSize == "крупный" ? size.large : txtSize == "обычный" ? size.normal : size.small
 base  = syminfo.basecurrency
 isBot = base == "BTC" or base == "ETH"
 sym   = srcMode == "авто" and isBot ? "BINANCE:" + base + "USDT" : syminfo.tickerid
+asBot = isBot and srcMode == "авто" and smaLen == 100              // расчёт совпадает с правилом ботов
 
 // ── дневки: значения ВЧЕРАШНЕГО закрытого дня (lookahead_on + [1] — без перерисовки)
 f_daily() =>
@@ -49,6 +55,7 @@ plotshape(flipOff, "Лонги закрыты",   shape.labeldown, location.abov
 // ── формат и разбор строки бота
 f_px(v) => na(v) ? "—" : v >= 10000 ? str.tostring(v, "#,##0") : str.tostring(v, "#,##0.00")
 f_pct(v) => na(v) ? "—" : (v >= 0 ? "+" : "") + str.tostring(v, "0.0") + "%"
+f_near(p) => math.abs(p / close - 1) * 100 <= lineMax
 
 f_part(s) =>
     string res = ""
@@ -73,7 +80,7 @@ f_level(lns, lbs, price, txt, col, sty) =>
     l = line.new(bar_index - 1, price, bar_index, price, extend=extend.right, color=col, style=sty, width=1)
     array.push(lns, l)
     if str.length(txt) > 0
-        array.push(lbs, label.new(bar_index + 2, price, txt, style=label.style_label_left, color=color.new(color.black, 100), textcolor=col, size=size.small))
+        array.push(lbs, label.new(bar_index + 2, price, txt, style=label.style_label_left, color=color.new(color.black, 100), textcolor=col, size=tsz))
     l
 
 f_span(arr) => array.size(arr) == 1 ? f_px(array.get(arr, 0)) : f_px(array.min(arr)) + "–" + f_px(array.max(arr))
@@ -83,17 +90,22 @@ pos = tabPos == "сверху справа" ? position.top_right : tabPos == "с
 var table T = table.new(pos, 2, 9, border_width=1)
 
 f_row(t, r, k, v, vc) =>
-    table.cell(t, 0, r, k, text_color=color.silver, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
-    table.cell(t, 1, r, v, text_color=vc, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 0, r, k, text_color=color.silver, bgcolor=color.new(color.black, 45), text_size=tsz, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, bgcolor=color.new(color.black, 45), text_size=tsz, text_halign=text.align_left)
 
 if barstate.islast
-    // разбор строки бота: u время, k коридор, z зоны цена:шанс, e входы, t тейки, a безубыток лотов, n лотов, s порог бота
+    // разбор строки бота: u время, g прочитано/ожидалось сеток, x непрочитанные, k коридор, w конец окна прогноза,
+    // z зоны цена:шанс, e входы, t тейки, a средняя лотов без комиссий, n лотов, s порог бота
     float u    = na
     float kLo  = na
     float kHi  = na
+    float wEnd = na
     float aAvg = na
     float sThr = na
     float nLot = na
+    int gRead  = na
+    int gExp   = na
+    string xMiss = ""
     zp  = array.new_float()
     zc  = array.new_float()
     ent = array.new_float()
@@ -105,11 +117,20 @@ if barstate.islast
             body = str.substring(tok, 1)
             if pre == "u"
                 u := str.tonumber(body)
+            else if pre == "g"
+                gg = str.split(body, "/")
+                if array.size(gg) == 2
+                    gRead := int(str.tonumber(array.get(gg, 0)))
+                    gExp  := int(str.tonumber(array.get(gg, 1)))
+            else if pre == "x"
+                xMiss := body
             else if pre == "k"
                 kk = str.split(body, "-")
                 if array.size(kk) == 2
                     kLo := str.tonumber(array.get(kk, 0))
                     kHi := str.tonumber(array.get(kk, 1))
+            else if pre == "w"
+                wEnd := str.tonumber(body)
             else if pre == "z"
                 for zt in str.split(body, ",")
                     zz = str.split(zt, ":")
@@ -127,8 +148,10 @@ if barstate.islast
                 nLot := str.tonumber(body)
             else if pre == "s"
                 sThr := str.tonumber(body)
+    expired  = not na(wEnd) and timenow / 1000 > wEnd               // окно прогноза кончилось — коридор не действует
+    partial  = not na(gRead) and not na(gExp) and gRead < gExp
 
-    // уровни на графике
+    // уровни на графике (дальние — только в таблице)
     for l in gLines
         line.delete(l)
     array.clear(gLines)
@@ -137,34 +160,42 @@ if barstate.islast
     array.clear(gLabels)
     if not na(gFill)
         linefill.delete(gFill)
-    if not na(kLo) and not na(kHi)
+    if not na(kLo) and not na(kHi) and not expired and f_near(kLo) and f_near(kHi)
         lLo = f_level(gLines, gLabels, kLo, "коридор дня · низ " + f_px(kLo), color.new(color.teal, 0), line.style_dashed)
         lHi = f_level(gLines, gLabels, kHi, "коридор дня · верх " + f_px(kHi), color.new(color.teal, 0), line.style_dashed)
         gFill := linefill.new(lLo, lHi, color.new(color.teal, 94))
-    for [i, p] in zp
-        c = array.get(zc, i)
-        f_level(gLines, gLabels, p, (p >= close ? "↑ зона " : "↓ зона ") + f_px(p) + (na(c) ? "" : " · шанс " + str.tostring(c, "0") + "%"), color.new(color.fuchsia, 0), line.style_dotted)
+    if not expired
+        for [i, p] in zp
+            if f_near(p)
+                c = array.get(zc, i)
+                f_level(gLines, gLabels, p, (p >= close ? "↑ зона " : "↓ зона ") + f_px(p) + (na(c) ? "" : " · шанс " + str.tostring(c, "0") + "%"), color.new(color.fuchsia, 0), line.style_dotted)
     if array.size(ent) > 0
         for p in ent
-            f_level(gLines, gLabels, p, "", color.new(color.lime, 40), line.style_dotted)
-        array.push(gLabels, label.new(bar_index + 2, array.min(ent), "входы сеток: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ")", style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.lime, size=size.small))
+            if f_near(p)
+                f_level(gLines, gLabels, p, "", color.new(color.lime, 40), line.style_dotted)
+        eTop = array.max(ent)
+        if f_near(eTop)
+            array.push(gLabels, label.new(bar_index + 2, array.min(ent), "входы сеток: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ") · ближайший " + f_pct((eTop / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.lime, size=tsz))
     if showTp and array.size(tps) > 0
         for p in tps
-            f_level(gLines, gLabels, p, "", color.new(color.red, 40), line.style_dotted)
-        array.push(gLabels, label.new(bar_index + 2, array.min(tps), "ближайшие тейки: " + str.tostring(array.size(tps)) + " (" + f_span(tps) + ")", style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.red, size=size.small))
-    if not na(aAvg)
-        f_level(gLines, gLabels, aAvg, "безубыток лотов " + f_px(aAvg) + " · цена " + f_pct((close / aAvg - 1) * 100), color.new(color.yellow, 0), line.style_solid)
+            if f_near(p)
+                f_level(gLines, gLabels, p, "", color.new(color.red, 40), line.style_dotted)
+        tLow = array.min(tps)
+        if f_near(tLow)
+            array.push(gLabels, label.new(bar_index + 2, tLow, "ближайшие тейки: " + str.tostring(array.size(tps)) + " (" + f_span(tps) + ") · ближайший " + f_pct((tLow / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.red, size=tsz))
+    if not na(aAvg) and f_near(aAvg)
+        f_level(gLines, gLabels, aAvg, "средняя лотов (без комиссий) " + f_px(aAvg) + " · цена " + f_pct((close / aAvg - 1) * 100), color.new(color.yellow, 0), line.style_solid)
 
     // таблица
     msLeft = 86400000 - timenow % 86400000
     hh     = math.floor(msLeft / 3600000)
     mm     = math.floor((msLeft % 3600000) / 60000)
     thrCol = na(dThr) ? color.silver : math.abs(dThr) < warnPct ? color.red : math.abs(dThr) < 2 * warnPct ? color.orange : color.lime
-    table.cell(T, 0, 0, "bot7 · режим", text_color=color.white, bgcolor=color.new(color.black, 20), text_size=size.small, text_halign=text.align_left)
-    src0 = not isBot ? "дневки графика · ботов нет" : srcMode == "авто" ? sym + " · дневки UTC" : "дневки графика (у ботов — BINANCE спот)"
-    table.cell(T, 1, 0, src0, text_color=color.silver, bgcolor=color.new(color.black, 20), text_size=size.small, text_halign=text.align_left)
-    regTxt = na(ySma) ? "мало истории" : isBot ? (regUp ? "ЛОНГ — сетки работают" : "ВНЕ РЫНКА — лонгов нет") : (regUp ? "выше SMA" : "ниже SMA")
-    f_row(T, 1, "Режим ботов", regTxt, na(ySma) ? color.silver : regUp ? color.lime : color.gray)
+    table.cell(T, 0, 0, "bot7 · режим", text_color=color.white, bgcolor=color.new(color.black, 20), text_size=tsz, text_halign=text.align_left)
+    src0 = not isBot ? "дневки графика · ботов нет" : asBot ? sym + " · дневки UTC" : "справочно: не правило ботов (у них BINANCE спот, SMA100)"
+    table.cell(T, 1, 0, src0, text_color=asBot ? color.silver : color.orange, bgcolor=color.new(color.black, 20), text_size=tsz, text_halign=text.align_left)
+    regTxt = na(ySma) ? "мало истории" : isBot ? (regUp ? "режим разрешает LONG" : "режим запрещает LONG") + (asBot ? "" : " (справочно)") : (regUp ? "выше SMA" : "ниже SMA")
+    f_row(T, 1, "Режим (расчёт)", regTxt, na(ySma) ? color.silver : not asBot ? color.gray : regUp ? color.lime : color.gray)
     f_row(T, 2, "SMA" + str.tostring(smaLen) + " дн.", f_px(ySma) + " · цена " + f_pct(dSma), color.white)
     sameDay = not na(u) and math.floor(u / 86400) == math.floor(timenow / 86400000)
     botDiff = sameDay and not na(sThr) and not na(thr) and math.abs(sThr / thr - 1) > 0.001
@@ -174,16 +205,19 @@ if barstate.islast
     gap = na(thr) ? na : math.abs(close - thr)
     f_row(T, 4, "Запас до порога", na(gap) or na(atrD) or atrD <= 0 ? "—" : f_px(gap) + " = " + str.tostring(gap / atrD, "0.0") + " дневных размаха (ATR " + f_px(atrD) + ")", thrCol)
     f_row(T, 5, "До закрытия дня UTC", isBot ? str.tostring(hh) + "ч " + str.tostring(mm) + "м" : "—", color.white)
-    if not na(kLo) and not na(kHi) and kHi > kLo
+    if not na(kLo) and not na(kHi) and kHi > kLo and not expired
         inPct = (close - kLo) / (kHi - kLo) * 100
         f_row(T, 6, "Коридор дня", f_px(kLo) + "–" + f_px(kHi) + " · цена на " + str.tostring(inPct, "0") + "%", inPct < 0 or inPct > 100 ? color.orange : color.teal)
+    else if expired
+        f_row(T, 6, "Коридор дня", "прогноз истёк — нужна свежая строка /tv", color.orange)
     else
         f_row(T, 6, "Коридор дня", isBot ? "нет: /tv в Telegram → ⚙ индикатора → «Строка из бота»" : "—", color.gray)
-    lotTxt = na(nLot) ? "—" : str.tostring(nLot, "0") + " лот." + (na(aAvg) ? "" : " · безубыток " + f_px(aAvg) + " (цена " + f_pct((close / aAvg - 1) * 100) + ")")
-    f_row(T, 7, "Лоты бота", lotTxt, color.yellow)
+    lotTxt = na(nLot) ? (partial and gRead == 0 ? "учёт не прочитан" : "—") : str.tostring(nLot, "0") + " лот." + (na(aAvg) ? "" : " · средняя без комиссий " + f_px(aAvg) + " (цена " + f_pct((close / aAvg - 1) * 100) + ")")
+    f_row(T, 7, "Лоты бота", lotTxt, partial ? color.orange : color.yellow)
     ageH = na(u) ? na : (timenow / 1000 - u) / 3600
     ageTxt = na(ageH) ? (isBot ? "строки нет" : "—") : ageH < 1 ? str.tostring(math.round(ageH * 60)) + " мин назад" : str.tostring(ageH, "0.0") + " ч назад"
-    f_row(T, 8, "Уровни бота от", ageTxt, na(ageH) ? color.gray : ageH > 12 ? color.orange : color.white)
+    covTxt = na(gRead) ? "" : " · сетки " + str.tostring(gRead) + "/" + str.tostring(gExp) + (str.length(xMiss) > 0 ? " (нет " + xMiss + ")" : "")
+    f_row(T, 8, "Уровни бота от", ageTxt + covTxt, na(ageH) ? color.gray : partial or ageH > 12 ? color.orange : color.white)
 
 alertcondition(near, "bot7: близко к порогу", "Цена близко к порогу закрытия дня по SMA100 — лонг-сетки могут закрыться на следующий день")
 alertcondition(flipOn or flipOff, "bot7: смена режима", "Сменился режим SMA100 у сеток")
