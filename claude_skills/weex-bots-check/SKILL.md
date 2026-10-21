@@ -24,7 +24,10 @@ description: Проверка работы ботов bot7 на WEEX и сост
 3. **Ордера против учёта:** `orphan_check.py` — критерий «сирот 0 и лотов без тейка 0» (сопоставлено, неясные по
    cid, algo b7). Находка сразу после постановки/исполнения — перепроверить через 10–20 с.
 4. **Сверка денег:** `pnl_reconcile.py BTC` и `pnl_reconcile.py ETH` — ИТОГ «совпадает» (деньги и комиссии ±$0.01,
-   объём точно) по сторонам бота; по переданной стороне — «сделок бота после передачи 0».
+   объём точно) по сторонам бота; по переданной стороне — «сделок бота после передачи 0». Живые шорт-сетки SB/SE
+   (с 21.10, запуск кнопкой `/panel`) — ещё `pnl_reconcile.py SB` / `… SE`. SB ведёт BTCUSDT SHORT рядом с ручным
+   шортом оператора: в `account_now` объём этой стороны — «в т.ч. лоты сеток», ручная часть = позиция − лоты SB;
+   ордера/сделки SB на переданной стороне — не нарушение, любой другой сетки — ПРОБЛЕМА.
 5. **Ошибки и предупреждения:** `errors_today.py [YYYY-MM-DD]` — ERROR с причиной (все errors.log*) и WARNING
    (launchd_app_runner.err). Разовые `Remote end closed connection` и `weex_book.reconnect` безвредны.
    `weex_grid.halt` / `weex_trend.halt` — первой строкой «есть проблема». Всегда разбирать (имена сверены с кодом
@@ -41,6 +44,8 @@ description: Проверка работы ботов bot7 на WEEX и сост
      release_sides, regime_sma, step_pct, target_pct, order_qty, max_notional_usd, max_lots_per_side,
      daily_loss_stop_usd и stress_budget_frac (0 = выкл);
    - `state/weex_grid_xau_config.json` — золото, лонг+шорт 0.75/0.3, dry_run, без режима;
+   - `state/weex_grid_sb_config.json` / `…_se_config.json` — заряженные шорт-сетки BTC/ETH без режима (выключены,
+     пока оператор не запустит); `flatten_request` в любом конфиге — закрытие позиций бота по кнопке (снимается go);
    - `state/weex_portfolio_config.json` — enabled, gross_cap_usd;
    - `state/weex_trend_config.json` — enabled, dry_run, symbols, risk_usd, max_notional_usd.
 7. **TradeGPT:** читать `state/tradegpt_signals.jsonl` скриптом-файлом (число, последний, уже посчитанные исходы).
