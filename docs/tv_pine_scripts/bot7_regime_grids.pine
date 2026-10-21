@@ -1,5 +1,7 @@
 //@version=5
-// bot7 · режим сеток v2.2 (21.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// bot7 · режим сеток v2.3 (21.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// v2.3 (разбор GPT к a25c763): алерты, метки и подсветка режима — только при расчёте по правилу ботов (BINANCE спот,
+// SMA100); подпись входов — на ближайшем (видимом) входе, а не на самом нижнем.
 // v2.1: «дней в режиме» убрано (ничего не решает) → «запас до порога» в дневных размахах ATR(14).
 // v2.2 (разбор GPT 8252cc0): полнота учёта (g/x) и конец окна прогноза (w) из строки бота — истёкший коридор не
 // рисуется; «средняя лотов, без комиссий» вместо «безубыток»; «режим разрешает LONG» (расчёт, не подтверждение работы
@@ -41,14 +43,16 @@ f_daily() =>
 
 dSma = ySma > 0 ? (close / ySma - 1) * 100 : na
 dThr = thr > 0 ? (thr / close - 1) * 100 : na
-near = isBot and not na(dThr) and math.abs(dThr) < warnPct
+near = asBot and not na(dThr) and math.abs(dThr) < warnPct        // алерт — только по правилу ботов (v2.3)
 
 // ── линии и подсветка
 plot(showLine and not na(dSma) and math.abs(dSma) <= lineMax ? ySma : na, "SMA дн. (вчера)", color.new(color.aqua, 0), 2, plot.style_stepline)
 plot(showLine and not na(dThr) and math.abs(dThr) <= lineMax ? thr : na, "Порог закрытия сегодня", color.new(color.orange, 0), 1, plot.style_stepline)
-bgcolor(showBg and isBot and not na(ySma) ? (regUp ? color.new(color.green, 93) : color.new(color.gray, 88)) : na)
-flipOn  = isBot and not na(ySma[1]) and regUp and not regUp[1]
-flipOff = isBot and not na(ySma[1]) and not regUp and regUp[1]
+// подсветка, метки и алерт смены режима — только когда расчёт совпадает с правилом ботов (asBot): при SMA50 или
+// дневках графика это справочный расчёт, а не смена SMA100-режима ботов (разбор GPT к a25c763)
+bgcolor(showBg and asBot and not na(ySma) ? (regUp ? color.new(color.green, 93) : color.new(color.gray, 88)) : na)
+flipOn  = asBot and not na(ySma[1]) and regUp and not regUp[1]
+flipOff = asBot and not na(ySma[1]) and not regUp and regUp[1]
 plotshape(flipOn,  "Лонги разрешены", shape.labelup,   location.belowbar, color.new(color.green, 0), text="лонги вкл",      textcolor=color.white, size=size.small)
 plotshape(flipOff, "Лонги закрыты",   shape.labeldown, location.abovebar, color.new(color.gray, 0),  text="лонги закрыты", textcolor=color.white, size=size.small)
 
@@ -173,9 +177,9 @@ if barstate.islast
         for p in ent
             if f_near(p)
                 f_level(gLines, gLabels, p, "", color.new(color.lime, 40), line.style_dotted)
-        eTop = array.max(ent)
+        eTop = array.max(ent)                                   // ближайший к цене вход (покупки ниже цены)
         if f_near(eTop)
-            array.push(gLabels, label.new(bar_index + 2, array.min(ent), "входы сеток: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ") · ближайший " + f_pct((eTop / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.lime, size=tsz))
+            array.push(gLabels, label.new(bar_index + 2, eTop, "входы сеток: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ") · ближайший " + f_pct((eTop / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.lime, size=tsz))
     if showTp and array.size(tps) > 0
         for p in tps
             if f_near(p)
@@ -219,5 +223,6 @@ if barstate.islast
     covTxt = na(gRead) ? "" : " · сетки " + str.tostring(gRead) + "/" + str.tostring(gExp) + (str.length(xMiss) > 0 ? " (нет " + xMiss + ")" : "")
     f_row(T, 8, "Уровни бота от", ageTxt + covTxt, na(ageH) ? color.gray : partial or ageH > 12 ? color.orange : color.white)
 
+// оба алерта гейтированы asBot (near, flipOn/flipOff): справочная SMA или другие дневки алерт бота не шлют
 alertcondition(near, "bot7: близко к порогу", "Цена близко к порогу закрытия дня по SMA100 — лонг-сетки могут закрыться на следующий день")
 alertcondition(flipOn or flipOff, "bot7: смена режима", "Сменился режим SMA100 у сеток")

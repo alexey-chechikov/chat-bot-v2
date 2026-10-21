@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,6 +64,41 @@ def test_f4_bad_number_skips_only_that_grid(tmp_path):
                extra_cfgs={"B89": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID}})["BTCUSDT"]
     assert g["grids"] == ["BTC", "B34"] and ("B89", "ValueError") in g["skipped"] and g["expected"] == 4
     assert g["lots"] == 3 and 83000.0 not in g["entries"]          # куски битой сетки в итог не попали
+
+
+@pytest.mark.parametrize("st, why", [
+    ({"LONG": {"entry": None, "lots": [_lot(83100.0, "nan", 84000.0)]}}, "ValueError"),       # NaN объём
+    ({"LONG": {"entry": None, "lots": [_lot(float("inf"), "0.0012", 84000.0)]}}, "ValueError"),  # ∞ цена
+    ({"LONG": {"entry": None, "lots": [_lot(83100.0, "0.0012", "Infinity")]}}, "ValueError"),     # ∞ тейк
+    ({"LONG": {"entry": None, "lots": [_lot(83100.0, True, 84000.0)]}}, "TypeError"),            # bool — не число
+    ({"LONG": {"entry": {"id": "e", "price": 83000.0, "qty": "0.0012", "filled": "0.002"}, "lots": []}},
+     "ValueError"),                                                                              # исполнено > объёма
+    ({"LONG": {"entry": {"id": "e", "price": "nan"}, "lots": []}}, "ValueError"),                 # NaN цена входа
+    ({}, "TypeError"),                                                                           # нет LONG
+    ({"LONG": []}, "TypeError"),                                                                 # LONG не объект
+    ({"LONG": {"lots": {}}}, "TypeError"),                                                       # lots не список
+    ({"LONG": {"entry": None}}, "TypeError"),                                                    # нет lots
+    ({"LONG": {"entry": None, "lots": ["x"]}}, "TypeError"),                                     # лот не объект
+    ([], "TypeError"),                                                                           # учёт не объект
+])
+def test_f4_nonfinite_and_bad_structures_skip_grid(tmp_path, st, why):
+    """Разбор GPT к a25c763: NaN/∞ проходили float() и срывали сценарий и /tv; неверные пустые структуры принимались
+    за корректный учёт. Теперь — пропуск сетки с причиной, остальные видны, сценарий и строка считаются."""
+    g = _grids(tmp_path, extra_states={"B89": st},
+               extra_cfgs={"B89": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID}})
+    b = g["BTCUSDT"]
+    assert ("B89", why) in b["skipped"] and b["grids"] == ["BTC", "B34"] and b["lots"] == 3
+    data = COLLECT(NOW, grids=g, corridor=CORR, thr={"BTCUSDT": 74738.75}, px={"BTCUSDT": 83388.0}, cap=None)
+    line = tv_levels.tv_line(data)
+    assert "nan" not in line.lower() and "inf" not in line.lower() and " g2/4 " in line
+    r = tv_levels.scenarios(data)["BTCUSDT"]
+    assert all(math.isfinite(v) for v in (r["closed"], r["bag_lo"], r["notional_lo"]))
+
+
+def test_f4_bad_forecast_numbers_dropped():
+    fcs = [_fc("BTCUSDT", "2026-10-21T06:02", MS - 3_600_000, MS + 80_000_000, float("nan"), 84665.5),
+           _fc("ETHUSDT", "2026-10-21T06:02", MS - 3_600_000, MS + 80_000_000, 2500.0, 2400.0)]   # низ ≥ верха
+    assert tv_levels.day_corridor(NOW, forecasts=fcs) == {}
 
 
 def test_f4_no_grid_read_is_reported_not_zero(tmp_path):

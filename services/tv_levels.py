@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import math
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -53,24 +54,46 @@ def _audit_blocks(path=None) -> dict[str, str]:
     return {k: (v.get("reason") or "сверка позиции") for k, v in raw.items() if isinstance(v, dict) and v.get("blocked")}
 
 
+def _num(x, *, pos: bool = True) -> float:
+    """Конечное число (разбор GPT к a25c763: float('nan'/'inf') проходил и срывал сценарий и /tv); pos — строго > 0,
+    иначе ≥ 0. bool — не число."""
+    if isinstance(x, bool) or not isinstance(x, (int, float, str)):
+        raise TypeError(f"не число: {type(x).__name__}")
+    v = float(x)
+    if not math.isfinite(v) or (v <= 0 if pos else v < 0):
+        raise ValueError(f"недопустимое число {x!r}")
+    return v
+
+
 def _parse_grid(name: str, cfg: dict, st: dict, blocks: dict) -> dict:
     """Полный разбор одной сетки ДО сложения в общий итог (разбор GPT F4): любое битое поле — исключение, сетка
-    пропускается целиком, остальные видны."""
-    side = st.get("LONG") or {}
+    пропускается целиком, остальные видны. Структура учёта движка обязательна: объект с LONG-объектом и списком lots
+    (пустой {} или LONG: [] — не «нет позиции», а битый учёт); числа — конечные и положительные."""
+    if not isinstance(st, dict) or not isinstance(st.get("LONG"), dict) or not isinstance(st["LONG"].get("lots"), list):
+        raise TypeError("учёт без LONG/lots")
+    side = st["LONG"]
     lots = []
-    for i, x in enumerate(side.get("lots") or []):
-        lots.append({"entry": float(x["entry"]), "qty": float(x["qty"]),
-                     "tp": float(x["tp"]) if x.get("tp") not in (None, "") else None,
+    for i, x in enumerate(side["lots"]):
+        if not isinstance(x, dict):
+            raise TypeError("лот не объект")
+        lots.append({"entry": _num(x["entry"]), "qty": _num(x["qty"]),
+                     "tp": _num(x["tp"]) if x.get("tp") not in (None, "") else None,
                      "parent": str(x.get("parent") or f"lot{i}")})
     e = side.get("entry")
     entry = None
-    if e:
-        entry = {"id": str(e.get("id") or "entry"), "price": float(e["price"]),
-                 "qty": float(e.get("qty") or cfg["order_qty"]), "filled": float(e.get("filled") or 0)}
+    if e is not None:
+        if not isinstance(e, dict):
+            raise TypeError("вход не объект")
+        qty = _num(e.get("qty") or cfg["order_qty"])
+        filled = _num(e.get("filled") or 0, pos=False)
+        if filled > qty + 1e-12:
+            raise ValueError("исполнено больше объёма входа")
+        entry = {"id": str(e.get("id") or "entry"), "price": _num(e["price"]), "qty": qty, "filled": filled}
+    cap = int(_num(cfg["max_lots_per_side"]))
     return {"name": name, "lots": lots, "entry": entry,
-            "step": float(cfg["step_pct"]), "target": float(cfg["target_pct"]), "qty": float(cfg["order_qty"]),
-            "cap": int(cfg["max_lots_per_side"]), "max_notional": float(cfg["max_notional_usd"]),
-            "tick": float(cfg["price_tick"]), "stress": float(cfg.get("stress_budget_frac") or 0),
+            "step": _num(cfg["step_pct"]), "target": _num(cfg["target_pct"]), "qty": _num(cfg["order_qty"]),
+            "cap": cap, "max_notional": _num(cfg["max_notional_usd"]), "tick": _num(cfg["price_tick"]),
+            "stress": _num(cfg.get("stress_budget_frac") or 0, pos=False),
             "halted": bool(st.get("halted")), "blocked": blocks.get(f"{cfg['symbol']}:LONG", "")}
 
 
@@ -128,11 +151,16 @@ def day_corridor(now: datetime, forecasts=None) -> dict[str, dict]:
             continue
         cur = out.get(f["sym"])
         if cur is None or f.get("issued_utc", "") > cur["issued_utc"]:
-            lo, hi = f["corridor"]
-            out[f["sym"]] = {"issued_utc": f.get("issued_utc", ""), "lo": float(lo), "hi": float(hi),
-                             "end": float(f["end_ms"]) / 1000,
-                             "zones": [(float(x["price"]), float(x["chance"]), x.get("side", ""))
-                                       for x in f.get("levels") or []]}
+            try:                                                # NaN/∞/мусор в прогнозе — прогноз не берём
+                lo, hi = (_num(v) for v in f["corridor"])
+                rec = {"issued_utc": f.get("issued_utc", ""), "lo": lo, "hi": hi, "end": _num(f["end_ms"]) / 1000,
+                       "zones": [(_num(x["price"]), _num(x["chance"], pos=False), x.get("side", ""))
+                                 for x in f.get("levels") or []]}
+            except (TypeError, ValueError, KeyError):
+                logger.exception("tv_levels.forecast_bad %s", f.get("sym"))
+                continue
+            if lo < hi:
+                out[f["sym"]] = rec
     return out
 
 
@@ -147,7 +175,7 @@ def market(syms=SYMS) -> tuple[dict[str, float], dict[str, float]]:
         except Exception:                                       # noqa: BLE001
             logger.exception("tv_levels.sma_failed %s", sym)
             got = None
-        if got:
+        if got and all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in got):
             px[sym], thr[sym] = got
     return thr, px
 
