@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PING_STATE = ROOT / "state" / "grid_risk_pings.json"
 BAG_LEVELS = (100.0, 250.0, 500.0, 1000.0)
 THR_LEVELS = (3.0, 1.5)
+RESUME_MIN_CAPPED_S = 3600          # «снова ставит входы» — только если на потолке стояла не меньше часа
+RESUME_EVERY_S = 6 * 3600           # и не чаще раза в 6 ч на сетку
 SHORT = {"BTCUSDT": "BTC", "ETHUSDT": "ETH"}
 MAP_CAPTION = ("Карта дня {sym}: коридор с шансом касания (калиброван вне выборки), входы и ближайшие тейки сеток, средняя "
                "лонгов, плотность POC/VAH/VAL, вчерашние H/L, ликвидации")
@@ -183,13 +185,28 @@ def risk_events(rows: list[dict], risk: dict[str, dict], state: dict, now: datet
     раз на пересечение (уровень снимается, когда мешок вернулся выше половины уровня); до порога выхода ≤3% и ≤1.5% —
     раз в сутки на символ."""
     day = now.strftime("%Y-%m-%d")
-    st = {"cap": dict(state.get("cap") or {}), "bag": list(state.get("bag") or []), "thr": dict(state.get("thr") or {})}
+    t = now.timestamp()
+    st = {"cap": dict(state.get("cap") or {}), "bag": list(state.get("bag") or []), "thr": dict(state.get("thr") or {}),
+          "capped": dict(state.get("capped") or {}), "resumed": dict(state.get("resumed") or {})}
     ev = []
     for r in rows:
-        if "потолок" in r.get("blocked", "") and st["cap"].get(r["name"]) != day:
-            st["cap"][r["name"]] = day
-            ev.append(f"⛔ {r['name']} на потолке позиции — новых входов нет, ждёт тейков (лотов {r['lots']}, "
-                      f"мешок {_m(r['bag'])})")
+        name, at_cap = r["name"], "потолок" in r.get("blocked", "")
+        if r.get("error"):
+            continue
+        if at_cap:
+            st["capped"].setdefault(name, t)
+            if st["cap"].get(name) != day:
+                st["cap"][name] = day
+                ev.append(f"⛔ {name} на потолке позиции — новых входов нет, ждёт тейков (лотов {r['lots']}, "
+                          f"мешок {_m(r['bag'])})")
+        elif name in st["capped"]:
+            # 24.10 (оператор: «да»): парный пинг — сетка снова ставит входы. Только после упора ≥ RESUME_MIN_CAPPED_S и
+            # не чаще раза в RESUME_EVERY_S на сетку (у самого потолка сетка качается: тейк → вход → снова потолок)
+            since = float(st["capped"].pop(name))
+            if t - since >= RESUME_MIN_CAPPED_S and t - float(st["resumed"].get(name) or 0) >= RESUME_EVERY_S:
+                st["resumed"][name] = t
+                ev.append(f"✅ {name} снова ставит входы — тейк освободил место под потолком (лотов {r['lots']}, "
+                          f"мешок {_m(r['bag'])}; стояла {(t - since) / 3600:.1f} ч)")
     bag = sum(r["bag"] for r in rows if not r.get("error"))
     hit = [lv for lv in BAG_LEVELS if bag <= -lv]
     st["bag"] = [lv for lv in st["bag"] if bag <= -lv / 2]    # вернулся выше половины уровня — уровень снят

@@ -74,3 +74,22 @@ def test_ping_symbols():
     assert gr.ping_symbols(["⛔ B34 на потолке позиции"], rows) == ["BTCUSDT"]
     assert gr.ping_symbols(["🛑 ETH в 2.0% от порога"], rows) == ["ETHUSDT"]
     assert gr.ping_symbols(["📉 Мешок всех лонг-сеток −120$ — ниже −100$"], rows) == ["BTCUSDT"]
+
+
+def test_resume_ping_after_long_cap_and_rate_limited():
+    """24.10: «снова ставит входы» — после упора ≥1 ч, не чаще раза в 6 ч; короткое качание у потолка молчит."""
+    from datetime import timedelta
+    capped = [row("B34", blocked="достигнут потолок позиции", lots=31)]
+    free = [row("B34", lots=30)]
+    _, st = gr.risk_events(capped, {}, {}, NOW)
+    ev, st = gr.risk_events(free, {}, st, NOW + timedelta(minutes=20))
+    assert ev == []                                              # 20 мин на потолке — не событие
+    _, st = gr.risk_events(capped, {}, st, NOW + timedelta(minutes=30))
+    ev, st = gr.risk_events(free, {}, st, NOW + timedelta(hours=2))
+    assert len(ev) == 1 and ev[0].startswith("✅ B34 снова ставит входы") and "стояла 1.5 ч" in ev[0]
+    _, st = gr.risk_events(capped, {}, st, NOW + timedelta(hours=2, minutes=5))
+    ev, st = gr.risk_events(free, {}, st, NOW + timedelta(hours=4))
+    assert ev == []                                              # второй раз за 6 ч — молчит
+    _, st = gr.risk_events(capped, {}, st, NOW + timedelta(hours=7))
+    ev, _ = gr.risk_events(free, {}, st, NOW + timedelta(hours=9))
+    assert len(ev) == 1                                         # прошло 6 ч — снова можно
