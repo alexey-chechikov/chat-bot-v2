@@ -1,5 +1,7 @@
 //@version=5
-// bot7 · режим сеток v2.3 (21.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// bot7 · режим сеток v2.4 (24.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// v2.4 (оператор: «чтобы средняя постоянно была на графике»): SMA100 и средняя лотов рисуются всегда, независимо от
+// лимита расстояния, с подписью у правого края (галочка «SMA и средняя лотов — всегда»); остальные дальние линии — как раньше.
 // v2.3 (разбор GPT к a25c763): алерты, метки и подсветка режима — только при расчёте по правилу ботов (BINANCE спот,
 // SMA100); подпись входов — на ближайшем (видимом) входе, а не на самом нижнем.
 // v2.1: «дней в режиме» убрано (ничего не решает) → «запас до порога» в дневных размахах ATR(14).
@@ -19,7 +21,8 @@ inBot    = input.string("", "Строка из бота (/tv)", tooltip="Telegra
 srcMode  = input.string("авто", "Дневки для режима", options=["авто", "график"], tooltip="авто: BTC/ETH — BINANCE спот, как у ботов; остальное — дневки графика (справочно, ботов на нём нет)")
 smaLen   = input.int(100, "SMA, дней (боты: 100)", minval=10)
 showLine = input.bool(true, "Линии SMA и порога")
-lineMax  = input.float(6.0, "Рисовать линии, если до цены не дальше, %", minval=0.5, step=0.5, tooltip="Для всех линий: SMA, порог и уровни бота. Дальние сжимают свечи; цифры всё равно в таблице")
+lineMax  = input.float(6.0, "Рисовать линии, если до цены не дальше, %", minval=0.5, step=0.5, tooltip="Для порога и уровней бота (SMA и средняя лотов — см. галочку ниже). Дальние сжимают свечи; цифры всё равно в таблице")
+avgAlways = input.bool(true, "SMA и средняя лотов — всегда (даже дальше лимита)", tooltip="v2.4: обе средние видны постоянно. Далёкая SMA сжимает свечи — тогда снять галочку или открыть ТФ крупнее")
 showBg   = input.bool(true, "Подсветка режима (зелёный — лонги разрешены, серый — нет)")
 warnPct  = input.float(3.0, "Красный и тревога: до порога меньше, %", minval=0.1, step=0.5)
 showTp   = input.bool(true, "Ближайшие тейки сеток")
@@ -46,7 +49,7 @@ dThr = thr > 0 ? (thr / close - 1) * 100 : na
 near = asBot and not na(dThr) and math.abs(dThr) < warnPct        // алерт — только по правилу ботов (v2.3)
 
 // ── линии и подсветка
-plot(showLine and not na(dSma) and math.abs(dSma) <= lineMax ? ySma : na, "SMA дн. (вчера)", color.new(color.aqua, 0), 2, plot.style_stepline)
+plot(showLine and not na(dSma) and (avgAlways or math.abs(dSma) <= lineMax) ? ySma : na, "SMA дн. (вчера)", color.new(color.aqua, 0), 2, plot.style_stepline)
 plot(showLine and not na(dThr) and math.abs(dThr) <= lineMax ? thr : na, "Порог закрытия сегодня", color.new(color.orange, 0), 1, plot.style_stepline)
 // подсветка, метки и алерт смены режима — только когда расчёт совпадает с правилом ботов (asBot): при SMA50 или
 // дневках графика это справочный расчёт, а не смена SMA100-режима ботов (разбор GPT к a25c763)
@@ -187,8 +190,10 @@ if barstate.islast
         tLow = array.min(tps)
         if f_near(tLow)
             array.push(gLabels, label.new(bar_index + 2, tLow, "ближайшие тейки: " + str.tostring(array.size(tps)) + " (" + f_span(tps) + ") · ближайший " + f_pct((tLow / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.red, size=tsz))
-    if not na(aAvg) and f_near(aAvg)
+    if not na(aAvg) and (avgAlways or f_near(aAvg))
         f_level(gLines, gLabels, aAvg, "средняя лотов (без комиссий) " + f_px(aAvg) + " · цена " + f_pct((close / aAvg - 1) * 100), color.new(color.yellow, 0), line.style_solid)
+    if showLine and not na(ySma) and (avgAlways or f_near(ySma))     // v2.4: подпись SMA у правого края
+        array.push(gLabels, label.new(bar_index + 2, ySma, "SMA" + str.tostring(smaLen) + " дн. " + f_px(ySma) + " · цена " + f_pct(dSma), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.aqua, size=tsz))
 
     // таблица
     msLeft = 86400000 - timenow % 86400000

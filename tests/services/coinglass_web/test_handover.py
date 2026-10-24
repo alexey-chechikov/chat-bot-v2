@@ -68,6 +68,7 @@ def test_regime_card_send_failure_not_marked_sent(tmp_path, monkeypatch):
     monkeypatch.setattr(regime_watch, "CARD_STATE", tmp_path / "card.json")
     monkeypatch.setattr(regime_watch, "_card_push_enabled", lambda: True)
     monkeypatch.setattr(regime_watch, "build_card", lambda now: "🧲 CoinGlass")
+    monkeypatch.setattr(regime_watch, "_send_story", lambda send_fn, now, day: None)   # 22.10: без сети
 
     def fail(text):
         raise RuntimeError("ни один чат")
@@ -89,6 +90,7 @@ def test_delivery_log_records_hashes_without_ids(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(regime_watch, "_card_push_enabled", lambda: True)
     monkeypatch.setattr(regime_watch, "build_card", lambda now: card)
+    monkeypatch.setattr(regime_watch, "_send_story", lambda send_fn, now, day: None)   # 22.10: без сети
     monkeypatch.setattr(regime_watch, "CARD_STATE", tmp_path / "card.json")
     from datetime import datetime, timezone
     assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=datetime(2026, 10, 19, 6, 5, tzinfo=timezone.utc))

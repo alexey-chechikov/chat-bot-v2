@@ -1904,7 +1904,8 @@ class TelegramBotApp:
                 logger.exception("ab_status.handler_failed")
                 self.bot.send_message(chat_id, "❌ Ошибка запуска /ab_status")
 
-        @self.bot.message_handler(commands=['bot', 'bots'])
+        # 21.10: /bots отдан карточке живых сеток WEEX (обработчик ниже, у /weex); /bot — давние GinArea-тиры
+        @self.bot.message_handler(commands=['bot'])
         def handle_bot(message) -> None:
             """/bot <tier> <cmd> — TG-управление managed botом GinArea.
             Commands:
@@ -1987,7 +1988,7 @@ class TelegramBotApp:
                     bot = b
                     break
             if bot is None:
-                self.bot.send_message(chat_id, f"❌ tier '{tier}' не найден. /bots для списка.")
+                self.bot.send_message(chat_id, f"❌ tier '{tier}' не найден. /bot для списка.")
                 return
 
             bot_id = str(bot['bot_id'])
@@ -2128,11 +2129,12 @@ class TelegramBotApp:
                 logger.exception("tg.bot_command_failed tier=%s cmd=%s", tier, cmd)
                 self.bot.send_message(chat_id, f"❌ {cmd} failed: {e}")
 
-        @self.bot.message_handler(commands=['levels'])
-        def handle_levels(message) -> None:
-            """/levels — показать текущие уровни VPVR.
-            /levels BTCUSD poc=81500 vah=82200 val=80800 [hvn=...] [lvn=...] — обновить.
-            /levels clear BTCUSD — очистить.
+        # 21.10: /levels отдан карте плотности (handle_levels ниже); ручные VPVR-уровни — /vpvr
+        @self.bot.message_handler(commands=['vpvr'])
+        def handle_vpvr_levels(message) -> None:
+            """/vpvr — показать текущие уровни VPVR.
+            /vpvr BTCUSD poc=81500 vah=82200 val=80800 [hvn=...] [lvn=...] — обновить.
+            /vpvr clear BTCUSD — очистить.
             Источник: оператор смотрит TV → копирует POC/VAH/VAL → шлёт боту.
             Range Hunter и cascade_alert будут читать эти уровни для snap."""
             chat_id = int(message.chat.id)
@@ -2164,7 +2166,7 @@ class TelegramBotApp:
                 self.bot.send_message(
                     chat_id,
                     "❌ Не нашёл уровней в команде. Пример:\n"
-                    "  /levels BTCUSD poc=81500 vah=82200 val=80800 hvn=82100,81100"
+                    "  /vpvr BTCUSD poc=81500 vah=82200 val=80800 hvn=82100,81100"
                 )
                 return
             sym = sym or "BTCUSD"
@@ -2468,7 +2470,7 @@ class TelegramBotApp:
                 return
             self._send_long_text(chat_id, text, filename="filter_dashboard.txt")
 
-        @self.bot.message_handler(commands=['ginarea', 'bots'])
+        @self.bot.message_handler(commands=['ginarea'])
         def handle_ginarea(message) -> None:
             """Read-only summary of GinArea bot states."""
             chat_id = int(message.chat.id)
@@ -2693,6 +2695,56 @@ class TelegramBotApp:
             # 2026-10-15: шесть сеток + тренд + счёт длиннее 4096 — частями по карточкам, без обрезки
             for part in split_message(text):
                 self.bot.send_message(chat_id, part)
+
+        # ── /bots — только карточки живых сеток WEEX (21.10: раньше уходил в остановленные боты GinArea).
+        # Аргументы игнорируются: управление — /weex и /panel.
+        @self.bot.message_handler(commands=['bots'])
+        def handle_bots(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            try:
+                from services.weex_grid.loop import command, split_message
+                text = command('')
+            except Exception as exc:
+                logger.exception('handle_bots.failed')
+                self.bot.send_message(chat_id, f'❌ /bots failed: {exc}')
+                return
+            for part in split_message(text):
+                self.bot.send_message(chat_id, part)
+
+        # ── /map [eth] — сводка сеток в цифрах + карта дня картинкой (22.10, оператор: «где отчёты в телеграм, где
+        # аналитика»). Только чтение (services/grid_report.py); сборка ~20 с — в своём потоке.
+        @self.bot.message_handler(commands=['map'])
+        def handle_map(message) -> None:
+            chat_id = int(message.chat.id)
+            if not self._is_allowed(chat_id):
+                self.bot.send_message(chat_id, '⛔ Доступ запрещён.')
+                return
+            arg = (message.text or '').partition(' ')[2].strip().lower()
+            syms = ['ETHUSDT'] if arg.startswith('eth') else (['BTCUSDT'] if arg.startswith('btc')
+                                                             else ['BTCUSDT', 'ETHUSDT'])
+            self.bot.send_message(chat_id, '🗺 Собираю сводку и карту дня…')
+
+            def _job() -> None:
+                try:
+                    from services import grid_report, tv_levels
+                    try:                                        # 22.10: аналитика «что изменилось и что следует» первой
+                        from services.market_brief import story
+                        self.bot.send_message(chat_id, "\n".join(story.block())[:4096])
+                    except Exception:
+                        logger.exception('handle_map.story_failed')
+                    data = tv_levels.collect()
+                    self.bot.send_message(chat_id, grid_report.report_text(data=data))
+                    for sym in syms:
+                        self.bot.send_photo(chat_id, grid_report.render_map(sym, data=data),
+                                            caption=grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[sym]))
+                except Exception as exc:
+                    logger.exception('handle_map.failed')
+                    self.bot.send_message(chat_id, f'❌ /map failed: {exc}')
+
+            threading.Thread(target=_job, name='map-builder', daemon=True).start()
 
         # ── /panel — пульт сеток WEEX кнопками (21.10, оператор: «пауза всем, закрыть все позиции, старт бота,
         # заряженные шорт-боты, ордер +/−»). Кнопки шлют те же команды, что /weex (services/weex_grid/panel.py);

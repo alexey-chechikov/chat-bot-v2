@@ -253,13 +253,14 @@ def build() -> str:
         lines += ["", section()]
     except Exception:                                           # noqa: BLE001
         logger.exception("market_brief.coinglass_failed")
-    lines += ["", "🧭 Рынок за сутки"] + bodies
+    # 22.10 (оператор: «какой же он обычный день? где выводы?»): выводы и сравнение со вчера — отдельным первым сообщением
+    # (services/market_brief/story.py); здесь только подробности. Строка «Вывод: обычный день» убрана — она была про
+    # деривативы (OI, L/S, фандинг, агрессор), а читалась как оценка движения цены.
+    lines += ["", "📋 Подробности: рынок за сутки"] + bodies
     if notes:
         lines.append("Необычно по 2 годам статистики: " + "; ".join(notes)
                      + (". Направление этим не задаётся — это про размах." if all("большой ход" in n for n in notes)
                         else "."))
-    else:
-        lines.append("Вывод: по 2 годам статистики — обычный день, ни по направлению, ни по размаху. Не сигнал входа.")
     try:
         DIR.mkdir(parents=True, exist_ok=True)
         if not any(json.loads(x).get("date") == log["date"] for x in

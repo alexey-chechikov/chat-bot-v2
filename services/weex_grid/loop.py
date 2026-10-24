@@ -29,6 +29,7 @@ _SIGMA: dict[str, dict] = {}
 # сверяются. Нечитаемые данные — проход сверки пропускается, состояние не меняется.
 AUDIT_PASSES = 3
 AUDIT_FILE = eg.STATE.with_name("weex_position_audit.json")
+TREND_IDLE_SEC = 300     # 23.10: тренд без эпизода/заявки — не чаще раза в 5 мин (Runner._trend_due)
 
 
 def position_gaps(grids: list[dict], busy: set, positions: list) -> dict:
@@ -106,7 +107,30 @@ class Runner:
         self.last_halt: dict[str, float] = {}
         self.mode: dict[str, tuple] = {}
         self.trend = None
+        self._trend_last = 0.0
         self.audit = self._audit_load()
+
+    def _trend_due(self, now: float) -> bool:
+        """23.10 (оператор «да»): трендовый бот 4ч идёт в том же цикле, что сетки, и его проход занимал медиану 8 с, до
+        58 с (замер по меткам учёта) — тейки сеток ставились с задержкой до минуты. Без эпизода и неподтверждённой
+        заявки — не чаще раза в TREND_IDLE_SEC (вход по закрытию 4ч бара запаздывает максимум на это время). Эпизод или
+        pending в живом или холостом учёте любой монеты — каждый проход, как раньше. Нечитаемо — каждый проход (тренд
+        сам остановится с ошибкой)."""
+        if now - self._trend_last >= TREND_IDLE_SEC:
+            return True
+        try:
+            from services.weex_trend import engine as te
+            from services.weex_trend.loop import files as trend_files, symbols as trend_symbols
+            for sym in trend_symbols(te.load_config()):
+                for dry in (False, True):
+                    p = trend_files(dry, sym)[0]
+                    if p.exists():
+                        st = json.loads(p.read_text(encoding="utf-8"))
+                        if st.get("episode") or st.get("pending"):
+                            return True
+        except Exception:                                       # noqa: BLE001
+            return True
+        return False
 
     # ---------------------------------------------------------------- общая сверка позиции (20.10)
     def _audit_load(self) -> dict:
@@ -221,7 +245,10 @@ class Runner:
                 if self.trend is None:
                     from services.weex_trend.loop import TrendRunner
                     self.trend = TrendRunner(self._client, self.send)
-                self.trend.tick(portfolio_free=self._portfolio_free)     # функция — заново перед каждой монетой
+                now = time.time()
+                if self._trend_due(now):                            # 23.10: без позиции — раз в 5 мин
+                    self._trend_last = now
+                    self.trend.tick(portfolio_free=self._portfolio_free)     # функция — заново перед каждой монетой
         except Exception as exc:                                # noqa: BLE001
             logger.exception("weex_trend.tick_failed")
             first = first or RuntimeError(f"тренд: {exc}")

@@ -219,3 +219,12 @@ def test_f5_cancelled_wait_keeps_lock_until_process_exit(tmp_path, monkeypatch):
     fd = app_runner._acquire_single_instance_lock(path, wait_sec=0)
     assert fd is not None
     os.close(fd)
+
+
+def test_weex_grid_task_created_first():
+    """21.10: сетки — первой задачей _main_locked (при 50-м месте первый проход после рестарта шёл ≈2 мин)."""
+    import inspect
+    src = inspect.getsource(app_runner._main_locked)
+    first = src.index("asyncio.create_task(")
+    assert src.index("name=\"weex_grid\"") < src.index("name=\"telegram_polling\"")
+    assert src[first:src.index("\n", first)].count("_run_weex_grid") == 1

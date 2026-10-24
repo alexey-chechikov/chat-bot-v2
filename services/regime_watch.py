@@ -353,7 +353,7 @@ def _log_delivery(day: str, card: str, res: dict | None = None) -> None:
 
 
 def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
-                           now: Optional[datetime] = None) -> bool:
+                           now: Optional[datetime] = None, photo_fn: Optional[Callable] = None) -> bool:
     if send_fn is not None and not _card_push_enabled():
         send_fn = None
     now = now or datetime.now(timezone.utc)
@@ -368,6 +368,7 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         logger.info("regime_card.dry_run\n%s", card)
         _write_state(CARD_STATE, {"date": day})
         return True
+    _send_story(send_fn, now, day)
     try:
         res = send_fn(card)
         _write_state(CARD_STATE, {"date": day})
@@ -377,7 +378,44 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         logger.exception("regime_card.send_failed")
         return False
     _send_tv_line(send_fn, now)
+    _send_maps(photo_fn, now)
     return True
+
+
+STORY_STATE = ROOT / "state" / "regime_story_sent.json"
+
+
+def _send_story(send_fn: Callable, now: datetime, day: str) -> None:
+    """Аналитика «что изменилось за сутки и что из этого следует» отдельным ПЕРВЫМ сообщением (22.10, оператор: «мне не
+    хватает именно аналитики и выводов и сравнения, что изменилось за вчера»; вместе с карточкой > 4096 знаков). Раз в
+    день: повтор карточки через 15 мин аналитику не дублирует. Сбой не трогает карточку."""
+    if _read_state(STORY_STATE).get("date") == day:
+        return
+    try:
+        from services.market_brief import story
+        text = "\n".join(story.block(now))
+        if text:
+            send_fn(text[:4096])
+            _write_state(STORY_STATE, {"date": day})
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.story_failed")
+
+
+def _send_maps(photo_fn: Optional[Callable], now: datetime) -> None:
+    """Карты дня BTC и ETH картинками после карточки (22.10, оператор: «где аналитика»). Выключатель day_map в
+    state/report_delivery.json; сбой не трогает карточку — она уже ушла и помечена."""
+    if photo_fn is None:
+        return
+    try:
+        from services import grid_report, tv_levels
+        if not grid_report.enabled("day_map"):
+            return
+        data = tv_levels.collect(now, thr=dict(_LAST_THR) or None)
+        for sym in ("BTCUSDT", "ETHUSDT"):
+            photo_fn(grid_report.render_map(sym, data=data, now=now),
+                     grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[sym]))
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.maps_failed")
 
 
 def _tv_line_enabled() -> bool:

@@ -1,0 +1,25 @@
+{
+ "_note": "сетка WEEX; enabled/dry_run меняет только оператор",
+ "enabled": false,
+ "dry_run": true,
+ "symbol": "ETHUSDT",
+ "sides": [
+  "SHORT"
+ ],
+ "step_pct": 0.6,
+ "target_pct": 1.4,
+ "order_qty": "0.040",
+ "price_tick": 0.01,
+ "max_lots_per_side": 30,
+ "max_notional_usd": 3000.0,
+ "daily_loss_stop_usd": 0.0,
+ "stress_floor": 0.1,
+ "stress_mult": 3.0,
+ "stress_budget_frac": 0.0,
+ "trail_min_move_pct": 0.05,
+ "poll_sec": 10,
+ "qty_step": 0.001,
+ "qty_max": 0.5,
+ "regime_sma": 0,
+ "cid_tag": "6"
+}

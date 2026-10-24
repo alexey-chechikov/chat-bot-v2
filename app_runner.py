@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -1089,17 +1090,78 @@ async def _run_regime_watch(stop_event: asyncio.Event, *, telegram_app=None) -> 
             return {"sent_ok": ok, "recipients": len(chat_ids), "message_ids": ids}
 
         send_fn = _send
+
+        def _photo(png: bytes, caption: str) -> None:
+            # 22.10: карты дня картинкой после карточки (services/grid_report.py)
+            for cid in chat_ids:
+                try:
+                    bot.send_photo(cid, png, caption=caption)
+                except Exception:
+                    logger.exception("regime_watch.photo_failed cid=%s", cid)
+
+        photo_fn = _photo
+    else:
+        photo_fn = None
     while not stop_event.is_set():
         try:
-            maybe_send_regime_card(send_fn=send_fn)
+            maybe_send_regime_card(send_fn=send_fn, photo_fn=photo_fn)
         except Exception:
             logger.exception("regime_watch.card_tick_failed")
         try:
             maybe_send_trend_entry(send_fn=send_fn)
         except Exception:
             logger.exception("regime_watch.trend_tick_failed")
+        # 22.10: опрос по часам (:00:20, :15:20, …), а не от момента старта — после рестарта в 21:51 карточка ушла в 08:13
         try:
-            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=900)
+            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=900 - time.time() % 900 + 20)
+        except asyncio.TimeoutError:
+            continue
+
+
+async def _run_grid_risk_pings(stop_event: asyncio.Event, *, telegram_app=None) -> None:
+    """Риск-пинги сеток WEEX (22.10, оператор: «где отчёты в телеграм, где аналитика» — при −3.7% BTC, мелких сетках на
+    потолке и мешке −$179 не пришло ничего): сетка на потолке (раз в сутки на сетку), мешок всех лонгов пересёк
+    −100/−250/−500/−1000$, до порога выхода по SMA100 ≤3% и ≤1.5% (раз в сутки на символ) — события + сводка в цифрах +
+    карта дня символа. Раз в 5 мин, только чтение (services/grid_report.py). Выключить: grid_risk_pings=false в
+    state/report_delivery.json."""
+    if telegram_app is None or not getattr(telegram_app, "allowed_chat_ids", None):
+        logger.warning("grid_risk_pings.no_telegram — пинги не отправляются")
+        return
+    chat_ids = list(telegram_app.allowed_chat_ids)
+    bot = telegram_app.bot
+
+    def _tick() -> None:
+        from services import grid_report, tv_levels
+        if not grid_report.enabled("grid_risk_pings"):
+            return
+        data = tv_levels.collect()
+        rows = grid_report.grid_rows()
+        events, st = grid_report.risk_events(rows, grid_report.threshold_risk(data), grid_report.read_ping_state(),
+                                             data["now"])
+        if events:
+            text = "\n".join(events) + "\n\n" + grid_report.report_text(rows=rows, data=data)
+            maps = {s: grid_report.render_map(s, data=data) for s in grid_report.ping_symbols(events, rows)}
+            sent = 0
+            for cid in chat_ids:
+                try:
+                    bot.send_message(cid, text)
+                    for s, png in maps.items():
+                        bot.send_photo(cid, png, caption=grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[s]))
+                    sent += 1
+                except Exception:
+                    logger.exception("grid_risk_pings.send_failed cid=%s", cid)
+            if not sent:
+                return                                          # не ушло никому — повтор через 5 мин
+            logger.info("grid_risk_pings.sent events=%d", len(events))
+        grid_report.write_ping_state(st)
+
+    while not stop_event.is_set():
+        try:
+            await asyncio.to_thread(_tick)
+        except Exception:
+            logger.exception("grid_risk_pings.tick_failed")
+        try:
+            await asyncio.wait_for(asyncio.shield(stop_event.wait()), timeout=300)
         except asyncio.TimeoutError:
             continue
 
@@ -1667,6 +1729,9 @@ async def _main_locked(
     stop_event = stop_event or asyncio.Event()
     signal_handler_installer(loop, stop_event)
 
+    # 21.10: сетки WEEX — первой задачей. Задачи стартуют в порядке создания, и при 50-м месте цикл сеток ждал
+    # ~67 с, пока службы перед ним отработают свои стартовые шаги в потоке цикла (первый проход ≈2 мин после рестарта).
+    weex_grid_task = asyncio.create_task(_run_weex_grid(stop_event, telegram_app=app), name="weex_grid")
     polling_task = asyncio.create_task(_run_polling_in_executor(app), name="telegram_polling")
     orchestrator_task = asyncio.create_task(orchestrator.start(), name="orchestrator_loop")
     protection_task = asyncio.create_task(_run_protection_alerts(stop_event), name="protection_alerts")
@@ -1707,6 +1772,7 @@ async def _main_locked(
     paper_signal_weekly_task = asyncio.create_task(_run_paper_signal_weekly_report(stop_event, telegram_app=app), name="paper_signal_weekly")
     daily_digest_task = asyncio.create_task(_run_daily_digest(stop_event, telegram_app=app), name="daily_digest")
     regime_watch_task = asyncio.create_task(_run_regime_watch(stop_event, telegram_app=app), name="regime_watch")
+    grid_risk_pings_task = asyncio.create_task(_run_grid_risk_pings(stop_event, telegram_app=app), name="grid_risk_pings")
     session_breakout_signal_task = asyncio.create_task(_run_session_breakout_signal(stop_event, telegram_app=app), name="session_breakout_signal")
     session_breakout_outcome_task = asyncio.create_task(_run_session_breakout_outcome(stop_event, telegram_app=app), name="session_breakout_outcome")
     range_hunter_signal_task = asyncio.create_task(_run_range_hunter_signal(stop_event, telegram_app=app, symbol="BTCUSDT", variant="1m"), name="range_hunter_signal_btc")
@@ -1740,7 +1806,6 @@ async def _main_locked(
     odds_journal_task = asyncio.create_task(_run_odds_journal(stop_event), name="odds_journal")
     level_alerts_task = asyncio.create_task(_run_level_alerts(stop_event, telegram_app=app), name="level_alerts")
     stress_budget_task = asyncio.create_task(_run_stress_budget(stop_event, telegram_app=app), name="stress_budget")
-    weex_grid_task = asyncio.create_task(_run_weex_grid(stop_event, telegram_app=app), name="weex_grid")
     weex_book_task = asyncio.create_task(_run_weex_book(stop_event), name="weex_book")
     trend_signals_task = asyncio.create_task(_run_trend_signals(stop_event, telegram_app=app), name="trend_signals")
     spike_alert_task = asyncio.create_task(_run_spike_alert(stop_event, telegram_app=app), name="spike_alert")
@@ -1783,6 +1848,7 @@ async def _main_locked(
         paper_signal_weekly_task,
         daily_digest_task,
         regime_watch_task,
+        grid_risk_pings_task,
         session_breakout_signal_task, session_breakout_outcome_task,
         range_hunter_signal_task, range_hunter_outcome_task,
         range_hunter_signal_eth_task, range_hunter_outcome_eth_task,
@@ -1808,6 +1874,10 @@ async def _main_locked(
             exc = task.exception() if not task.cancelled() else None
             if exc:
                 logger.error("app_runner.subtask_crashed name=%s exc=%s", task.get_name(), exc, exc_info=exc)
+            elif stop_event.is_set():
+                # 22.10: штатный выход по сигналу остановки (сетки WEEX теперь первая задача и выходят раньше всех —
+                # раньше это писалось WARNING «finished_unexpectedly» и попадало в ошибки дня)
+                logger.info("app_runner.subtask_stopped name=%s", task.get_name())
             else:
                 logger.warning("app_runner.subtask_finished_unexpectedly name=%s", task.get_name())
             if task in critical_tasks:

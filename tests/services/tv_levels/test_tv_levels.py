@@ -341,6 +341,7 @@ def _card_env(tmp_path, monkeypatch, enabled=True):
     monkeypatch.setattr(regime_watch, "_card_push_enabled", lambda: True)
     monkeypatch.setattr(regime_watch, "_tv_line_enabled", lambda: enabled)
     monkeypatch.setattr(regime_watch, "build_card", lambda now: "карточка")
+    monkeypatch.setattr(regime_watch, "_send_story", lambda send_fn, now, day: None)   # 22.10: без сети
     monkeypatch.setattr(tv_levels, "collect", lambda now, thr=None: _data(tmp_path))
     return datetime(2026, 10, 21, 6, 5, tzinfo=timezone.utc)
 
@@ -377,3 +378,21 @@ def test_tv_line_can_be_switched_off(tmp_path, monkeypatch):
     sent = []
     assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=now)
     assert sent == ["карточка"]
+
+
+def test_day_maps_sent_after_card_and_failure_keeps_card(tmp_path, monkeypatch):
+    """22.10: карты BTC и ETH картинками после карточки и строки TV; сбой карты не отменяет карточку."""
+    from services import grid_report
+    now = _card_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(grid_report, "enabled", lambda key: True)
+    monkeypatch.setattr(grid_report, "render_map", lambda sym, data=None, now=None: sym.encode())
+    sent, photos = [], []
+    assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=now, photo_fn=lambda png, cap: photos.append(png))
+    assert sent[0] == "карточка" and photos == [b"BTCUSDT", b"ETHUSDT"]
+    (tmp_path / "card.json").unlink()
+    def boom(sym, data=None, now=None):
+        raise RuntimeError("matplotlib лёг")
+    monkeypatch.setattr(grid_report, "render_map", boom)
+    sent.clear()
+    assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=now, photo_fn=lambda png, cap: None) is True
+    assert sent[0] == "карточка" and (tmp_path / "card.json").exists()
