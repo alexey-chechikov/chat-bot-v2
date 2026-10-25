@@ -116,9 +116,18 @@ def cut_label(ts) -> str:
 
 
 def run(args):
-    name, mode, seed, step, tgt, *extra = args              # extra: объём ордера, потолок на сторону
+    # extra: объём ордера, потолок на сторону; 25.10 (перепроверка GPT полосы): + множитель издержек, флаг дневной кривой
+    name, mode, seed, step, tgt, *extra = args
     ts, o, h, l, c, reg, *rest = DATA
     gate = rest[0] if rest else None
+    # 25.10: rest[1] — маска остановки биржи (минуты, заполненные fill_outages: ни исполнений, ни входов, закрытие по
+    # режиму — на первой торговой минуте); rest[2] — фандинг {индекс минуты расчёта: ставка} (лонг платит ставку ×
+    # номинал по open минуты). По умолчанию (нет) — поведение как было.
+    halt = rest[1] if len(rest) > 1 else None
+    fund = rest[2] if len(rest) > 2 else None
+    k_cost = float(extra[2]) if len(extra) > 2 else 1.0
+    want_daily = bool(extra[3]) if len(extra) > 3 else False
+    mk, tk, sl = MAKER * k_cost, TAKER * k_cost, SLIP * k_cost
     if mode == "lfgshift":                                   # контроль: те же паузы той же длины, сдвинутые во времени
         gate = np.roll(gate, int(np.random.default_rng(seed).integers(len(gate) // 10, len(gate) - len(gate) // 10)))
     # границы отрезков ИСХОДНОГО режима: на каждой — обязательное закрытие (11.10, разбор GPT: в контроле
@@ -139,12 +148,22 @@ def run(args):
     mid_i = len(ts) // 2
     eq_mid, peak, dd, flips = None, 0.0, 0.0, 0
     prev = None
+    defer = False
+    daily = []
+    day_of = ts // 86400
     for i in range(len(ts)):
+        if want_daily and i > 0 and day_of[i] != day_of[i - 1]:
+            pc = c[i - 1]
+            daily.append((int(day_of[i - 1]), sum(s["real"] - s["fee"] + sum(d * x[1] * (pc - x[0]) for x in s["lots"])
+                                                  for d, s in S.items())))
         if i == mid_i:
             # капитал 1-й половины — по закрытию минуты перед срезом, ДО всех операций минуты среза, включая закрытие
             # по смене режима на её open (аддендум GPT 13.10, B1: гэп/PnL/комиссия закрытия попадали в 1-ю половину)
             pc = c[i - 1] if i > 0 else o[i]
             eq_mid = sum(s["real"] - s["fee"] + sum(d * x[1] * (pc - x[0]) for x in s["lots"]) for d, s in S.items())
+        if fund is not None and i in fund:
+            for d, s in S.items():                            # лонг платит положительную ставку, шорт получает
+                s["fee"] += d * fund[i] * sum(x[1] for x in s["lots"]) * o[i]
         if mode in ("regime", "invert", "shuffle"):
             act = {1: bool(reg[i]), -1: not bool(reg[i])}
         elif mode == "longflat":                          # лонг выше SMA100, иначе вне рынка (шорты — оператор)
@@ -160,16 +179,25 @@ def run(args):
         else:
             act = {1: mode == "long", -1: mode == "short"}
         switching = mode in ("regime", "invert", "shuffle", "longflat", "shuffle_lf", "lfgate", "lfgshift")
-        if prev is not None and switching and bound[i]:   # граница отрезка — закрыть по рынку всё, что было
+        if halt is not None and halt[i]:
+            # 25.10 (перепроверка GPT): биржа стоит — ни исполнений, ни входов; граница режима ждёт первой торговой
+            # минуты (заполнитель с объёмом 0 раньше давал по 4 «доборных» лота за плоскую минуту после гэпа)
+            defer = defer or (prev is not None and switching and bool(bound[i]))
+            eq = sum(s["real"] - s["fee"] + sum(d * x[1] * (c[i] - x[0]) for x in s["lots"]) for d, s in S.items())
+            peak = max(peak, eq)
+            dd = min(dd, eq - peak)
+            continue
+        if prev is not None and switching and (bound[i] or defer):   # граница отрезка — закрыть по рынку всё, что было
+            defer = False
             flips += 1
             for d in (1, -1):
                 # фильтр структуры: на выходе из режима ЛОНГ лоты закрываются, даже если вход был на паузе
                 if prev[d] or (mode in ("lfgate", "lfgshift") and d > 0 and S[d]["lots"]):
                     s = S[d]
-                    px = o[i] * (1 - d * SLIP)
+                    px = o[i] * (1 - d * sl)
                     for e, q, _ in s["lots"]:
                         s["real"] += d * q * (px - e)
-                        s["fee"] += q * px * TAKER
+                        s["fee"] += q * px * tk
                     s["lots"], s["ref"] = [], None
         prev = act
         for p in pts[i]:
@@ -180,7 +208,7 @@ def run(args):
                         e, q, tp = lot
                         if (d > 0 and p >= tp) or (d < 0 and p <= tp):
                             s["real"] += d * q * (tp - e)
-                            s["fee"] += q * tp * MAKER
+                            s["fee"] += q * tp * mk
                         else:
                             keep.append(lot)
                     s["lots"] = keep
@@ -200,12 +228,15 @@ def run(args):
                     cost = sum(x[1] * x[0] for x in s["lots"])
                     if max(cost, sum(x[1] for x in s["lots"]) * p) + qty * px_in <= cap:
                         s["lots"].append([px_in, qty, px_in * (1 + d * t)])
-                        s["fee"] += qty * px_in * MAKER
+                        s["fee"] += qty * px_in * mk
         eq = sum(s["real"] - s["fee"] + sum(d * x[1] * (c[i] - x[0]) for x in s["lots"]) for d, s in S.items())
         peak = max(peak, eq)
         dd = min(dd, eq - peak)
     side = {("лонг" if d > 0 else "шорт"): round(s["real"] - s["fee"] + sum(d * x[1] * (c[-1] - x[0]) for x in s["lots"]), 1)
             for d, s in S.items()}
+    if want_daily:                                          # 25.10: дневная кривая (день UTC, капитал на его закрытии)
+        daily.append((int(day_of[-1]), eq))
+        return name, mode, seed, step, tgt, eq, eq_mid, dd, flips, side, daily
     return name, mode, seed, step, tgt, eq, eq_mid, dd, flips, side
 
 

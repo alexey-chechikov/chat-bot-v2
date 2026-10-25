@@ -169,8 +169,10 @@ def block(sym: str, now: dict, labeled: list[dict], th: dict) -> tuple[list[str]
     t, y = now["today"], now["yday"]
     ct = conditions(t["ret"], t["oi_chg_pct"], t["funding"], t["taker"], t["dls"], th)
     cy = conditions(y["ret"], y["oi_chg_pct"], y["funding"], y["taker"], y["dls"], th)
-    expl = {"OI↑ цена↑": "новые позиции в рост", "OI↓ цена↑": "закрывают шорты",
-            "OI↑ цена↓": "новые позиции в падение", "OI↓ цена↓": "закрывают лонги"}
+    # 25.10 (перепроверка GPT): по OI и цене видно, росли позиции или сокращались, но не чьи — «закрывают лонги/шорты»
+    # не выводится (тот же принцип, что story.DRIVER после аудита A1)
+    expl = {"OI↑ цена↑": "позиции росли на росте", "OI↓ цена↑": "позиции сокращались на росте",
+            "OI↑ цена↓": "позиции росли на падении", "OI↓ цена↓": "позиции сокращались на падении"}
     op = ct.get("oi_price", "")
     lines = [f"{sym[:3]} {now['price']:,.0f} ({_pct(t['ret'])}) · OI {t['oi_chg_pct']:+.1f}%"
              + (f" ({expl[op]})" if op in expl else "") + f" · фандинг {t['funding'] * 100:.3f}%/сут"]

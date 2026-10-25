@@ -158,7 +158,8 @@ def conclusion(op: str, op_y: str, cond: dict, t: dict, y: dict, lq: dict, qstat
     elif op and op == op_y and op in DRIVER:
         head = "второй день подряд " + DRIVER[op]
     else:
-        head = DRIVER.get(op, "позиции почти не менялись — движение без смены плеча")
+        # 25.10 (перепроверка GPT): неизменный общий OI не значит «без смены плеча» — открытия и закрытия могли уравновеситься
+        head = DRIVER.get(op, "общий OI почти не изменился (открытия и закрытия могли уравновеситься)")
     extra = []
     top = cond.get("top_ls", "")
     if top == "топ-трейдеры сократили лонги":
@@ -257,8 +258,11 @@ def compose(sym: str, lv: dict, liq_y: tuple[float, float] | None, qstat: dict |
     if qstat and qstat.get("n") and op:
         diff = "заметно " + ("чаще" if qstat["up"] > qstat["up_base"] else "реже") if qstat.get("up_diff") \
             else "в пределах шума"
-        out.append(f"• после «{op}» рост на следующий день {qstat['up'] * 100:.0f}% (обычно {qstat['up_base'] * 100:.0f}%, "
-                   f"{qstat['n']} дн.) — {diff}")
+        # 25.10 (перепроверка GPT): интервал рядом с долей — «54% на 50 днях» сам по себе выглядит как перевес
+        from services.market_brief.brief import wilson
+        lo_q, hi_q = wilson(round(qstat["up"] * qstat["n"]), qstat["n"])
+        out.append(f"• после «{op}» рост на следующий день {qstat['up'] * 100:.0f}% [95%: {lo_q * 100:.0f}–{hi_q * 100:.0f}%] "
+                   f"(обычно {qstat['up_base'] * 100:.0f}%, {qstat['n']} дн.) — {diff}")
     rline, rverdict = route_phrase(route)
     if st and rline:
         out.append(f"• {st['state']} от уровня 12 ч → {rline}")

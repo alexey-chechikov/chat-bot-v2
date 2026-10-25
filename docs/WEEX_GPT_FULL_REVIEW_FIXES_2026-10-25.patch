@@ -1,0 +1,244 @@
+diff --git a/services/weex_api/client.py b/services/weex_api/client.py
+index 0e8e7dc..866cb96 100644
+--- a/services/weex_api/client.py
++++ b/services/weex_api/client.py
+@@ -131,6 +131,24 @@ class WeexClient:
+         """Все открытые ордера символа (страницы с 0); неполный ответ — WeexIncomplete."""
+         return self._open_pages("/capi/v3/openOrders", symbol, 0)
+ 
++    def open_orders_all(self) -> list[dict]:
++        """25.10: все открытые ордера СЧЁТА — тот же /capi/v3/openOrders без символа (чтение со счёта 25.10: 100 строк
++        страницы 0 по BTCUSDT и ETHUSDT при 150 + 16 по символам). Для бюджета заявок: лимит ≈200 общий на счёт, ручные
++        заявки на других символах тоже занимают место. Постранично; неполный ответ — WeexIncomplete."""
++        out, seen = [], set()
++        for page in range(MAX_PAGES):
++            chunk = self.get(FUTURES, "/capi/v3/openOrders", {"limit": 100, "page": page})
++            if not isinstance(chunk, list):
++                raise WeexIncomplete(f"/capi/v3/openOrders (счёт): страница {page} — не список ({str(chunk)[:120]})")
++            ids = {str(x.get("orderId")) for x in chunk if isinstance(x, dict)}
++            if chunk and ids <= seen:                          # страница повторяет прошлые — page не работает
++                raise WeexIncomplete(f"/capi/v3/openOrders (счёт): страница {page} повторяет прошлые")
++            seen |= ids
++            out.extend(chunk)
++            if len(chunk) < 100:
++                return out
++        raise WeexIncomplete(f"/capi/v3/openOrders (счёт): {MAX_PAGES} полных страниц по 100 — список может быть неполным")
++
+     def order_history(self, symbol: str, limit: int = 100, page: int = 0,
+                       start_ms: int | None = None, end_ms: int | None = None) -> list[dict]:
+         """Ордера символа (вес 10), с окном по времени и постранично — поиск ордера по clientOrderId,
+diff --git a/services/weex_grid/engine.py b/services/weex_grid/engine.py
+index c6629c6..9c2a924 100644
+--- a/services/weex_grid/engine.py
++++ b/services/weex_grid/engine.py
+@@ -355,15 +355,18 @@ def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=
+         if not band:
+             up = closes[-1] > sum(closes) / sma_days
+         else:
++            # 25.10 (перепроверка GPT): отсчёт — с первого дня окна, когда закрытие ВНЕ полосы: такое закрытие само задаёт
++            # состояние, и итог не зависит от начала окна. Прежний старт «x > SMA» в первый день окна внутри полосы
++            # переворачивал режим без пересечения полосы, когда старое пересечение выпадало из окна.
+             b, up = band / 100, None
+             for i in range(sma_days - 1, len(closes)):
+                 x, sma = closes[i], sum(closes[i - sma_days + 1:i + 1]) / sma_days
+-                if up is None:
+-                    up = x > sma
+-                elif up and x < sma * (1 - b):
++                if x < sma * (1 - b):
+                     up = False
+-                elif not up and x > sma * (1 + b):
++                elif x > sma * (1 + b):
+                     up = True
++            if up is None:
++                raise ValueError("за окно ни одного закрытия вне полосы — состояние полосы не определено")
+     except Exception:                                           # noqa: BLE001
+         logger.exception("weex_grid.regime_failed %s", symbol)
+         _REGIME_CACHE[("fail",) + key] = now
+@@ -785,6 +788,10 @@ class Grid:
+                         "t": self.now(), "srv": srv}
+         if kind == "e":
+             self._room_used += float(q) * price                 # место занято с момента намерения
++        # 25.10 (перепроверка GPT): счётчик заявок символа растёт с каждой отправкой этого прохода (тейки-ремонты тоже) —
++        # иначе вход видел счётчик начала прохода: 184 → 3 тейка → вход разрешён → 188. Неизвестный исход — тоже место;
++        # снимается только явным отказом.
++        self._symbol_open = int(getattr(self, "_symbol_open", 0)) + 1
+         self.save()
+         try:
+             r = self.c.place_limit(cfg["symbol"], "BUY" if buy else "SELL", side, q,
+@@ -803,6 +810,7 @@ class Grid:
+                 self._issue(f"постановка {cid}: исход неизвестен (ответ {str(r)[:80]})")
+                 return None
+             s["pending"] = None                                 # явный отказ — исход известен
++            self._symbol_open -= 1
+             if kind == "e":
+                 self._room_used -= float(q) * price
+             logger.warning("weex_grid.place_rejected side=%s kind=%s price=%s resp=%s", side, kind, price, r)
+@@ -2224,6 +2232,10 @@ class DryExchange:
+         # прятал, и тесты не видели сценариев с частичным исполнением сирот/входов
+         return [{"orderId": k, **v} for k, v in self.orders.items() if v["status"] in LIVE]
+ 
++    def open_orders_all(self):
++        """25.10: как WeexClient.open_orders_all — открытые заявки «счёта» имитатора (у имитатора один символ)."""
++        return [{"symbol": getattr(self, "symbol", None), **o} for o in self.open_orders(None)]
++
+     def order_info(self, oid):
+         return {"orderId": oid, **self.orders[str(oid)]}
+ 
+diff --git a/services/weex_grid/loop.py b/services/weex_grid/loop.py
+index 2d34c62..94398d9 100644
+--- a/services/weex_grid/loop.py
++++ b/services/weex_grid/loop.py
+@@ -292,14 +292,17 @@ class Runner:
+         return out
+ 
+     def _account_open_orders(self) -> dict[str, int] | None:
+-        """25.10 (аудит GPT E1): открытые заявки счёта по символам живых сеток (все: свои, соседей, ручные) — один раз
+-        на проход. Сбой любого символа → None: бюджет заявок неизвестен, новых входов нет (тейки работают)."""
+-        syms = self._live_symbols()
+-        if not syms:
++        """25.10 (аудит GPT E1): открытые заявки ВСЕГО счёта по символам (свои, соседей, ручные; перепроверка GPT —
++        и на символах без сеток: лимит ≈200 общий на счёт) — один раз на проход, дальше обновляется после каждой
++        сетки (tick_one). Сбой → None: бюджет заявок неизвестен, новых входов нет (тейки работают)."""
++        if not self._live_symbols():
+             return {}
+         try:
+-            c = self._client()
+-            return {s: len(c.open_orders(s) or []) for s in sorted(syms)}
++            out: dict[str, int] = {}
++            for o in self._client().open_orders_all():
++                s = str(o.get("symbol") or "?")
++                out[s] = out.get(s, 0) + 1
++            return out
+         except Exception:                                       # noqa: BLE001
+             logger.exception("weex_grid.order_budget_unreadable")
+             return None
+@@ -358,7 +361,13 @@ class Runner:
+         # запроса к бирже от этой сетки)
+         grid = eg.Grid(client, cfg, state_path=st_path, journal_path=jr_path, sigma_fn=lambda: sigma24(sym),
+                        send_fn=self.send, name=name)
+-        grid.tick()
++        try:
++            grid.tick()
++        finally:
++            # 25.10 (перепроверка GPT): подсчёт заявок символа после этой сетки (свежее чтение биржи + её отправки) —
++            # следующим сеткам прохода, иначе соседний символ видел счётчик начала прохода
++            if not dry and isinstance(acct, dict) and getattr(grid, "_symbol_open", None) is not None:
++                acct[sym] = int(grid._symbol_open)
+ 
+     def _live_leftovers(self, name: str, cfg: dict) -> None:
+         """Холостой режим, а в живом учёте остались входные ордера/лоты (переключили live→dry):
+diff --git a/tests/services/weex_grid/test_regime_band.py b/tests/services/weex_grid/test_regime_band.py
+index 90daf8d..fbdafe6 100644
+--- a/tests/services/weex_grid/test_regime_band.py
++++ b/tests/services/weex_grid/test_regime_band.py
+@@ -20,7 +20,7 @@ def rows(closes):
+ 
+ def series(tail):
+     """500 закрытых дней: долгий рост (режим ЛОНГ), затем хвост tail — относительно последней SMA100 фона."""
+-    base = [100.0 + i * 0.01 for i in range(500 - len(tail))]
++    base = [100.0 * 1.003 ** i for i in range(500 - len(tail))]   # рост ~0.3%/день: закрытия выше SMA·1.02
+     return base + tail
+ 
+ 
+@@ -58,6 +58,30 @@ def test_reentry_needs_close_above_upper_band():
+     assert up(above, 2) is True
+ 
+ 
++def test_state_does_not_depend_on_window_start():
++    """Перепроверка GPT 25.10: старт гистерезиса «x > SMA» в первый день окна внутри полосы давал LONG→FLAT при
++    неизменной цене, когда старое пересечение выпадало из окна. Теперь отсчёт — с первого закрытия вне полосы:
++    итог одинаков при любом окне, где такое закрытие есть; нет ни одного — режим неизвестен (не FLAT)."""
++    import random
++    rnd = random.Random(7)
++    walk, p = [], 100.0
++    for _ in range(1200):
++        p *= 1 + rnd.gauss(0, 0.02)
++        walk.append(p)
++    for cut in (500, 700, 1000):                            # то же «сегодня», разная длина истории
++        eg._REGIME_CACHE.clear()
++        got = eg.regime_up("X", 100, now=NOW, fetch=lambda s, n: rows(walk[-cut:]), band_pct=2.0)
++        if cut == 500:
++            ref = got
++        assert got == ref
++    flat = [100.0 + i * 0.5 for i in range(200)] + [200.0] * 700     # выше SMA+2% давно, потом цена стоит у SMA
++    eg._REGIME_CACHE.clear()
++    assert eg.regime_up("X", 100, now=NOW, fetch=lambda s, n: rows(flat[-500:]), band_pct=2.0) is None
++    recent = [100.0 + i * 0.5 for i in range(200)] + [200.0] * 350   # рост ещё в окне 500 дней — состояние определено
++    eg._REGIME_CACHE.clear()
++    assert eg.regime_up("X", 100, now=NOW, fetch=lambda s, n: rows(recent), band_pct=2.0) is True
++
++
+ def test_band_needs_full_history_and_validates():
+     c = series([])
+     assert up(c[-105:], 2) is None                          # для гистерезиса мало истории — режим неизвестен
+diff --git a/tests/services/weex_grid/test_weex_gpt1024.py b/tests/services/weex_grid/test_weex_gpt1024.py
+index 2a194e5..4de9338 100644
+--- a/tests/services/weex_grid/test_weex_gpt1024.py
++++ b/tests/services/weex_grid/test_weex_gpt1024.py
+@@ -124,3 +124,66 @@ def test_runner_passes_budget_and_neighbour_debts(tmp_path, monkeypatch):
+     seen.clear()
+     r.tick_one("B34", None, acct=None, debts=[])
+     assert seen["other_open_orders"] is None                   # подсчёт не прочитан — сетка входов не ставит
++
++
++def test_tp_repairs_in_same_pass_count_against_budget(tmp_path):
++    """Перепроверка GPT 25.10: 184 заявки → в этом же проходе ремонт трёх тейков → вход был разрешён по счётчику начала
++    прохода (188 > 185). Теперь каждая отправка прохода увеличивает счётчик символа."""
++    g, ex, px = make(tmp_path)
++    g.tick()                                                    # вход
++    px.p = 99300.0
++    g.tick()
++    px.p = 98700.0
++    g.tick()
++    px.p = 98100.0
++    g.tick()                                                    # три лота с тейками
++    lots = g.st["LONG"]["lots"]
++    assert len(lots) == 3
++    for lot in lots:                                            # тейки «пропали» — их надо поставить заново
++        oid = lot["tp_order"]["id"]
++        ex.orders[oid]["status"] = "CANCELED"
++        lot["tp_order"] = None
++    g.save()
++    entry = g.st["LONG"].get("entry")
++    if entry:
++        ex.orders[entry["id"]]["status"] = "CANCELED"
++        g.st["LONG"]["entry"] = None
++        g.save()
++    g.cfg.update(order_budget=185, other_open_orders=184)      # до прохода: 0 своих открытых + 184 на счёте
++    g.tick()
++    tps = [o for o in ex.orders.values() if o["reduceOnly"] and o["status"] in LIVE]
++    assert len(tps) == 3                                        # тейки бюджетом не режутся
++    assert entries_live(ex) == [] and "бюджет заявок счёта" in g.st["LONG"]["blocked"]
++
++
++def test_runner_counts_whole_account_and_updates_after_each_grid(tmp_path, monkeypatch):
++    """Перепроверка GPT 25.10: заявки на символах без сеток (ручные) тоже занимают место; после сетки BTC её отправки
++    видит сетка ETH того же прохода."""
++    from services.weex_grid import loop
++    monkeypatch.setattr(loop, "AUDIT_FILE", tmp_path / "audit.json")
++    seen = []
++
++    class Client:
++        def open_orders_all(self):
++            return [{"symbol": "BTCUSDT"}] * 150 + [{"symbol": "ETHUSDT"}] * 16 + [{"symbol": "SOLUSDT"}] * 7
++
++    class FakeGrid:
++        def __init__(self, client, cfg, **kw):
++            self.cfg = cfg
++
++        def tick(self):
++            seen.append((self.cfg["symbol"], self.cfg["other_open_orders"]))
++            self._symbol_open = 153 if self.cfg["symbol"] == "BTCUSDT" else 16    # BTC поставила 3 тейка
++    cfgs = {"BTC": {**eg.DEFAULT, "symbol": "BTCUSDT", "dry_run": False, "enabled": True},
++            "ETH": {**eg.DEFAULT, "symbol": "ETHUSDT", "dry_run": False, "enabled": True}}
++    monkeypatch.setattr(loop, "grid_config", lambda name: dict(cfgs[name]))
++    monkeypatch.setattr(loop, "run_files", lambda name, dry: (tmp_path / f"{name}.json", tmp_path / f"{name}.jsonl"))
++    monkeypatch.setattr(loop.eg, "Grid", FakeGrid)
++    monkeypatch.setattr(loop.eg, "GRIDS", ("BTC", "ETH"))
++    r = loop.Runner()
++    monkeypatch.setattr(r, "_client", lambda: Client())
++    acct = r._account_open_orders()
++    assert acct == {"BTCUSDT": 150, "ETHUSDT": 16, "SOLUSDT": 7}
++    r.tick_one("BTC", None, acct=acct, debts=[])
++    r.tick_one("ETH", None, acct=acct, debts=[])
++    assert seen == [("BTCUSDT", 16 + 7), ("ETHUSDT", 153 + 7)]   # ручные SOL и свежий счётчик BTC

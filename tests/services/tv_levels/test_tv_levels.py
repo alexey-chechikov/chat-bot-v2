@@ -318,6 +318,8 @@ def test_card_order_scenarios_and_levels_on_top(tmp_path, monkeypatch):
     monkeypatch.setattr(regime_watch, "_regime", lambda s: "ЛОНГ")
     monkeypatch.setattr(regime_watch, "_grid_rows", lambda prices, since: [("BTC 0.6/1.4", 13.7, 4, -0.29, 1)])
     monkeypatch.setattr(regime_watch, "_market_brief", lambda: "\n\n📏 РЫНОК")
+    monkeypatch.setattr(regime_watch, "_funding_24h", lambda now: -0.4)             # 25.10: без сети WEEX
+    monkeypatch.setattr(regime_watch, "BAG_SNAPSHOT", tmp_path / "bags.json")      # и не в живой state/
     monkeypatch.setattr(tv_levels, "collect", lambda now, thr=None, px=None: COLLECT(
         now, grids=_grids(tmp_path), corridor=CORR, thr=thr, px=px, cap=None))
     card = regime_watch.build_card(NOW)
@@ -329,6 +331,30 @@ def test_card_order_scenarios_and_levels_on_top(tmp_path, monkeypatch):
     assert pos == sorted(pos)
     assert "B34 — потолок ордеров" in card                               # B34 потолок 4 слота в тесте
     assert "Не гарантированная граница потерь" in card and "худший случай" not in card
+
+
+def test_card_day_result_includes_bag_change_and_funding(tmp_path, monkeypatch):
+    """25.10 (перепроверка GPT): закрытые циклы — не прибыль счёта. Итог суток = закрыто + изменение мешка + фандинг;
+    без вчерашнего снимка изменение мешка не выдумывается (не 0)."""
+    import json as _json
+    from datetime import timedelta
+    monkeypatch.setattr(regime_watch, "_sma_exit", lambda s: None)
+    monkeypatch.setattr(regime_watch, "_regime", lambda s: "ЛОНГ")
+    monkeypatch.setattr(regime_watch, "_market_brief", lambda: "")
+    monkeypatch.setattr(regime_watch, "_funding_24h", lambda now: -0.4)
+    monkeypatch.setattr(regime_watch, "BAG_SNAPSHOT", tmp_path / "bags.json")
+    monkeypatch.setattr(tv_levels, "collect", lambda now, thr=None, px=None: COLLECT(
+        now, grids={}, corridor={}, thr={}, px={}, cap=None))
+    monkeypatch.setattr(regime_watch, "_grid_rows", lambda prices, since: [("B34 0.1/0.34", 12.0, 30, -150.0, 40)])
+    first = regime_watch.build_card(NOW)
+    total = [ln for ln in first.splitlines() if ln.startswith("Итого")][0]
+    assert "нет вчерашнего снимка" in total and "итог суток" not in total
+    snap = _json.loads((tmp_path / "bags.json").read_text())
+    assert snap["bags"] == {"B34 0.1/0.34": -150.0}
+    monkeypatch.setattr(regime_watch, "_grid_rows", lambda prices, since: [("B34 0.1/0.34", 9.0, 25, -170.0, 44)])
+    nxt = regime_watch.build_card(NOW + timedelta(hours=24))
+    assert "мешок -170.00$ (44 лот.) · -20.00$ за сутки → итог -11.00$" in nxt
+    assert "закрыто +9.00$ · мешок за сутки -20.00$ · фандинг -0.40$" in nxt and "итог суток -11.40$" in nxt
 
 
 def test_gross_cap_note_when_total_exceeds():

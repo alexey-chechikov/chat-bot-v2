@@ -74,6 +74,18 @@ def test_story_sent_first_once_per_day(tmp_path, monkeypatch):
     assert sent == ["🧭 BTC аналитика", "сбой", "карточка"]
 
 
+def test_oi_labels_not_causal_in_brief_and_fallback():
+    """25.10 (перепроверка GPT): нижний блок писал «закрывают лонги» из OI↓ и цены↓; запасной вывод — «без смены плеча»
+    при неизменном общем OI. Ни то ни другое из OI не следует."""
+    from pathlib import Path
+    from services.market_brief import brief
+    src = Path(brief.__file__).read_text(encoding="utf-8")
+    for b in ("закрывают лонги", "закрывают шорты", "новые позиции в рост", "новые позиции в падение"):
+        assert f'"{b}"' not in src, b
+    s = story.conclusion("", "", {}, {"ret": 0.0}, {}, {}, None, "направления нет (≈50/50)")
+    assert "без смены плеча" not in s and "могли уравновеситься" in s
+
+
 def _story_env(tmp_path, monkeypatch, block):
     monkeypatch.setattr(regime_watch, "DELIVERY_LOG", tmp_path / "d.jsonl")
     monkeypatch.setattr(regime_watch, "CARD_STATE", tmp_path / "card.json")

@@ -1,6 +1,6 @@
 """Минутки 2017–2024 с остановками Binance → непрерывная минутная сетка для regime_grid (25.10).
 Пропущенная минута = биржа не торговала: OHLC = закрытие предыдущей минуты, объём 0 (исполнений в остановку нет,
-закрытие дня — последняя реальная цена). Печатает самые длинные дыры и число дней с пропусками.
+закрытие дня — последняя реальная цена), столбец filled = 1 — regime_grid в такие минуты не торгует. Печатает дыры.
 Запуск: fill_outages.py <вход.csv> <выход.csv>"""
 from __future__ import annotations
 
@@ -26,11 +26,13 @@ def main():
     days = pd.Series(1, index=pd.to_datetime(ms, unit="ms").floor("D")).groupby(level=0).size()
     print(f"  неполных дней {(days < 1440).sum()} из {len(days)}")
     f = d.set_index("ts").reindex(full)
+    filled = f["close"].isna().astype(int)              # 25.10: метка заполненной минуты — симулятор там не торгует
     c = f["close"].ffill()
     for k in ("open", "high", "low"):
         f[k] = f[k].fillna(c)
     f["close"] = c
     f["volume"] = f["volume"].fillna(0.0)
+    f["filled"] = filled
     f.index.name = "ts"
     f.reset_index().to_csv(dst, index=False)
     print(f"  → {dst}: {len(f)} строк")

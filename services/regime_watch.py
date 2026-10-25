@@ -280,19 +280,65 @@ def build_card(now: Optional[datetime] = None) -> str:
                 lines += [""] + block
     except Exception:                                           # noqa: BLE001
         logger.exception("regime_card.tv_levels_failed")
-    lines += ["", "📊 Сетки WEEX — за сутки · мешок сейчас (без фандинга)"]
+    # 25.10 (перепроверка GPT): закрытые циклы — не прибыль счёта; за сутки = закрыто + изменение мешка − фандинг
+    lines += ["", "📊 Сетки WEEX за сутки: закрыто · мешок (изменение) → итог суток"]
     try:
         rows = _grid_rows(prices, now.timestamp() - 86_400)
     except Exception:                                           # noqa: BLE001
         logger.exception("regime_card.grids_failed")
         rows = []
+    prev = _bag_snapshot(now, {r[0]: r[3] for r in rows})
     if not rows:
         lines.append("живых сеток нет")
+    tot_c = tot_d = 0.0
+    full = bool(rows) and prev is not None
     for label, closed, cycles, bag, nlots in rows:
-        lines.append(f"{label}: {closed:+,.2f}$ · {cycles} цикл. · мешок {bag:+,.2f}$ ({nlots} лот.)")
+        d = None if prev is None or label not in prev else bag - prev[label]
+        full = full and d is not None
+        tot_c += closed
+        tot_d += d or 0.0
+        lines.append(f"{label}: {closed:+,.2f}$ ({cycles} цикл.) · мешок {bag:+,.2f}$ ({nlots} лот.)"
+                     + (f" · {d:+,.2f}$ за сутки → итог {closed + d:+,.2f}$" if d is not None else ""))
     if rows:
-        lines.append(f"Итого: {sum(r[1] for r in rows):+,.2f}$ · мешок {sum(r[3] for r in rows):+,.2f}$")
+        fund = _funding_24h(now)
+        tail = f"Итого: закрыто {tot_c:+,.2f}$"
+        if full:
+            tail += f" · мешок за сутки {tot_d:+,.2f}$"
+        if fund is not None:
+            tail += f" · фандинг {fund:+,.2f}$ (вся позиция символов, вкл. ручные)"
+        if full and fund is not None:
+            tail += f" → итог суток {tot_c + tot_d + fund:+,.2f}$"
+        elif not full:
+            tail += " · изменения мешка нет (нет вчерашнего снимка) — закрытое ≠ прибыль счёта"
+        lines.append(tail)
     return "\n".join(lines) + _market_brief()
+
+
+BAG_SNAPSHOT = ROOT / "state" / "regime_card_bags.json"
+
+
+def _bag_snapshot(now: datetime, bags: dict) -> Optional[dict]:
+    """Мешок по сеткам сутки назад (снимок прошлой карточки, 20–30 ч назад) и запись нового снимка не чаще раза в 20 ч.
+    Нет подходящего снимка — None: изменение мешка неизвестно, а не 0."""
+    snap = _read_state(BAG_SNAPSHOT)
+    age = now.timestamp() - float(snap.get("ts") or 0)
+    prev = snap.get("bags") if 20 * 3600 <= age <= 30 * 3600 and isinstance(snap.get("bags"), dict) else None
+    if age >= 20 * 3600 and bags:
+        _write_state(BAG_SNAPSHOT, {"ts": now.timestamp(), "bags": bags})
+    return prev
+
+
+def _funding_24h(now: datetime) -> Optional[float]:
+    """Фандинг за сутки по счёту WEEX (вся позиция символов: сетки и ручные), тем же запросом, что строка /weex."""
+    try:
+        from services.weex_api.client import FUTURES, WeexClient
+        end = int(now.timestamp() * 1000)
+        r = WeexClient().post(FUTURES, "/capi/v3/account/income", {"incomeType": "position_funding", "limit": 100,
+                                                                     "startTime": end - 86_400_000, "endTime": end}) or {}
+        return sum(float(x.get("income") or 0) for x in r.get("items", []))
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.funding_failed")
+        return None
 
 
 def _market_brief() -> str:

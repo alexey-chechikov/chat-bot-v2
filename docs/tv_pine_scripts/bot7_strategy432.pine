@@ -1,0 +1,97 @@
+//@version=5
+// bot7 · Strategy 432 — пробой канала Дончиана с продолжением (25.10.2026)
+// Своя реализация правил публикации «Strategy 432 BTC - Donchian Breakout Continuation» (автор Fran_Pineda, TradingView,
+// MPL-2.0), для самостоятельной проверки оператором в «Тестере стратегий».
+// Правила по умолчанию — как у автора:
+//   ЛОНГ: закрытие выше максимума high прошлых 30 баров, ADX(14) ≥ 22, закрытие выше EMA200, пробой ≥ 0.5 × ATR(14);
+//   ВЫХОД: закрытие ниже минимума low прошлых 30 баров ИЛИ 20 баров от сигнала входа. Шорт выключен.
+// Отличия от автора (как в нашей проверке 25.10): вход и выход по открытию СЛЕДУЮЩЕГО бара (у автора — по закрытию
+// сигнального), комиссия 0.068% на сторону (тейкер WEEX 0.048% + проскальзывание 0.02%; меняется в «Свойствах»).
+// Наша проверка BTC 4h 2017–07.2024: 98 сделок, +3.0% на сделку после издержек, случайный вход выше EMA200 с теми же
+// длительностями +0.7% (ранг 0.001); 2024–2026: 26 сделок, +1.9%. Это история, не обещание.
+strategy("bot7 · Strategy 432 (пробой Дончиана)", shorttitle="bot7·432", overlay=true,
+     initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10,
+     pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.068,
+     process_orders_on_close=false, calc_on_every_tick=false)
+
+// ── настройки
+dcLen     = input.int(30, "Канал Дончиана, баров", minval=2, group="Вход")
+adxLen    = input.int(14, "ADX, длина", minval=2, group="Вход")
+adxMin    = input.float(22.0, "ADX не меньше", step=0.5, group="Вход")
+emaLen    = input.int(200, "EMA тренда, длина", minval=2, group="Вход")
+atrLen    = input.int(14, "ATR, длина", minval=2, group="Вход")
+minBreak  = input.float(0.5, "Пробой не меньше, × ATR", step=0.1, minval=0, group="Вход")
+holdBars  = input.int(20, "Держать не дольше, баров (от сигнала)", minval=1, group="Выход")
+useDcExit = input.bool(true, "Выход: закрытие ниже канала", group="Выход")
+allowShort = input.bool(false, "Разрешить шорт (зеркально, у автора выключен)", group="Выход")
+useStop   = input.bool(false, "Аварийный стоп, % от входа (у автора нет; это уже другая версия)", group="Риск")
+stopPct   = input.float(10.0, "Аварийный стоп, %", step=0.5, minval=0.5, group="Риск")
+fromDate  = input.time(timestamp("2017-01-01T00:00:00"), "Тест с даты", group="Период")
+toDate    = input.time(timestamp("2099-01-01T00:00:00"), "Тест по дату", group="Период")
+showTable = input.bool(true, "Таблица «что сейчас»", group="Вид")
+
+// ── расчёт (только закрытые бары: high[1]/low[1] — канал БЕЗ текущего бара)
+dcHigh = ta.highest(high[1], dcLen)
+dcLow  = ta.lowest(low[1], dcLen)
+atrV   = ta.atr(atrLen)
+emaT   = ta.ema(close, emaLen)
+[diP, diM, adxV] = ta.dmi(adxLen, adxLen)
+magL = close > dcHigh and atrV > 0 ? (close - dcHigh) / atrV : 0.0
+magS = close < dcLow and atrV > 0 ? (dcLow - close) / atrV : 0.0
+inDate = time >= fromDate and time <= toDate
+ready  = not na(dcHigh) and not na(dcLow) and not na(atrV) and not na(adxV) and not na(emaT)
+flat   = strategy.position_size == 0
+
+longSig  = ready and inDate and flat and close > dcHigh and adxV >= adxMin and close > emaT and magL >= minBreak
+shortSig = ready and inDate and flat and allowShort and close < dcLow and adxV >= adxMin and close < emaT and magS >= minBreak
+
+var int sigBar = na
+if longSig
+    strategy.entry("Long", strategy.long)
+    sigBar := bar_index
+if shortSig
+    strategy.entry("Short", strategy.short)
+    sigBar := bar_index
+
+held = na(sigBar) ? 0 : bar_index - sigBar
+longExit  = strategy.position_size > 0 and ((useDcExit and close < dcLow) or held >= holdBars)
+shortExit = strategy.position_size < 0 and ((useDcExit and close > dcHigh) or held >= holdBars)
+if longExit
+    strategy.close("Long", comment=held >= holdBars ? "время" : "канал")
+    sigBar := na
+if shortExit
+    strategy.close("Short", comment=held >= holdBars ? "время" : "канал")
+    sigBar := na
+if useStop and strategy.position_size > 0
+    strategy.exit("Стоп L", "Long", stop=strategy.position_avg_price * (1 - stopPct / 100))
+if useStop and strategy.position_size < 0
+    strategy.exit("Стоп S", "Short", stop=strategy.position_avg_price * (1 + stopPct / 100))
+
+// ── вид
+plot(dcHigh, "Канал: максимум прошлых N", color=color.new(color.teal, 30), style=plot.style_stepline)
+plot(dcLow, "Канал: минимум прошлых N", color=color.new(color.orange, 30), style=plot.style_stepline)
+plot(emaT, "EMA тренда", color=color.new(color.aqua, 0), linewidth=2)
+plotshape(longSig, "Сигнал лонга", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small, text="432")
+plotshape(longExit or shortExit, "Сигнал выхода", shape.xcross, location.abovebar, color.new(color.red, 0), size=size.tiny)
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 92) : strategy.position_size < 0 ? color.new(color.red, 92) : na)
+
+// ── алерты (strategy: через alert(), включать в окне алертов «условие: bot7·432 → вызовы alert()»)
+if longSig
+    alert("bot7·432: сигнал ЛОНГ на " + syminfo.ticker + " — вход по открытию следующего бара", alert.freq_once_per_bar_close)
+if longExit or shortExit
+    alert("bot7·432: сигнал ВЫХОДА на " + syminfo.ticker, alert.freq_once_per_bar_close)
+
+// ── таблица «что сейчас»
+var table T = table.new(position.top_right, 2, 7, border_width=1)
+f_row(t, r, k, v, c) =>
+    table.cell(t, 0, r, k, text_color=color.silver, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=c, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
+if barstate.islast and showTable
+    table.cell(T, 0, 0, "bot7 · 432", text_color=color.white, bgcolor=color.new(color.black, 20), text_size=size.small)
+    table.cell(T, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color=color.silver, bgcolor=color.new(color.black, 20), text_size=size.small)
+    f_row(T, 1, "Выше EMA" + str.tostring(emaLen), close > emaT ? "да (" + str.tostring((close / emaT - 1) * 100, "0.0") + "%)" : "нет", close > emaT ? color.lime : color.gray)
+    f_row(T, 2, "ADX ≥ " + str.tostring(adxMin, "0.#"), str.tostring(adxV, "0.0"), adxV >= adxMin ? color.lime : color.gray)
+    f_row(T, 3, "До пробоя канала", str.tostring((dcHigh / close - 1) * 100, "0.00") + "% (" + str.tostring(dcHigh, format.mintick) + ")", close > dcHigh ? color.lime : color.white)
+    f_row(T, 4, "Сила пробоя, × ATR", str.tostring(magL, "0.00") + " (нужно ≥ " + str.tostring(minBreak, "0.0") + ")", magL >= minBreak ? color.lime : color.gray)
+    f_row(T, 5, "Позиция", strategy.position_size > 0 ? "ЛОНГ, баров " + str.tostring(held) + " из " + str.tostring(holdBars) : strategy.position_size < 0 ? "ШОРТ, баров " + str.tostring(held) : "нет", strategy.position_size != 0 ? color.yellow : color.silver)
+    f_row(T, 6, "Выход по каналу ниже", str.tostring(dcLow, format.mintick) + " (" + str.tostring((dcLow / close - 1) * 100, "0.0") + "%)", color.orange)
