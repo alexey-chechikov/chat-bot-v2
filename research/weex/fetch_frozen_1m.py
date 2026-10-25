@@ -11,13 +11,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SYM = sys.argv[1]
-START = sys.argv[2] if len(sys.argv) > 2 else "2024-05-15"
-OUT = ROOT / "backtests" / "frozen" / f"{SYM}_1m_2y.csv"
+_pos = [x for x in sys.argv[2:] if not x.startswith("--")]
+START = _pos[0] if _pos else "2024-05-15"
+_opt = {x.split("=", 1)[0]: x.split("=", 1)[1] for x in sys.argv[2:] if x.startswith("--") and "=" in x}
+# 25.10: --out=<файл> и --end=<дата UTC, не включая> — история до 2024 в отдельный файл; без --out пишет в frozen
+# <SYM>_1m_2y.csv, который дописывает gapfill (для монет, которых там нет)
+OUT = Path(_opt["--out"]) if "--out" in _opt else ROOT / "backtests" / "frozen" / f"{SYM}_1m_2y.csv"
+END = _opt.get("--end")
 
 
 def main():
     a = int(datetime.fromisoformat(START).replace(tzinfo=timezone.utc).timestamp() * 1000)
     end = int(time.time() // 60 * 60 * 1000)                 # начало текущей (незакрытой) минуты
+    if END:
+        end = min(end, int(datetime.fromisoformat(END).replace(tzinfo=timezone.utc).timestamp() * 1000))
     tmp = OUT.with_suffix(".part")
     n = 0
     with tmp.open("w", newline="") as f:

@@ -112,7 +112,7 @@ def test_p1_runner_sequential_fresh_free_before_each_grid(monkeypatch):
     monkeypatch.setattr(r, "_portfolio_free", lambda: next(frees))
     r.trend = SimpleNamespace(tick=lambda portfolio_free=None: None)
     seen = []
-    monkeypatch.setattr(r, "tick_one", lambda name, free=None: seen.append((name, free)))
+    monkeypatch.setattr(r, "tick_one", lambda name, free=None, **kw: seen.append((name, free)))   # 25.10: + acct/debts
     r.tick()
     assert seen == [("A", 300.0), ("B", 200.0), ("C", 100.0)]
     assert not hasattr(lp, "ThreadPoolExecutor") or not hasattr(r, "_room_shares")

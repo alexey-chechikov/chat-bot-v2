@@ -20,5 +20,6 @@
  "qty_step": 0.001,
  "qty_max": 0.5,
  "_note": "сетка WEEX; enabled/dry_run меняет только оператор",
- "regime_sma": 100
+ "regime_sma": 100,
+ "regime_band_pct": 2.0
 }

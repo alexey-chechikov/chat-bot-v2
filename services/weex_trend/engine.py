@@ -28,6 +28,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.weex_api.client import WeexIncomplete
 from services.weex_grid.engine import (ConfigError, GridHalt, StateCorrupt, atomic_write, fmt_px,  # noqa: F401
                                        round_tick)
 
@@ -43,6 +44,7 @@ OPEN_SIDE = {"LONG": "BUY", "SHORT": "SELL"}
 CLOSE_SIDE = {"LONG": "SELL", "SHORT": "BUY"}
 LIVE = {"NEW", "PENDING", "CANCELING", "UNTRIGGERED", "UNACTIVATED", "PARTIALLY_FILLED"}
 PENDING_TTL = 120.0
+HISTORY_BUDGET = 16           # запросов истории на один поиск заявки (окно делится пополам, WEEX игнорирует page)
 RISK_FEE = 0.0005           # тейкер на сторону с запасом (замер 0.048%) — входит в риск сделки
 DEFAULT = {
     "enabled": False,               # новые входы; позиция ведётся до выхода и при enabled=false
@@ -183,16 +185,20 @@ class Trend:
         except Exception as exc:                                # noqa: BLE001
             logger.warning("weex_trend.send_failed kind=%s err=%s", kind, exc)
             return None
-        if not r or not r.get("success", False) or not r.get("orderId"):
-            if r and r.get("success"):
-                return None                                     # «успех» без номера — исход неизвестен
+        if isinstance(r, dict) and r.get("success") is True and r.get("orderId"):
+            self.st["pending"] = None
+            self.save()
+            return {"id": str(r["orderId"]), "cid": cid}
+        if isinstance(r, dict) and r.get("success") is False:
+            # явный отказ — ТОЛЬКО объект с success=false (как у сеток, engine._place)
             self.st["pending"] = None
             self.save()
             logger.warning("weex_trend.rejected kind=%s resp=%s", kind, r)
             return {"rejected": True, "resp": r}
-        self.st["pending"] = None
-        self.save()
-        return {"id": str(r["orderId"]), "cid": cid}
+        # 25.10 (аудит GPT 481385e E3): {} / None / не объект / «успех» без номера — исход НЕИЗВЕСТЕН: рыночный вход мог
+        # быть принят. Раньше {} и None считались отказом — намерение и эпизод стирались, позиция могла остаться без учёта
+        logger.warning("weex_trend.send_unknown kind=%s resp=%s", kind, str(r)[:200])
+        return None
 
     def _resolve_pending(self) -> bool:
         p = self.st.get("pending")
@@ -200,6 +206,7 @@ class Trend:
             return True
         sym = self.cfg["symbol"]
         found = None
+        complete = True
         try:
             if p["kind"] == "stop":
                 rows = list(self.c.open_algo_orders(sym) or [])
@@ -211,11 +218,12 @@ class Trend:
             else:
                 srv = p.get("srv") or p["t"]
                 rows = list(self.c.open_orders(sym) or [])
-                for page in range(5):
-                    rows += list(self.c.order_history(sym, limit=100, page=page,
-                                                      start_ms=int((srv - 600) * 1000),
-                                                      end_ms=int((srv + 600) * 1000)) or [])
                 o = next((x for x in rows if x.get("clientOrderId") == p["cid"]), None)
+                if o is None:
+                    # 25.10 (аудит GPT E3): WEEX игнорирует page — пять «страниц» были пятью копиями первых 100 строк.
+                    # Окно делится пополам, пока ответ не станет меньше 100 (как engine._history_window у сеток)
+                    o, complete = self._history_find(sym, p["cid"], int((srv - 600) * 1000), int((srv + 600) * 1000),
+                                                     [HISTORY_BUDGET])
                 if o is not None:
                     found = {"id": str(o.get("orderId")), "cid": p["cid"]}
         except Exception:                                       # noqa: BLE001
@@ -224,6 +232,10 @@ class Trend:
         ep = self.st.get("episode")
         if found is None:
             if self.now() - p["t"] < PENDING_TTL:
+                return False
+            if p["kind"] != "stop" and not complete:
+                # неполный поиск не доказывает, что заявка не дошла: намерение и эпизод остаются, проход повторит поиск
+                logger.warning("weex_trend.pending_search_incomplete kind=%s cid=%s", p["kind"], p["cid"])
                 return False
             logger.warning("weex_trend.pending_not_found kind=%s cid=%s", p["kind"], p["cid"])
             self.st["pending"] = None
@@ -243,6 +255,32 @@ class Trend:
         self.st["pending"] = None
         self.save()
         return True
+
+    def _history_find(self, sym: str, cid: str, a: int, b: int, budget: list[int]) -> tuple[dict | None, bool]:
+        """Своя заявка по clientOrderId в истории окна [a, b] мс без листания: ответ меньше 100 — окно прочитано целиком;
+        ровно 100 (предел) — делим пополам до 1 с. (заявка, поиск полный). Не список — WeexIncomplete. Бюджет
+        запросов кончился — (None, False): отсутствие не доказано."""
+        if budget[0] <= 0:
+            return None, False
+        budget[0] -= 1
+        rows = self.c.order_history(sym, limit=100, page=0, start_ms=a, end_ms=b)
+        if not isinstance(rows, list):
+            raise WeexIncomplete(f"история {sym} {a}..{b}: не список ({str(rows)[:120]})")
+        o = next((x for x in rows if isinstance(x, dict) and x.get("clientOrderId") == cid), None)
+        if o is not None:
+            return o, True
+        if len(rows) < 100:
+            return None, True
+        if b - a <= 1000:
+            return None, False
+        m = (a + b) // 2
+        complete = True
+        for lo, hi in ((a, m), (m, b)):
+            o, ok = self._history_find(sym, cid, lo, hi, budget)
+            if o is not None:
+                return o, True
+            complete = complete and ok
+        return None, complete
 
     def _cancel_algo(self, algo: dict | None) -> None:
         if not algo:

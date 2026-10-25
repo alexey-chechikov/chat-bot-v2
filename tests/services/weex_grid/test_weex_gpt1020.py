@@ -128,7 +128,7 @@ def test_saturated_trades_marked_incomplete_once_and_not_repolled(tmp_path):
     g.st["fee_checked"] = 0.0
     g._settle_fees()
     assert ex.calls == n                                          # поздняя дозапись его не перечитывает
-    assert "комиссия неполная" in g.card(100000.0)
+    assert "комиссия неполная" in g.card(100000.0) and "итог завышен" in g.card(100000.0)   # 25.10 GPT: не «нижняя оценка итога»
 
 
 def test_99_trades_complete(tmp_path):

@@ -103,19 +103,24 @@ def regime_line(sym: str, n: int, c) -> tuple[str, str]:
         seen.append(rows)
         return rows
 
-    eg._REGIME_CACHE.pop((sym, n), None)              # проверить сейчас, а не взять решение из кэша процесса
-    eg._REGIME_CACHE.pop(("fail", sym, n), None)      # и не пропуск после недавнего сбоя
-    up = eg.regime_up(sym, n, now=now, fetch=fetch)
+    band = eg.symbol_band(sym)                         # 25.10: полоса режима живых сеток символа (гистерезис)
+    if band is None:
+        return "bad", f"SMA{n}: ПРОБЛЕМА — у живых сеток {sym} разная полоса режима (regime_band_pct) — сверить конфиги"
+    for k in ((sym, n), (sym, n, band)):
+        eg._REGIME_CACHE.pop(k, None)                  # проверить сейчас, а не взять решение из кэша процесса
+        eg._REGIME_CACHE.pop(("fail",) + k, None)      # и не пропуск после недавнего сбоя
+    up = eg.regime_up(sym, n, now=now, fetch=fetch, band_pct=band)
     if up is None or not seen:
         return "bad", (f"SMA{n}: ПРОБЛЕМА — режим неизвестен (дневки не прочитаны, не вчерашние, с пропуском дня или "
                        f"битые) → у движка нет новых входов и нет закрытия по режиму")
     bars = {int(r[0]) // 86_400_000: r for r in seen[-1] if int(r[6]) < now * 1000}
     closes = [float(bars[d][4]) for d in sorted(bars)[-n:]]
     sma = sum(closes) / n
-    thr = sum(closes[-(n - 1):]) / (n - 1)
-    what = (f"лонги закроются по рынку, если сегодняшний день UTC закроется НИЖЕ {thr:,.2f}" if up else
-            f"лонги снова разрешатся, если сегодняшний день UTC закроется ВЫШЕ {thr:,.2f}")
-    head = (f"режим {'ЛОНГ' if up else 'ВНЕ РЫНКА (ниже SMA)'}: SMA{n} {sma:,.2f}, вчерашнее закрытие "
+    thr = eg.regime_threshold(closes, n, up, band)
+    bt = f" (полоса {band:g}%)" if band else ""
+    what = (f"лонги закроются по рынку, если сегодняшний день UTC закроется НИЖЕ {thr:,.2f}{bt}" if up else
+            f"лонги снова разрешатся, если сегодняшний день UTC закроется ВЫШЕ {thr:,.2f}{bt}")
+    head = (f"режим {'ЛОНГ' if up else 'ВНЕ РЫНКА'}: SMA{n} {sma:,.2f}, вчерашнее закрытие "
             f"{closes[-1]:,.2f} ({closes[-1] / sma - 1:+.1%})")
     try:
         bid, ask = c.book(sym)

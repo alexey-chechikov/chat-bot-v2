@@ -156,12 +156,16 @@ def _sma_exit(symbol: str, n: int = 100) -> Optional[tuple[float, float]]:
     То же правило, что engine.regime_up: close > SMA{n}, включающей этот close ⇔ close > среднее прошлых n−1 закрытий.
     Дневки Binance spot; цена — закрытие формирующейся дневки (последняя сделка)."""
     from services.weex_grid import engine as eg
+    band = eg.symbol_band(symbol)                        # 25.10: полоса режима живых сеток (гистерезис)
+    if band is None:
+        logger.warning("regime_card.band_mixed %s — у сеток символа разная полоса", symbol)
+        return None
     rows = eg._fetch_daily(symbol, n + 2)
     now_ms = datetime.now(timezone.utc).timestamp() * 1000
     closes = [float(r[4]) for r in rows if int(r[6]) < now_ms][-(n - 1):]
     if len(closes) < n - 1 or not rows:
         return None
-    return float(rows[-1][4]), sum(closes) / len(closes)
+    return float(rows[-1][4]), eg.regime_threshold(closes, n, True, band)
 
 
 def _ts(v) -> float:
@@ -222,7 +226,8 @@ def _regime(sym: str) -> str:
     """Режим лонг-сеток сегодня по правилу движка (кэш процесса общий с сетками)."""
     try:
         from services.weex_grid import engine as eg
-        up = eg.regime_up(sym)
+        band = eg.symbol_band(sym)
+        up = None if band is None else eg.regime_up(sym, band_pct=band)
     except Exception:                                           # noqa: BLE001
         logger.exception("regime_card.regime_failed %s", sym)
         up = None
@@ -258,8 +263,15 @@ def build_card(now: Optional[datetime] = None) -> str:
     head = " · ".join(f"{s[:3]} {prices[s]:,.0f}" if s.startswith("BTC") else f"{s[:3]} {prices[s]:,.2f}"
                       for s in ("BTCUSDT", "ETHUSDT") if s in prices)
     regimes = ", ".join(f"{s[:3]} {_regime(s)}" for s in ("BTCUSDT", "ETHUSDT"))
+    try:                                                        # 25.10: полоса режима (гистерезис) — в подписи порога
+        from services.weex_grid import engine as eg
+        bands = {eg.symbol_band(s) for s in ("BTCUSDT", "ETHUSDT")}
+        band_txt = (f" (полоса {bands.pop():g}% ниже SMA100)" if len(bands) == 1 and None not in bands
+                    and max(bands) > 0 else "")
+    except Exception:                                           # noqa: BLE001
+        band_txt = ""
     lines = [f"☀️ {now.astimezone():%d.%m}" + (f" · {head}" if head else "") + f" · режим сеток: {regimes}",
-             "🛡 Лонги закроются, если день закроется: " + " · ".join(sma)]
+             f"🛡 Лонги закроются, если день закроется{band_txt}: " + " · ".join(sma)]
     try:                                                        # 21.10: сценарии сеток и уровни от цены
         from services import tv_levels
         data = tv_levels.collect(now, thr=thrs, px=prices)

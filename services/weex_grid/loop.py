@@ -30,6 +30,10 @@ _SIGMA: dict[str, dict] = {}
 AUDIT_PASSES = 3
 AUDIT_FILE = eg.STATE.with_name("weex_position_audit.json")
 TREND_IDLE_SEC = 300     # 23.10: тренд без эпизода/заявки — не чаще раза в 5 мин (Runner._trend_due)
+# 25.10 (аудит GPT E1): бюджет открытых заявок счёта для новых входов. Замер 24.10: WEEX −1191 начался при ≈200
+# (193–195 заявок бота + 7 ручных), ETH отказывал одновременно — лимит общий на счёт. 15 мест — ручным и тейкам новых
+# исполнений. Переопределяется ключом order_budget в state/weex_portfolio_config.json
+ORDER_BUDGET = 185
 
 
 def position_gaps(grids: list[dict], busy: set, positions: list) -> dict:
@@ -221,12 +225,14 @@ class Runner:
         найденная сирота не уменьшала долю соседей, ask×1.01 не ограничивал итоговый вход → потолок мог быть превышен.
         Выигрыш был мал (25–30 с против 30–45 с). Вернуть параллель — только с общим атомарным резервом риска."""
         first = None
+        acct = self._account_open_orders()                      # 25.10 (аудит GPT E1): заявки счёта по символам
+        debts = self._exit_debts()                              # сетки с лотами без тейка (по прошлому проходу)
         for name in eg.GRIDS:
             try:
                 with STATE_LOCK:
                     # свободное — заново перед каждой сеткой: входы предыдущей уже в её учёте (11.10, разбор
                     # GPT: одно место раздавалось всем сеткам и тренду)
-                    self.tick_one(name, self._portfolio_free())
+                    self.tick_one(name, self._portfolio_free(), acct=acct, debts=debts)
             except eg.GridHalt as exc:
                 # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
                 logger.error("weex_grid.halt grid=%s err=%s", name, exc)
@@ -274,12 +280,59 @@ class Runner:
             logger.exception("weex_portfolio.failed")
             return 0.0
 
-    def tick_one(self, name: str, free: float | None = None) -> None:
+    def _live_symbols(self) -> set[str]:
+        out = set()
+        for n in eg.GRIDS:
+            try:
+                c = grid_config(n)
+            except Exception:                                   # noqa: BLE001 — битый конфиг разберёт tick_one
+                continue
+            if not c.get("dry_run"):
+                out.add(c["symbol"])
+        return out
+
+    def _account_open_orders(self) -> dict[str, int] | None:
+        """25.10 (аудит GPT E1): открытые заявки счёта по символам живых сеток (все: свои, соседей, ручные) — один раз
+        на проход. Сбой любого символа → None: бюджет заявок неизвестен, новых входов нет (тейки работают)."""
+        syms = self._live_symbols()
+        if not syms:
+            return {}
+        try:
+            c = self._client()
+            return {s: len(c.open_orders(s) or []) for s in sorted(syms)}
+        except Exception:                                       # noqa: BLE001
+            logger.exception("weex_grid.order_budget_unreadable")
+            return None
+
+    def _exit_debts(self) -> list[str]:
+        """Живые сетки, у которых по их учёту есть лоты без тейка (exit_debt > 0)."""
+        out = []
+        for n in eg.GRIDS:
+            try:
+                c = grid_config(n)
+                if c.get("dry_run"):
+                    continue
+                p = run_files(n, False)[0]
+                st = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            except Exception:                                   # noqa: BLE001 — нечитаемое разберёт tick_one
+                continue
+            if any(int(v or 0) > 0 for v in (st.get("exit_debt") or {}).values()):
+                out.append(n)
+        return out
+
+    def tick_one(self, name: str, free: float | None = None, acct: dict[str, int] | None | str = "skip",
+                 debts: list[str] | None = None) -> None:
         cfg = grid_config(name)
         if not cfg["dry_run"] and free is not None:
             cfg = {**cfg, "portfolio_free_usd": free}
         if not cfg["dry_run"]:
             cfg = {**cfg, "audit_block": self._audit_blocks(cfg["symbol"])}
+            if acct != "skip":                                  # вызов из прохода цикла — бюджет заявок счёта
+                from services.weex_grid import portfolio
+                budget = int(portfolio.load().get("order_budget") or ORDER_BUDGET)
+                other = None if acct is None else sum(v for s, v in acct.items() if s != cfg["symbol"])
+                cfg = {**cfg, "order_budget": budget, "other_open_orders": other,
+                       "account_exit_debt": [n for n in (debts or []) if n != name]}
         dry = bool(cfg["dry_run"])
         if dry:
             self._live_leftovers(name, cfg)
@@ -415,11 +468,13 @@ SET_KEYS = {"target": "target_pct", "цель": "target_pct", "таргет": "t
             "cap": "max_notional_usd", "потолок": "max_notional_usd",
             "stop": "daily_loss_stop_usd", "стоп": "daily_loss_stop_usd",
             "max": "max_lots_per_side", "макс": "max_lots_per_side",
-            "стресс": "stress_budget_frac", "stress": "stress_budget_frac"}
+            "стресс": "stress_budget_frac", "stress": "stress_budget_frac",
+            # 25.10: полоса режима SMA (гистерезис), % — engine.regime_up; 0 = как было
+            "полоса": "regime_band_pct", "band": "regime_band_pct"}
 # 0 у стопа дня и стресс-бюджета = выключено (оператор 09.10: «стопы снимай, ограничиваем количеством»)
 LIMITS = {"target_pct": (0.05, 5.0), "step_pct": (0.05, 5.0), "max_notional_usd": (10.0, 20_000.0),
           "daily_loss_stop_usd": (0.0, 2_000.0), "max_lots_per_side": (1, 200),
-          "stress_budget_frac": (0.0, 1.0)}          # объём ордера — по qty_step/qty_max сетки
+          "stress_budget_frac": (0.0, 1.0), "regime_band_pct": (0.0, 10.0)}   # объём ордера — по qty_step/qty_max
 NAMES = {"btc": "BTC", "бтк": "BTC", "биток": "BTC", "биткоин": "BTC",
          "eth": "ETH", "эфир": "ETH", "эth": "ETH",
          "xau": "XAU", "gold": "XAU", "золото": "XAU", "голд": "XAU",
@@ -478,7 +533,7 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
     for k, v in zip(toks[::2], toks[1::2]):
         key = SET_KEYS.get(k.lower())
         if key is None:
-            return f"Не знаю параметр «{k}». Есть: цель, шаг, ордер, qty, потолок, стоп, макс."
+            return f"Не знаю параметр «{k}». Есть: цель, шаг, ордер, qty, потолок, стоп, макс, полоса."
         try:
             val = float(v.replace("$", ""))
         except ValueError:
@@ -501,8 +556,9 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
     return (f"✅ Сетка WEEX {_label(name, cfg)}: шаг {cfg['step_pct']}%, цель {cfg['target_pct']}%, ордер {cfg['order_qty']} {coin} "
             f"(≈${per:,.0f}). Потолок ${float(cfg['max_notional_usd']):,.0f} на сторону → до "
             f"{min(n_cap, int(cfg['max_lots_per_side']))} ордеров; "
-            f"стоп дня {'ВЫКЛ' if stop <= 0 else f'${stop:,.0f}'}; стресс-бюджет {'ВЫКЛ' if stress <= 0 else f'{stress:.0%}'}.\n"
-            f"Действует на новые ордера; уже стоящие тейки остаются на старой цели.")
+            f"стоп дня {'ВЫКЛ' if stop <= 0 else f'${stop:,.0f}'}; стресс-бюджет {'ВЫКЛ' if stress <= 0 else f'{stress:.0%}'}"
+            + (f"; полоса режима {float(cfg.get('regime_band_pct') or 0):g}%" if int(cfg.get("regime_sma") or 0) > 0 else "")
+            + ".\nДействует на новые ордера; уже стоящие тейки остаются на старой цели.")
 
 
 def _live_sides(name: str) -> list[str]:

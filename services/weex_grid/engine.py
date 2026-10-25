@@ -290,7 +290,31 @@ def _fetch_daily(symbol: str, limit: int) -> list:
                                              timeout=15).read())
 
 
-def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=None) -> bool | None:
+REGIME_HISTORY_DAYS = 400   # полоса режима: гистерезис считается по истории; 400 дней — с запасом на любой эпизод
+
+
+def regime_threshold(prev: list[float], n: int, up: bool, band_pct: float = 0.0) -> float:
+    """Порог СЕГОДНЯШНЕГО закрытия x, при котором режим сменится (SMA{n} включает x; S — сумма прошлых n−1 закрытий):
+    из ЛОНГА — если x < (1−b)·(S+x)/n ⇔ x < (1−b)·S/(n−1+b); в ЛОНГ — если x > (1+b)·S/(n−1−b). b=0 — S/(n−1), как было.
+    Одна формула для движка и всех показов (карточка, /tv, пинги, account_now)."""
+    s, b = sum(prev[-(n - 1):]), band_pct / 100
+    return (1 - b) * s / (n - 1 + b) if up else (1 + b) * s / (n - 1 - b)
+
+
+def symbol_band(symbol: str) -> float | None:
+    """Полоса режима живых сеток символа с SMA-режимом (state/weex_grid*_config.json, regime_band_pct, %). Нет таких
+    сеток — 0; у сеток символа разные полосы — None (показ порога честно скажет «разный у сеток»)."""
+    bands = set()
+    for name in GRIDS:
+        c = peek_config(name)
+        if c and c.get("symbol") == symbol and c.get("enabled") and not c.get("dry_run") \
+                and int(c.get("regime_sma") or 0) > 0 and "LONG" in (c.get("sides") or []):
+            bands.add(float(c.get("regime_band_pct") or 0))
+    return (bands.pop() if len(bands) == 1 else None) if bands else 0.0
+
+
+def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=None,
+              band_pct: float = 0.0) -> bool | None:
     """Режим SMA (research/weex/regime_grid.py, проверен 11.10 на 2 годах BTC/ETH и на движке GinArea): закрытие
     ВЧЕРАШНЕГО дня UTC выше SMA за sma_days последовательных закрытых дней → True (лонг), ниже → False.
     Решение привязано к дню: в новых сутках — новый запрос (12.10, разбор GPT L6: кэш на 30 мин пускал вчерашнее
@@ -298,10 +322,17 @@ def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=
     закрытая свеча — вчерашняя, цены конечные и положительные. Сбой/устаревшие/битые данные → None (новых входов
     нет, нового закрытия по режиму нет; уже начатое закрытие доводится).
     Кэш процесса общий для всех сеток символа: 4 сетки BTC с SMA100 — один запрос дневок в сутки. После сбоя повтор не
-    раньше REGIME_RETRY (15.10: иначе каждая из 4 сеток BTC ждала бы свой таймаут 15 с в каждом проходе)."""
+    раньше REGIME_RETRY (15.10: иначе каждая из 4 сеток BTC ждала бы свой таймаут 15 с в каждом проходе).
+    25.10 (оператор: «делай»; research/weex/regime_buffer.py — полоса 2% прошла заранее записанную проверку на минутках
+    2017–2024): band_pct > 0 — гистерезис: из ЛОНГА выход, только если закрытие < SMA·(1−b), в ЛОНГ — только если
+    > SMA·(1+b), иначе прежнее состояние. Состояние считается по REGIME_HISTORY_DAYS дням с тем же контролем дневок
+    (все дни подряд, конечные цены). band_pct = 0 — правило как было."""
     now = now or time.time()
     today = int(now // 86400)
-    key = (symbol, sma_days)
+    band = float(band_pct or 0)
+    if not (math.isfinite(band) and 0 <= band <= 10):
+        raise ConfigError(f"regime_band_pct {band_pct!r} негоден: нужно 0…10 %")
+    key = (symbol, sma_days) if not band else (symbol, sma_days, band)
     c = _REGIME_CACHE.get(key)
     if c and c[0] == today:
         return c[1]
@@ -309,18 +340,30 @@ def regime_up(symbol: str, sma_days: int = 100, now: float | None = None, fetch=
     if failed is not None and 0 <= now - float(failed) < REGIME_RETRY:
         return None
     try:
-        rows = (fetch or _fetch_daily)(symbol, sma_days + 5)
+        need = sma_days + (REGIME_HISTORY_DAYS if band else 0)
+        rows = (fetch or _fetch_daily)(symbol, need + 5)
         bars = {int(r[0]) // 86_400_000: r for r in rows if int(r[6]) < now * 1000}   # день → закрытая свеча
         days = sorted(bars)
         if not days or days[-1] != today - 1:
             raise ValueError(f"последняя закрытая свеча не вчерашняя: {days[-1] if days else None} vs {today - 1}")
-        tail = days[-sma_days:]
-        if len(tail) < sma_days or tail != list(range(tail[0], tail[0] + sma_days)):
+        tail = days[-need:]
+        if len(tail) < need or tail != list(range(tail[0], tail[0] + need)):
             raise ValueError("меньше дней или пропуск дня")
         closes = [float(bars[d][4]) for d in tail]
         if not all(math.isfinite(x) and x > 0 for x in closes):
             raise ValueError("битая цена закрытия")
-        up = closes[-1] > sum(closes) / sma_days
+        if not band:
+            up = closes[-1] > sum(closes) / sma_days
+        else:
+            b, up = band / 100, None
+            for i in range(sma_days - 1, len(closes)):
+                x, sma = closes[i], sum(closes[i - sma_days + 1:i + 1]) / sma_days
+                if up is None:
+                    up = x > sma
+                elif up and x < sma * (1 - b):
+                    up = False
+                elif not up and x > sma * (1 + b):
+                    up = True
     except Exception:                                           # noqa: BLE001
         logger.exception("weex_grid.regime_failed %s", symbol)
         _REGIME_CACHE[("fail",) + key] = now
@@ -635,6 +678,24 @@ class Grid:
         50 исполнений по 0.0001 занимали 50 слотов при тех же $500)."""
         return len({l.get("parent") or f"lot{id(l)}" for l in self.st[side]["lots"]})
 
+    def _order_budget_ok(self) -> tuple[bool, str]:
+        """25.10 (аудит GPT E1; замер 24.10: отказы WEEX −1191 «Business precondition not satisfied» начались при ≈200
+        открытых заявках счёта, и по ETH тоже — лимит общий на счёт). Новый вход — только если заявки этого символа
+        сейчас (свои, соседей, ручные) + заявки остальных символов счёта по подсчёту цикла + 1 ≤ order_budget.
+        Подсчёт остальных не прочитан (None при заданном бюджете) — новых входов нет: покрытие неполное. Бюджет не
+        задан (холостой, тесты) — без ограничения. Тейки бюджетом не ограничиваются; место им освобождает долг по
+        выходам (вход снимается)."""
+        budget = self.cfg.get("order_budget")
+        if not budget:
+            return True, ""
+        other = self.cfg.get("other_open_orders")
+        if other is None:
+            return False, "бюджет заявок: подсчёт по счёту не прочитан"
+        used = int(getattr(self, "_symbol_open", 0)) + int(other)
+        if used + 1 > int(budget):
+            return False, f"бюджет заявок счёта: {used} из {int(budget)}"
+        return True, ""
+
     def may_add(self, side: str, price: float, mid: float, qty: float | None = None,
                 parent: str | None = None) -> tuple[bool, str]:
         """Можно ли держать/ставить вход объёмом qty (по умолчанию — размер ордера из конфига) по
@@ -745,6 +806,9 @@ class Grid:
             if kind == "e":
                 self._room_used -= float(q) * price
             logger.warning("weex_grid.place_rejected side=%s kind=%s price=%s resp=%s", side, kind, price, r)
+            if kind == "t":
+                # 25.10 (аудит GPT E2): отказ тейка (например, лимит заявок счёта) — лот без выхода; проход не «здоровый»
+                self._issue(f"тейк {cid}: отказ биржи ({r.get('errorCode') or r.get('msg') or r.get('code')})")
             self.save()
             return None
         s["pending"] = None
@@ -1305,8 +1369,9 @@ class Grid:
         # проход прерывается до решений о сиротах и владении (13.10 и 15.10 P1, разборы GPT). Свои — только с префиксом
         # b7g+знак этой сетки: ордера соседней сетки того же символа (b7g+другой знак) и ручные для неё не существуют
         self._phase = "open_orders"
-        self.open = {str(o["orderId"]): o for o in self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
-                     if str(o.get("clientOrderId", "")).startswith(self.own)}
+        rows = self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
+        self._symbol_open = len(rows)       # 25.10 (аудит GPT E1): все открытые заявки символа — для бюджета заявок счёта
+        self.open = {str(o["orderId"]): o for o in rows if str(o.get("clientOrderId", "")).startswith(self.own)}
         self._listed = set(self.open)
         self._phase = "orphans"
         self._orphans()
@@ -1332,7 +1397,8 @@ class Grid:
         closing: set[str] = set()
         if int(cfg.get("regime_sma") or 0) > 0:
             self._phase = "regime"
-            up = self.regime_fn(sym, int(cfg["regime_sma"]))
+            band = float(cfg.get("regime_band_pct") or 0)          # 25.10: полоса режима (гистерезис), % — 0 как было
+            up = self.regime_fn(sym, int(cfg["regime_sma"]), **({"band_pct": band} if band else {}))
             self.st["regime"] = up
             if up is None:
                 allowed = set()
@@ -1598,6 +1664,11 @@ class Grid:
                 self.save()
                 if s.get("pending"):
                     can_place = False         # исход постановки неизвестен — новых ордеров больше не ставим
+        # 25.10 (аудит GPT E1/E2): долг по выходам — лоты стороны без тейка на бирже. Пока он есть у этой сетки или у
+        # соседней сетки счёта (cfg account_exit_debt от цикла), свой вход снимается и новый не ставится: место в
+        # лимите заявок — сначала тейкам
+        debt = sum(1 for l in s["lots"] if l.get("tp_order") is None)
+        self.st.setdefault("exit_debt", {})[side] = debt
         # 3) опорная цена — как у GinArea: шаг от крайнего ОТКРЫТОГО ордера (лонг — нижний, шорт —
         # верхний); после тейка уровень заполняется снова. Сверено 09.10 по журналу шортового бота
         # 5021652508: 9 из 9 входов после тейка ровно на шаг от верхнего открытого (±0.06%).
@@ -1621,6 +1692,16 @@ class Grid:
         if not enabled or not ok:
             self._drop_entry(side)
             s["blocked"] = "выключено" if not enabled else why
+            return
+        others = [n for n in (cfg.get("account_exit_debt") or []) if n != self.name]
+        if debt or others:
+            self._drop_entry(side)                              # свой вход освобождает место тейку
+            s["blocked"] = (f"долг по тейкам: {debt} лот. без тейка" if debt
+                            else f"долг по тейкам у {', '.join(others)}")
+            return
+        bok, bwhy = self._order_budget_ok()
+        if not bok:
+            s["blocked"] = bwhy               # новый вход не ставим, стоящий не переставляем: место он уже занимает
             return
         s["blocked"] = ""
         if e:
@@ -2040,8 +2121,10 @@ class Grid:
                  f"шаг {cfg['step_pct']}% · цель {cfg['target_pct']}% · ордер {cfg['order_qty']} · цена {fmt_px(mid, tick)}"]
         if int(cfg.get("regime_sma") or 0) > 0:
             r = self.st.get("regime")
-            lines.append(f"режим SMA{int(cfg['regime_sma'])}: " + ("ЛОНГ (цена выше)" if r is True else "ШОРТ (цена ниже)"
-                         if r is False else "нет данных — новых входов нет"))
+            band = float(cfg.get("regime_band_pct") or 0)
+            lines.append(f"режим SMA{int(cfg['regime_sma'])}" + (f" с полосой {band:g}%" if band else "") + ": "
+                         + ("ЛОНГ (цена выше)" if r is True else "ШОРТ (цена ниже)" if r is False
+                            else "нет данных — новых входов нет"))
         tm_all = 0.0
         for side in ("LONG", "SHORT"):
             s = self.st[side]
@@ -2072,7 +2155,7 @@ class Grid:
                      + f" · оборот ${turn:,.0f}")
         inc = self.st.get("fee_incomplete") or {}
         if inc:
-            lines.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
+            lines.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — комиссия занижена, итог завышен")
         return "\n".join(lines)
 
     def _card_compact(self, mid: float) -> str:
@@ -2102,7 +2185,7 @@ class Grid:
         rows.append(f"итог с мешком ${self.bot_pnl(mid):+.2f} · оборот ${turn:,.0f}")
         inc = self.st.get("fee_incomplete") or {}
         if inc:
-            rows.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
+            rows.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — комиссия занижена, итог завышен")
         return "\n".join(rows)
 
 

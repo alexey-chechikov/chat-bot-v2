@@ -21,5 +21,6 @@
  "qty_max": 0.01,
  "regime_sma": 100,
  "cid_tag": "4",
- "_note": "сетка WEEX; enabled/dry_run меняет только оператор"
+ "_note": "сетка WEEX; enabled/dry_run меняет только оператор",
+ "regime_band_pct": 2.0
 }

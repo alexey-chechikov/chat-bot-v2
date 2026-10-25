@@ -23,5 +23,6 @@
  "release_sides": [
   "SHORT"
  ],
- "regime_sma": 100
+ "regime_sma": 100,
+ "regime_band_pct": 2.0
 }

@@ -61,6 +61,15 @@ def test_coinglass_zones_off_by_default_and_labelled_atr_only():
     assert "% по ATR от утра, сила зоны не учтена" in SRC and '" · шанс "' not in SRC
 
 
+def test_regime_band_matches_bots():
+    """25.10: полоса режима как у ботов (engine.regime_up/regime_threshold): гистерезис и порог с полосой, по умолчанию 2%."""
+    assert re.search(r'^bandPct\s*=\s*input\.float\(2\.0,', SRC, re.M)
+    for s in ("else if st == 1 and close < s100 * (1 - b)", "else if st == 0 and close > s100 * (1 + b)",
+              "thrX  = up ? (1 - b) * sumP / (smaLen - 1 + b) : (1 + b) * sumP / (smaLen - 1 - b)",
+              "[s100[1], thrX[1], up[1], ta.atr(14)[1]]"):
+        assert s in SRC, s
+
+
 def test_parser_knows_all_tokens_of_bot_line():
     for pre in "uvgxkwzetans":
         assert re.search(rf'pre == "{pre}"', SRC), pre
