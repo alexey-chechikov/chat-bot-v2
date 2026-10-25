@@ -31,7 +31,10 @@ import numpy as np
 from services.coinglass_web.collector import DIR
 
 PROTOCOL = "cg-c1-20261018"
-IMPL = "mac-c1-impl-2"           # impl-1 (слот 19.10) терял P0: один запрос через 2 с, свеча REST ещё не готова
+IMPL = "mac-c1-impl-3"           # impl-1 (слот 19.10) терял P0: один запрос через 2 с, свеча REST ещё не готова
+# impl-3 (25.10, аудит GPT 481385e A3/A4): допуск — только при подтверждённых наблюдённых настройках страницы
+# (settings_gate → иначе not_ready_settings); слот с фиксацией без прогноза — incomplete_forecast с исходным run_id,
+# повтор того же утра новую фиксацию не выбирает. Строки impl-1/impl-2 не переписываются.
 P0_WAIT_MS = 45_000
 WARSAW = ZoneInfo("Europe/Warsaw")
 C1 = DIR / "c1"
@@ -223,7 +226,48 @@ def _local(slot: date, hh: int, mm: int) -> datetime:
 
 INSTRUMENT = {"exchange": "Binance", "symbol": "BTCUSDT", "market": "USD-M perpetual",
               "levels_source": "https://www.coinglass.com/ru/liquidation-levels",
-              "price_source": "https://fapi.binance.com/fapi/v1/klines"}
+              "price_source": "https://fapi.binance.com/fapi/v1/klines"}        # цель протокола, не наблюдение сайта
+LEVERAGE = ("Высокое кредитное плечо", "Среднее плечо", "Низкое кредитное плечо")
+WINDOW = "3 д. · 1 мин."
+INCOMPLETE_AFTER = (7, 20)       # фиксация без итога к 07:20 — прогон прерван (A+45 с и ATR кончаются к ~07:13)
+
+
+def _norm(s: str) -> str:
+    return " ".join(str(s).replace("\xa0", " ").split()).lower()
+
+
+def settings_gate(so) -> tuple[str | None, dict]:
+    """A3 (аудит GPT 481385e): допуск C1 — только по тому, что реально видно на странице уровней, а не по константе.
+    → (причина отказа или None, наблюдённый инструмент). Нужны: настройки прочитаны без ошибки; страница уровней;
+    заголовок «… Binance BTCUSDT» (пара с ликвидациями на Binance — USDⓈ-M perpetual: у спота ликвидаций нет, COIN-M —
+    BTCUSD); кнопка пары BTCUSDT; окно «3 д. · 1 мин.» в заголовке (в интерфейсе до 22.10 оно было одной из трёх кнопок
+    без признака выбора — не подтверждено); все три флажка плеча включены; блок «Магнитные зоны» (обе стороны в одном
+    блоке — косвенный признак общей шкалы силы, отдельной проверки шкалы у сайта нет)."""
+    if not isinstance(so, dict) or not so:
+        return "настройки страницы не прочитаны", {}
+    if so.get("error"):
+        return f"настройки не прочитаны: {so['error']}"[:200], {}
+    url = str(so.get("url") or "")
+    heads = [str(h) for h in (so.get("headings") or []) if isinstance(h, str)]
+    ctl = [str(c.get("t") or "") for c in (so.get("controls") or []) if isinstance(c, dict)]
+    boxes = {_norm(b.get("label") or ""): b.get("checked") for b in (so.get("checkboxes") or []) if isinstance(b, dict)}
+    pair = next((h for h in heads if "binance btcusdt" in _norm(h)), None)
+    obs = {"url": url, "pair_heading": pair, "symbol_button": any("BTCUSDT" in c for c in ctl),
+           "window_confirmed": any(_norm(WINDOW) in _norm(h) for h in heads),
+           "leverage": {k: boxes.get(_norm(k)) for k in LEVERAGE}}
+    if "liquidation-levels" not in url:
+        return f"не страница уровней: {url[:100]}", obs
+    if pair is None:
+        return "в заголовках нет «Binance BTCUSDT»", obs
+    if not obs["symbol_button"]:
+        return "нет кнопки пары BTCUSDT", obs
+    if not obs["window_confirmed"]:
+        return f"окно «{WINDOW}» не подтверждено", obs
+    if any(v is not True for v in obs["leverage"].values()):
+        return "флажки плеча не подтверждены включёнными", obs
+    if not any(_norm(h) == "магнитные зоны" for h in heads):
+        return "нет блока «Магнитные зоны»", obs
+    return None, obs
 
 
 def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captured: datetime | None,
@@ -239,6 +283,8 @@ def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captu
         return None
     if any(r.get("slot") == slot.isoformat() for r in _read("registry.jsonl")):
         return None                                                 # первый результат слота уже выбран
+    if any(f.get("slot") == slot.isoformat() for f in _read("fixes.jsonl")):
+        return None              # A4: фиксация слота уже есть (прежний прогон прерван) — новую не выбирать; итог даст close_missing
     reg = {"slot": slot.isoformat(), "run_id": run_id, "run_started": run_started.isoformat(), "protocol": PROTOCOL,
            "impl": IMPL}
     if levels is None or captured is None:
@@ -250,12 +296,14 @@ def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captu
     man = json.loads((C1 / "base_manifest.json").read_text(encoding="utf-8")) if (C1 / "base_manifest.json").exists() \
         else None
     sel = select_zones(levels)
+    why, observed = settings_gate(settings_observed)
     fixed = now_fn()
     a_ms = (int(fixed.timestamp() * 1000) // MIN + 1) * MIN
     a_dt = datetime.fromtimestamp(a_ms / 1000, timezone.utc)
     fix = {**reg, "forecast_id": f"c1-{slot.isoformat()}", "horizon": "24h", "levels_captured": captured.isoformat(),
            "forecast_created_at": fixed.isoformat(), "A_utc": a_dt.isoformat(),
-           "A_local": a_dt.astimezone(WARSAW).isoformat(), "instrument": INSTRUMENT,
+           "A_local": a_dt.astimezone(WARSAW).isoformat(), "instrument": INSTRUMENT, "instrument_observed": observed,
+           "settings_gate": why or "ok",
            "settings_observed": settings_observed, "interface_price": levels["price"], **{k: sel[k] for k in sel}}
     fix["fix_sha256"] = sha_bytes(canon(fix))
     _append("fixes.jsonl", fix)                                     # сторона и границы — до цены A
@@ -263,6 +311,8 @@ def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captu
     status = "admitted"
     if man is None:
         status = "not_ready_no_base"
+    elif why:
+        status = "not_ready_settings"                               # A3: неизвестные/другие настройки — не допуск
     elif sel["U"] is None or sel["L"] is None:
         status = "abstain_no_zone"
     elif sel["stronger"] is None:
@@ -315,15 +365,29 @@ def make_forecast(run_id: str, run_started: datetime, levels: dict | None, captu
 
 
 def close_missing(now: datetime | None = None) -> int:
-    """Слоты, у которых к 07:10 нет ни одной записи (мак спал, сборщик упал до прогноза) → missing_snapshot.
-    Реестр остаётся календарным: 365 слотов, ни один не пропадает молча."""
+    """Слоты, у которых к 07:10 нет ни одной записи (мак спал, сборщик упал до снимка) → missing_snapshot.
+    A4 (аудит GPT 481385e): фиксация есть, а итога в реестре к 07:20 нет (сбой после фиксации — цены, ATR, q) →
+    incomplete_forecast с исходными run_id, forecast_id и SHA фиксации: снимок был, не завершён прогноз. До 07:20 такой
+    слот не трогается — прогон ещё может идти. Реестр календарный: 365 слотов, ни один не пропадает молча."""
     now = now or datetime.now(timezone.utc)
-    have = {r["slot"] for r in _read("registry.jsonl")} | {f["slot"] for f in _read("fixes.jsonl")}
+    have = {r["slot"] for r in _read("registry.jsonl")}
+    fixes: dict[str, dict] = {}
+    for f in _read("fixes.jsonl"):
+        fixes.setdefault(f["slot"], f)                              # первая фиксация слота
     n, d = 0, FIRST_SLOT
     while d <= LAST_SLOT and now.astimezone(WARSAW) >= _local(d, 7, 10):
-        if d.isoformat() not in have:
-            _append("registry.jsonl", {"slot": d.isoformat(), "run_id": None, "protocol": PROTOCOL, "impl": IMPL,
+        s, f = d.isoformat(), fixes.get(d.isoformat())
+        if s not in have and f is None:
+            _append("registry.jsonl", {"slot": s, "run_id": None, "protocol": PROTOCOL, "impl": IMPL,
                                        "status": "missing_snapshot", "reason": "нет запуска до 07:10",
+                                       "recorded_at": now.isoformat(timespec="seconds")})
+            n += 1
+        elif s not in have and now.astimezone(WARSAW) >= _local(d, *INCOMPLETE_AFTER):
+            _append("registry.jsonl", {"slot": s, "run_id": f.get("run_id"), "run_started": f.get("run_started"),
+                                       "protocol": PROTOCOL, "impl": IMPL, "status": "incomplete_forecast",
+                                       "forecast_id": f.get("forecast_id"), "fix_sha256": f.get("fix_sha256"),
+                                       "fix_impl": f.get("impl"),
+                                       "reason": "фиксация записана, прогноз не завершён (сбой после фиксации)",
                                        "recorded_at": now.isoformat(timespec="seconds")})
             n += 1
         d += timedelta(days=1)

@@ -56,6 +56,14 @@ def fake_klines(tmp, p0=100.0, calls=None):
     return k
 
 
+SETTINGS = {                                                        # форма observe() на странице после 22.10
+    "url": "https://www.coinglass.com/ru/liquidation-levels?symbol=BTC",
+    "headings": ["Уровни ликвидации BTC", "Уровни ликвидаций Binance BTCUSDT\nВ РЕАЛЬНОМ ВРЕМЕНИ · 3 Д. · 1 МИН.",
+                 "Сила по расстоянию", "Магнитные зоны", "Баланс ближнего поля"],
+    "controls": [{"t": "Русский"}, {"t": "BTCUSDT", "cls": "ll-symBtn"}, {"t": "Свечи"}],
+    "checkboxes": [{"checked": True, "label": "Высокое кредитное плечо"}, {"checked": True, "label": "Среднее плечо"},
+                   {"checked": True, "label": "Низкое кредитное плечо"}],
+    "threshold": None}
 RUN = datetime(2026, 10, 19, 5, 0, 5, tzinfo=UTC)                   # 07:00:05 Варшавы (CEST)
 CAP = datetime(2026, 10, 19, 5, 0, 40, tzinfo=UTC)
 FIX = datetime(2026, 10, 19, 5, 1, 30, tzinfo=UTC)
@@ -101,7 +109,7 @@ def test_admitted_forecast_fixes_before_price_and_uses_closed_hours(tmp_c1, monk
     monkeypatch.setattr(c1, "q_vector", lambda a, b, hhmm, side: seen_q.update(a=a, b=b, hhmm=hhmm, side=side) or
                         {"q_low": 0.4, "q_high": 0.45, "complete": 730})
     a_ms = ms(datetime(2026, 10, 19, 5, 2, tzinfo=UTC))
-    rec = c1.make_forecast("run-1", RUN, levels(), CAP, {"x": 1},
+    rec = c1.make_forecast("run-1", RUN, levels(), CAP, SETTINGS,
                            now_fn=clock(FIX, datetime(2026, 10, 19, 5, 2, 3, tzinfo=UTC)), sleep=lambda s: None)
     assert rec["status"] == "admitted" and rec["run_id"] == "run-1"
     assert rec["A_utc"] == "2026-10-19T05:02:00+00:00" and rec["phase_local"] == "07:02"
@@ -148,7 +156,7 @@ def test_p0_waits_for_rest_lag(tmp_c1, monkeypatch):
     clk = VirtualClock(FIX)
     monkeypatch.setattr(c1, "klines", lagging_klines(tmp_c1, clk, 4300))
     monkeypatch.setattr(c1, "q_vector", lambda a, b, hhmm, side: {"q_low": 0.4, "q_high": 0.45, "complete": 730})
-    rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clk.now, sleep=clk.sleep)
+    rec = c1.make_forecast("r", RUN, levels(), CAP, SETTINGS, now_fn=clk.now, sleep=clk.sleep)
     assert rec["status"] == "admitted" and rec["P0"] == 100.0
     assert rec["p0_fetch_tries"] >= 2
 
@@ -156,7 +164,7 @@ def test_p0_waits_for_rest_lag(tmp_c1, monkeypatch):
 def test_p0_never_appears_is_not_ready_after_wait(tmp_c1, monkeypatch):
     clk = VirtualClock(FIX)
     monkeypatch.setattr(c1, "klines", lagging_klines(tmp_c1, clk, 10 ** 9))
-    rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clk.now, sleep=clk.sleep)
+    rec = c1.make_forecast("r", RUN, levels(), CAP, SETTINGS, now_fn=clk.now, sleep=clk.sleep)
     assert rec["status"] == "not_ready_price" and "P0" not in rec
     a_ms = ms(datetime(2026, 10, 19, 5, 2, tzinfo=UTC))
     assert a_ms + c1.P0_WAIT_MS <= ms(clk.now()) <= a_ms + c1.P0_WAIT_MS + 2000   # ждал не дольше 45 с после A
@@ -164,7 +172,7 @@ def test_p0_never_appears_is_not_ready_after_wait(tmp_c1, monkeypatch):
 
 def test_abstain_at_anchor(tmp_c1, monkeypatch):
     monkeypatch.setattr(c1, "klines", fake_klines(tmp_c1, p0=103.5))
-    rec = c1.make_forecast("r", RUN, levels(), CAP, {}, now_fn=clock(FIX, FIX + timedelta(minutes=1)),
+    rec = c1.make_forecast("r", RUN, levels(), CAP, SETTINGS, now_fn=clock(FIX, FIX + timedelta(minutes=1)),
                            sleep=lambda s: None)
     assert rec["status"] == "abstain_at_anchor" and "q" not in rec
 
@@ -185,13 +193,82 @@ def test_missing_late_capture_and_late_forecast(tmp_c1, monkeypatch):
 
 
 def test_close_missing_fills_only_empty_past_slots(tmp_c1):
+    """25.10 (аудит GPT A4): слот только с фиксацией больше не «занят» — к 07:20 он incomplete_forecast, не пропадает."""
     (tmp_c1 / "registry.jsonl").write_text(json.dumps({"slot": "2026-10-19", "status": "admitted"}) + "\n")
-    (tmp_c1 / "fixes.jsonl").write_text(json.dumps({"slot": "2026-10-20"}) + "\n")
+    (tmp_c1 / "fixes.jsonl").write_text(json.dumps({"slot": "2026-10-20", "run_id": "run-20", "forecast_id": "c1-2026-10-20",
+                                                    "fix_sha256": "f" * 64}) + "\n")
     now = datetime(2026, 10, 21, 6, 0, tzinfo=UTC)                   # 08:00 Варшавы 21.10
-    assert c1.close_missing(now) == 1
+    assert c1.close_missing(now) == 2
     reg = [json.loads(x) for x in (tmp_c1 / "registry.jsonl").read_text().splitlines()]
-    assert reg[-1]["slot"] == "2026-10-21" and reg[-1]["status"] == "missing_snapshot"
+    assert [(r["slot"], r["status"]) for r in reg[1:]] == [("2026-10-20", "incomplete_forecast"),
+                                                            ("2026-10-21", "missing_snapshot")]
+    assert reg[1]["run_id"] == "run-20" and reg[1]["fix_sha256"] == "f" * 64   # исходный запуск, не новый
     assert c1.close_missing(now) == 0
+
+
+def test_a4_fix_then_crash_is_recovered_not_lost(tmp_c1, monkeypatch):
+    """Аудит GPT 481385e A4: фиксация записана, затем исключение в q_vector (до forecasts/registry). Повтор того же утра
+    новую фиксацию не выбирает; до 07:20 слот не трогается; после — 1 строка реестра incomplete_forecast с исходным
+    run_id и SHA фиксации, границы не меняются. На impl-2 close_missing давал 0 строк — слот пропадал навсегда."""
+    monkeypatch.setattr(c1, "klines", fake_klines(tmp_c1))
+
+    def boom(*a, **k):
+        raise RuntimeError("база недоступна")
+    monkeypatch.setattr(c1, "q_vector", boom)
+    with pytest.raises(RuntimeError):
+        c1.make_forecast("run-1", RUN, levels(), CAP, SETTINGS, now_fn=clock(FIX, FIX + timedelta(minutes=1)),
+                         sleep=lambda s: None)
+    fix = json.loads((tmp_c1 / "fixes.jsonl").read_text().splitlines()[0])
+    assert not (tmp_c1 / "registry.jsonl").exists() and not (tmp_c1 / "forecasts.jsonl").exists()
+    retry = RUN + timedelta(minutes=4)                                   # 07:04 — ещё назначенное окно
+    clk = VirtualClock(retry + timedelta(seconds=40))
+    try:
+        again = c1.make_forecast("run-2", retry, levels(price=101.0), retry + timedelta(seconds=30), SETTINGS,
+                                 now_fn=clk.now, sleep=clk.sleep)
+    except RuntimeError:                                                 # старый код: новая фиксация и снова сбой
+        again = "новая попытка"
+    assert again is None
+    assert len((tmp_c1 / "fixes.jsonl").read_text().splitlines()) == 1   # новая фиксация не выбрана
+    assert c1.close_missing(datetime(2026, 10, 19, 5, 15, tzinfo=UTC)) == 0     # 07:15 — прогон мог ещё идти
+    assert c1.close_missing(datetime(2026, 10, 19, 5, 25, tzinfo=UTC)) == 1
+    reg = [json.loads(x) for x in (tmp_c1 / "registry.jsonl").read_text().splitlines()]
+    assert len(reg) == 1 and reg[0]["status"] == "incomplete_forecast"
+    assert (reg[0]["run_id"], reg[0]["fix_sha256"], reg[0]["forecast_id"]) == ("run-1", fix["fix_sha256"], "c1-2026-10-19")
+    assert c1.close_missing(datetime(2026, 10, 20, 5, 25, tzinfo=UTC)) == 1    # следующий день — свой missing
+
+
+@pytest.mark.parametrize("bad, why", [
+    ({"error": "TimeoutError: page.evaluate"}, "не прочитаны"),
+    ({}, "не прочитаны"),
+    ({**SETTINGS, "headings": [h.replace("BTCUSDT", "ETHUSDT") for h in SETTINGS["headings"]]}, "Binance BTCUSDT"),
+    ({**SETTINGS, "headings": ["Уровни ликвидаций Binance BTCUSDT", "Магнитные зоны"]}, "окно"),    # интерфейс до 22.10
+    ({**SETTINGS, "checkboxes": SETTINGS["checkboxes"][:2] + [{"checked": False, "label": "Низкое кредитное плечо"}]},
+     "плеча"),
+    ({**SETTINGS, "checkboxes": []}, "плеча"),
+    ({**SETTINGS, "controls": [{"t": "Русский"}]}, "кнопки пары"),
+    ({**SETTINGS, "url": "https://www.coinglass.com/ru/LiquidityHeatmap"}, "страница"),
+])
+def test_a3_unconfirmed_settings_are_not_admitted(tmp_c1, monkeypatch, bad, why):
+    """Аудит GPT 481385e A3: ошибка наблюдения, пустые/другие настройки, другая пара, неподтверждённые окно и плечи →
+    not_ready_settings с причиной (на impl-2 — admitted с константой Binance BTCUSDT)."""
+    monkeypatch.setattr(c1, "klines", lambda *a: pytest.fail("при неподтверждённых настройках цена не нужна"))
+    clk = VirtualClock(FIX)                                          # часы идут: старый код не зависает в ожидании A
+    rec = c1.make_forecast("r", RUN, levels(), CAP, bad, now_fn=clk.now, sleep=clk.sleep)
+    assert rec["status"] == "not_ready_settings" and why in rec["settings_gate"]
+    reg = json.loads((tmp_c1 / "registry.jsonl").read_text().splitlines()[-1])
+    assert reg["status"] == "not_ready_settings" and reg["run_id"] == "r"
+
+
+def test_a3_observe_error_flows_to_gate():
+    """Штатный путь сборщика: observe() при сбое страницы отдаёт {'error': …} — шлюз его не пропускает."""
+    from services.coinglass_web import collector
+
+    class Broken:
+        def evaluate(self, js):
+            raise TimeoutError("страница не ответила")
+    why, _ = c1.settings_gate(collector.observe(Broken()))
+    assert why and "TimeoutError" in why
+    assert c1.settings_gate(SETTINGS)[0] is None
 
 
 # ---------------------------------------------------------------- исход

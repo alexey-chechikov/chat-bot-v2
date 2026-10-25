@@ -228,3 +228,32 @@ def test_weex_grid_task_created_first():
     first = src.index("asyncio.create_task(")
     assert src.index("name=\"weex_grid\"") < src.index("name=\"telegram_polling\"")
     assert src[first:src.index("\n", first)].count("_run_weex_grid") == 1
+
+
+def test_g4_regime_card_does_not_block_event_loop(monkeypatch):
+    """25.10 (аудит GPT 481385e G4): синхронная сборка карточки (HTTP, рисование) не держит event loop — независимая
+    задача идёт, пока карточка собирается. До фикса проба стартовала только после конца карточки."""
+    import asyncio
+    import time as _time
+    from services import regime_watch
+    order = []
+
+    def slow_card(send_fn=None, photo_fn=None):
+        order.append("card_begin")
+        _time.sleep(0.3)
+        order.append("card_end")
+
+    monkeypatch.setattr(regime_watch, "maybe_send_regime_card", slow_card)
+    monkeypatch.setattr(regime_watch, "maybe_send_trend_entry", lambda send_fn=None: None)
+
+    async def main():
+        stop = asyncio.Event()
+
+        async def probe():
+            await asyncio.sleep(0.05)
+            order.append("probe")
+            await asyncio.sleep(0.4)
+            stop.set()
+        await asyncio.gather(app_runner._run_regime_watch(stop), probe())
+    asyncio.run(main())
+    assert order[:3] == ["card_begin", "probe", "card_end"]

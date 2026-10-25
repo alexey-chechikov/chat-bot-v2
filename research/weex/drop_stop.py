@@ -84,7 +84,7 @@ def run(args):
         if i in F:
             fund += Q * o[i] * F[i]
         if prev is not None and bound[i]:
-            if prev and lots:
+            if prev:  # 25.10 R1 (аудит GPT): сброс опорной и без лотов — иначе вход от уровня старого режима
                 px = o[i] * (1 - SLIP)
                 real += Q * px - QE
                 fee += Q * px * TAKER

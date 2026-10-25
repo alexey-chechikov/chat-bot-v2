@@ -48,7 +48,17 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 
 def outcome(h, l, j, lvl, up, thr, n):
-    """После касания в минуте j: True — отскок раньше пробоя, False — пробой, None — ни то ни другое за 24 ч."""
+    """После касания в минуте j: True — отскок раньше пробоя, False — пробой, "amb" — порядок внутри минуты неизвестен,
+    None — ни то ни другое за 24 ч. 25.10 (аудит GPT R4): сначала сама минута касания — пробой в ней (цена прошла
+    уровень и ушла дальше) → пробой; «отскок» в ней или оба порога → неоднозначно (экстремум мог быть до касания)."""
+    if up:
+        brk0, rev0 = h[j] >= lvl * (1 + thr), l[j] <= lvl * (1 - thr)
+    else:
+        brk0, rev0 = l[j] <= lvl * (1 - thr), h[j] >= lvl * (1 + thr)
+    if rev0:
+        return "amb"
+    if brk0:
+        return False
     a, b = j + 1, min(j + 1 + 1440, n)
     if a >= b:
         return None
@@ -76,7 +86,9 @@ def days_of(ts_ms: np.ndarray):
     last = datetime.fromtimestamp(ts_ms[-1] / 1000, timezone.utc).date() - timedelta(days=1)
     d = first
     while d <= last:
-        yield d, int(datetime(d.year, d.month, d.day, 8, tzinfo=WAW).timestamp() * 1000)
+        nd = d + timedelta(days=1)                  # 25.10: до СЛЕДУЮЩЕГО 08:00 по Варшаве (переход времени — 23/25 ч)
+        yield d, int(datetime(d.year, d.month, d.day, 8, tzinfo=WAW).timestamp() * 1000), \
+            int(datetime(nd.year, nd.month, nd.day, 8, tzinfo=WAW).timestamp() * 1000)
         d += timedelta(days=1)
 
 
@@ -94,8 +106,8 @@ def run(sym: str, path: str) -> None:
     dayhl = df.assign(d=pd.to_datetime(ts, unit="ms").date).groupby("d").agg(H=("high", "max"), L=("low", "min"),
                                                                             N=("high", "size"))
     hist_up, hist_dn, days = [], [], []
-    for d, a_ms in days_of(ts):
-        i0, i1 = pos.get(a_ms - 60_000), pos.get(a_ms + 86_400_000 - 60_000)
+    for d, a_ms, b_ms in days_of(ts):
+        i0, i1 = pos.get(a_ms - 60_000), pos.get(b_ms - 60_000)
         if i0 is None or i1 is None:
             continue
         t_h = pd.Timestamp(a_ms - 3_600_000, unit="ms")
@@ -126,7 +138,7 @@ def run(sym: str, path: str) -> None:
         print(f"  порог {thr * 100:.1f}%: тип | касаний | отскок первым [95%] | 1-я / 2-я половина | плацебо | "
               f"ожидание сделки от уровня после расходов")
         for t in types:
-            real, plac = {0: [], 1: []}, {0: [], 1: []}
+            real, plac, amb = {0: [], 1: []}, {0: [], 1: []}, {0: 0, 1: 0}
             for x in days:
                 if t not in x["lv"]:
                     continue
@@ -137,7 +149,9 @@ def run(sym: str, path: str) -> None:
                     j = first_touch(h, l, x["i0"] + 1, x["i1"] + 1, lvl, side)
                     if j is not None:
                         o = outcome(h, l, j, lvl, side, thr, n)
-                        if o is not None:
+                        if o == "amb":
+                            amb[half] += 1
+                        elif o is not None:
                             real[half].append(o)
                     pool = [dd[0 if side else 1] for dd in dist[t] if dd[0 if side else 1]]
                     for _ in range(N_PLACEBO):
@@ -146,7 +160,7 @@ def run(sym: str, path: str) -> None:
                         j2 = first_touch(h, l, x["i0"] + 1, x["i1"] + 1, pl, side)
                         if j2 is not None:
                             o2 = outcome(h, l, j2, pl, side, thr, n)
-                            if o2 is not None:
+                            if o2 is not None and o2 != "amb":
                                 plac[half].append(o2)
             allr = real[0] + real[1]
             allp = plac[0] + plac[1]
@@ -158,8 +172,10 @@ def run(sym: str, path: str) -> None:
             hv = " / ".join(f"{sum(real[s]) / len(real[s]) * 100:.0f}% vs {sum(plac[s]) / len(plac[s]) * 100:.0f}%"
                             if real[s] and plac[s] else "—" for s in (0, 1))
             ev = (2 * k / nn - 1) * thr - COST
-            print(f"    {t:<10} | {nn:4d} | {k / nn * 100:5.1f}% [{lo * 100:.0f}…{hi * 100:.0f}] | {hv} | "
-                  f"{pr * 100:5.1f}% | {ev * 100:+.3f}%")
+            na = amb[0] + amb[1]
+            lo_b, hi_b = k / (nn + na), (k + na) / (nn + na)          # все неоднозначные — пробой / все — отскок
+            print(f"    {t:<10} | {nn:4d} (+{na} неоднозн.) | {k / nn * 100:5.1f}% [{lo * 100:.0f}…{hi * 100:.0f}], "
+                  f"границы {lo_b * 100:.0f}…{hi_b * 100:.0f}% | {hv} | {pr * 100:5.1f}% | {ev * 100:+.3f}%")
 
 
 def main():

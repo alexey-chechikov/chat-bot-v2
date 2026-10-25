@@ -90,7 +90,10 @@ def _parse_grid(name: str, cfg: dict, st: dict, blocks: dict) -> dict:
             raise ValueError("исполнено больше объёма входа")
         entry = {"id": str(e.get("id") or "entry"), "price": _num(e["price"]), "qty": qty, "filled": filled}
     cap = int(_num(cfg["max_lots_per_side"]))
-    return {"name": name, "lots": lots, "entry": entry,
+    ok = st.get("last_tick_ok_ts")                              # 25.10 (аудит GPT A5): последняя полная сверка с биржей
+    ok_ts = float(ok) if isinstance(ok, (int, float)) and not isinstance(ok, bool) and math.isfinite(ok) and ok > 0 \
+        else None
+    return {"name": name, "lots": lots, "entry": entry, "ok_ts": ok_ts,
             "step": _num(cfg["step_pct"]), "target": _num(cfg["target_pct"]), "qty": _num(cfg["order_qty"]),
             "cap": cap, "max_notional": _num(cfg["max_notional_usd"]), "tick": _num(cfg["price_tick"]),
             "stress": _num(cfg.get("stress_budget_frac") or 0, pos=False),
@@ -136,6 +139,9 @@ def grid_levels(names=None, peek=None, state_path=None, blocks=None) -> dict[str
             d["lots"] += 1
     for d in out.values():
         d["avg"] = d["cost"] / d["qty"] if d["qty"] > 0 else None
+        # старейшая подтверждённая сверка прочитанных сеток; у какой-то её нет — неизвестно (0), не «сейчас»
+        oks = [gd["ok_ts"] for gd in d["detail"]]
+        d["sync"] = (0.0 if any(x is None for x in oks) else min(oks)) if oks else None
         d["entries"].sort()
         d["tps"].sort()
     return out
@@ -324,11 +330,21 @@ def scenario_lines(data: dict) -> list[str]:
     return out
 
 
-def _coverage(g: dict | None) -> str:
-    if not g or not g["skipped"]:
-        return ""
-    miss = ", ".join(f"{n} ({why})" for n, why in g["skipped"])
-    return f"⚠️ учёт прочитан {len(g['grids'])} из {g['expected']} сеток — не прочитаны: {miss}"
+SYNC_STALE_S = 300           # сверка старше 5 мин при сборке /tv — уровни не «стоят сейчас», а снимок
+
+
+def _coverage(g: dict | None, now: datetime | None = None) -> str:
+    out = []
+    if g and g["skipped"]:
+        miss = ", ".join(f"{n} ({why})" for n, why in g["skipped"])
+        out.append(f"⚠️ учёт прочитан {len(g['grids'])} из {g['expected']} сеток — не прочитаны: {miss}")
+    if g and g["grids"] and now is not None and g.get("sync") is not None:
+        if not g["sync"]:
+            out.append("⚠️ время сверки с биржей неизвестно — уровни как снимок учёта, не подтверждённые заявки")
+        elif now.timestamp() - g["sync"] > SYNC_STALE_S:
+            ago = (now.timestamp() - g["sync"]) / 60
+            out.append(f"⚠️ сверка с биржей {ago:.0f} мин назад — уровни как снимок учёта, не подтверждённые заявки")
+    return "\n".join(out)
 
 
 def level_lines(data: dict) -> list[str]:
@@ -341,7 +357,7 @@ def level_lines(data: dict) -> list[str]:
         rows = []
         if day:
             rows += [(day["hi"], "верх коридора дня"), (day["lo"], "низ коридора дня")]
-            rows += [(p, f"зона {'↑' if s == 'up' else '↓'} · шанс {c * 100:.0f}%") for p, c, s in day["zones"]]
+            rows += [(p, f"зона CG {'↑' if s == 'up' else '↓'} · касание {c * 100:.0f}% по ATR (сила зоны не учтена)") for p, c, s in day["zones"]]
         if g and g["grids"]:
             if g["avg"]:
                 rows.append((g["avg"], f"{AVG_LABEL} ({g['lots']})"))
@@ -353,7 +369,7 @@ def level_lines(data: dict) -> list[str]:
                              f"ближайшие тейки ({len(g['tps'])}): {_span(g['tps'])}"))
         if d["thr"]:
             rows.append((d["thr"], "порог дневного закрытия (SMA100)"))
-        cov = _coverage(g)
+        cov = _coverage(g, data["now"])
         if not rows and not cov:
             continue
         out += ([""] if out else []) + [f"📍 Уровни {sym[:3]}" + (f" · цена {_h(px)}" if px else "")]
@@ -391,6 +407,8 @@ def tv_line(data: dict) -> str:
                 toks.append(f"a{_n(g['avg'])}")
             if g["grids"]:                                      # ни одной прочитанной — не «0 лотов», а g0/N
                 toks.append(f"n{g['lots']}")
+            if g.get("sync") is not None:                       # v — время сверки с биржей (u — сборки строки)
+                toks.append(f"v{int(g['sync'])}")
         if d["thr"]:
             toks.append(f"s{_n(d['thr'])}")
         parts.append(" ".join(toks))
@@ -413,7 +431,7 @@ def card_lines(data: dict) -> list[str]:
             bits.append(f"входы {_span(g['entries'])}" + (f" ({len(g['entries'])})" if len(g["entries"]) > 1 else ""))
         if g["tps"]:
             bits.append(f"ближайшие тейки {_span(g['tps'])}")
-        cov = _coverage(g)
+        cov = _coverage(g, data["now"])
         if cov:
             bits.append(cov)
         out.append(f"📍 {sym[:3]}: " + " · ".join(bits))
@@ -429,7 +447,7 @@ def tv_message(data: dict) -> str:
         if day:
             z = " ".join(f"{'↑' if side == 'up' else '↓'}{_h(p)} ({c * 100:.0f}%)" for p, c, side in day["zones"])
             end = datetime.fromtimestamp(day["end"], timezone.utc).astimezone() if day.get("end") else None
-            lines.append(f"{sym[:3]} коридор дня {_h(day['lo'])}–{_h(day['hi'])}" + (f" · зоны {z}" if z else "")
+            lines.append(f"{sym[:3]} коридор дня {_h(day['lo'])}–{_h(day['hi'])}" + (f" · зоны CG, касание по ATR {z}" if z else "")
                          + (f" · до {end:%d.%m %H:%M}" if end else ""))
         else:
             lines.append(f"{sym[:3]} коридор дня: действующего прогноза нет")

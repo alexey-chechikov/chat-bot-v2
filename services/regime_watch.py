@@ -362,6 +362,8 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         return False
     day = local.strftime("%Y-%m-%d")
     if _read_state(CARD_STATE).get("date") == day:
+        if send_fn is not None:
+            _send_story(send_fn, now, day)      # 25.10 G6: карточка ушла, рассказ — нет: повтор рассказа отдельно
         return False
     card = build_card(now)
     if send_fn is None:
@@ -383,20 +385,65 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
 
 
 STORY_STATE = ROOT / "state" / "regime_story_sent.json"
+STORY_LOG = ROOT / "state" / "market_brief" / "story_log.jsonl"
+TG_LIMIT = 4096
+
+
+def _chunks(text: str, limit: int = TG_LIMIT) -> list[str]:
+    """Части ≤ limit по границам строк (длинная строка — по limit): вывод в конце текста не теряется."""
+    out, cur = [], ""
+    for line in text.split("\n"):
+        while len(line) > limit:
+            if cur:
+                out.append(cur)
+                cur = ""
+            out.append(line[:limit])
+            line = line[limit:]
+        if cur and len(cur) + 1 + len(line) > limit:
+            out.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _log_story(day: str, text: str, created: datetime, parts: int) -> None:
+    """Неизменяемая запись отправленного рассказа: полный текст, SHA, когда собран и когда ушёл (аудит GPT G6 —
+    без неё разбор «что потом сделал рынок» сверял бы не то, что видел оператор). Сбой записи отправку не трогает."""
+    try:
+        import hashlib
+        STORY_LOG.parent.mkdir(parents=True, exist_ok=True)
+        rec = {"date": day, "created_utc": created.isoformat(timespec="seconds"),
+               "sent_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "parts": parts,
+               "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "text": text}
+        with open(STORY_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.story_log_failed")
 
 
 def _send_story(send_fn: Callable, now: datetime, day: str) -> None:
     """Аналитика «что изменилось за сутки и что из этого следует» отдельным ПЕРВЫМ сообщением (22.10, оператор: «мне не
     хватает именно аналитики и выводов и сравнения, что изменилось за вчера»; вместе с карточкой > 4096 знаков). Раз в
-    день: повтор карточки через 15 мин аналитику не дублирует. Сбой не трогает карточку."""
+    день: повтор карточки через 15 мин аналитику не дублирует. Сбой не трогает карточку.
+    25.10 (аудит GPT 481385e G6): длинный текст — частями по строкам, а не обрезкой (вывод в конце пропадал); не ушёл —
+    повтор и после ушедшей карточки (раньше дата карточки закрывала день); отправленный текст — в STORY_LOG с SHA."""
     if _read_state(STORY_STATE).get("date") == day:
         return
     try:
         from services.market_brief import story
+        created = datetime.now(timezone.utc)
         text = "\n".join(story.block(now))
-        if text:
-            send_fn(text[:4096])
-            _write_state(STORY_STATE, {"date": day})
+        if not text:
+            _write_state(STORY_STATE, {"date": day, "empty": True})
+            return
+        parts = _chunks(text)
+        for p in parts:
+            send_fn(p)
+        _write_state(STORY_STATE, {"date": day})
+        _log_story(day, text, created, len(parts))
     except Exception:                                           # noqa: BLE001
         logger.exception("regime_card.story_failed")
 

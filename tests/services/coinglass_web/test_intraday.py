@@ -71,3 +71,16 @@ def test_failed_send_is_logged_and_retried_same_hour(env):
     log = [json.loads(x) for x in (env / "intraday_log.jsonl").read_text().splitlines()]
     assert log[-1]["ok"] is False
     assert intraday.maybe_send(datetime(2026, 10, 20, 12, 20, tzinfo=UTC), lambda t: True) is True
+
+
+def test_progress_does_not_deny_touch_on_missing_minutes(monkeypatch):
+    """25.10 (аудит GPT A2): 2 из 5 минут — нельзя писать «пока внутри» и «не задета»; в пропуске мог быть пробой."""
+    a = int(datetime(2026, 10, 20, 6, 13, tzinfo=UTC).timestamp() * 1000)
+    now = datetime.fromtimestamp((a + 5 * MIN) / 1000, UTC)
+    f = {"algo": dr.ALGO, "kind": "forecast", "date": dr.issue_day(now).isoformat(), "sym": "BTCUSDT", "A_ms": a,
+         "corridor": [95.0, 105.0], "levels": [{"name": "test upper", "price": 105.0, "side": "up", "chance": 0.4}]}
+    monkeypatch.setattr(dr, "_mine", lambda kind: [f] if kind == "forecast" else [])
+    monkeypatch.setattr(dr, "klines", lambda sym, i, s, e: [[t, "100", "100", "100", "100"] for t in (a, a + 4 * MIN)])
+    text = "\n".join(intraday._forecast_progress(now))
+    assert "не задета" not in text and "пока внутри" not in text
+    assert "неполные: 2 из 5" in text and "неизвестно" in text

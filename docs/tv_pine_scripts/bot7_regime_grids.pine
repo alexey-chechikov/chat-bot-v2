@@ -1,5 +1,7 @@
 //@version=5
-// bot7 · режим сеток v2.4 (24.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// bot7 · режим сеток v2.5 (25.10.2026) — то, по чему реально работают боты WEEX, вместо прогноза направления.
+// v2.5 (аудит GPT 481385e A5): ближайший вход/тейк — по расстоянию до цены; уровни старше «устарели через, ч» — серым
+// с пометкой «снимок N ч назад»; подпись WEEX; средняя — без комиссий и фандинга.
 // v2.4 (оператор: «чтобы средняя постоянно была на графике»): SMA100 и средняя лотов рисуются всегда, независимо от
 // лимита расстояния, с подписью у правого края (галочка «SMA и средняя лотов — всегда»); остальные дальние линии — как раньше.
 // v2.3 (разбор GPT к a25c763): алерты, метки и подсветка режима — только при расчёте по правилу ботов (BINANCE спот,
@@ -23,9 +25,11 @@ smaLen   = input.int(100, "SMA, дней (боты: 100)", minval=10)
 showLine = input.bool(true, "Линии SMA и порога")
 lineMax  = input.float(6.0, "Рисовать линии, если до цены не дальше, %", minval=0.5, step=0.5, tooltip="Для порога и уровней бота (SMA и средняя лотов — см. галочку ниже). Дальние сжимают свечи; цифры всё равно в таблице")
 avgAlways = input.bool(true, "SMA и средняя лотов — всегда (даже дальше лимита)", tooltip="v2.4: обе средние видны постоянно. Далёкая SMA сжимает свечи — тогда снять галочку или открыть ТФ крупнее")
+staleH   = input.float(12.0, "Уровни бота устарели через, ч", minval=1, step=1, tooltip="v2.5: старше — входы/тейки/средняя серым с пометкой «снимок N ч назад»: это не подтверждённые стоящие сейчас заявки")
 showBg   = input.bool(true, "Подсветка режима (зелёный — лонги разрешены, серый — нет)")
 warnPct  = input.float(3.0, "Красный и тревога: до порога меньше, %", minval=0.1, step=0.5)
 showTp   = input.bool(true, "Ближайшие тейки сеток")
+showCG   = input.bool(false, "Зоны CoinGlass (исследование)", tooltip="v2.5 (аудит GPT A5): шанс у зоны — историческая частота касания при таком расстоянии/ATR от якоря утра до конца окна; сила зоны CoinGlass в нём не участвует, добавочная польза карты не доказана. Не магнит и не сигнал")
 tabPos   = input.string("сверху справа", "Таблица", options=["сверху справа", "снизу справа", "сверху слева", "снизу слева"])
 txtSize  = input.string("мелкий", "Размер текста", options=["мелкий", "обычный", "крупный"])
 
@@ -92,6 +96,15 @@ f_level(lns, lbs, price, txt, col, sty) =>
 
 f_span(arr) => array.size(arr) == 1 ? f_px(array.get(arr, 0)) : f_px(array.min(arr)) + "–" + f_px(array.max(arr))
 
+// v2.5 (аудит GPT A5): ближайший к текущей цене уровень — по модулю расстояния (max/min верны, только пока все уровни
+// по одну сторону цены)
+f_nearest(arr) =>
+    float best = na
+    for v in arr
+        if na(best) or math.abs(v - close) < math.abs(best - close)
+            best := v
+    best
+
 // ── таблица
 pos = tabPos == "сверху справа" ? position.top_right : tabPos == "снизу справа" ? position.bottom_right : tabPos == "сверху слева" ? position.top_left : position.bottom_left
 var table T = table.new(pos, 2, 9, border_width=1)
@@ -104,6 +117,7 @@ if barstate.islast
     // разбор строки бота: u время, g прочитано/ожидалось сеток, x непрочитанные, k коридор, w конец окна прогноза,
     // z зоны цена:шанс, e входы, t тейки, a средняя лотов без комиссий, n лотов, s порог бота
     float u    = na
+    float vOk  = na
     float kLo  = na
     float kHi  = na
     float wEnd = na
@@ -124,6 +138,8 @@ if barstate.islast
             body = str.substring(tok, 1)
             if pre == "u"
                 u := str.tonumber(body)
+            else if pre == "v"
+                vOk := str.tonumber(body)
             else if pre == "g"
                 gg = str.split(body, "/")
                 if array.size(gg) == 2
@@ -168,30 +184,41 @@ if barstate.islast
     if not na(gFill)
         linefill.delete(gFill)
     if not na(kLo) and not na(kHi) and not expired and f_near(kLo) and f_near(kHi)
-        lLo = f_level(gLines, gLabels, kLo, "коридор дня · низ " + f_px(kLo), color.new(color.teal, 0), line.style_dashed)
-        lHi = f_level(gLines, gLabels, kHi, "коридор дня · верх " + f_px(kHi), color.new(color.teal, 0), line.style_dashed)
+        lLo = f_level(gLines, gLabels, kLo, "коридор дня (ATR-история) · низ " + f_px(kLo), color.new(color.teal, 0), line.style_dashed)
+        lHi = f_level(gLines, gLabels, kHi, "коридор дня (ATR-история) · верх " + f_px(kHi), color.new(color.teal, 0), line.style_dashed)
         gFill := linefill.new(lLo, lHi, color.new(color.teal, 94))
-    if not expired
+    if showCG and not expired                                     // v2.5: зоны CoinGlass — только по галочке
         for [i, p] in zp
             if f_near(p)
                 c = array.get(zc, i)
-                f_level(gLines, gLabels, p, (p >= close ? "↑ зона " : "↓ зона ") + f_px(p) + (na(c) ? "" : " · шанс " + str.tostring(c, "0") + "%"), color.new(color.fuchsia, 0), line.style_dotted)
+                f_level(gLines, gLabels, p, (p >= close ? "↑ зона CG " : "↓ зона CG ") + f_px(p) + (na(c) ? "" : " · касание " + str.tostring(c, "0") + "% по ATR от утра, сила зоны не учтена"), color.new(color.fuchsia, 0), line.style_dotted)
+    // v2.5 (аудит GPT A5): уровни бота — снимок учёта на момент последней сверки с биржей (v; нет v — время строки u),
+    // не подтверждённые стоящие сейчас заявки. Старше staleH или сверка неизвестна (v0) — серым с пометкой; биржа —
+    // WEEX (на графике Bybit/Binance это явно подписано)
+    syncT  = na(vOk) ? u : vOk
+    unk    = not na(vOk) and vOk <= 0
+    ageNow = na(syncT) or unk ? na : (timenow / 1000 - syncT) / 3600
+    stale  = unk or (not na(ageNow) and ageNow > staleH)
+    tag    = unk ? "сверка неизвестна · " : stale ? "снимок " + str.tostring(ageNow, "0") + " ч назад · " : ""
+    cEnt   = stale ? color.new(color.gray, 30) : color.new(color.lime, 40)
+    cTp    = stale ? color.new(color.gray, 30) : color.new(color.red, 40)
+    cAvg   = stale ? color.new(color.gray, 0) : color.new(color.yellow, 0)
     if array.size(ent) > 0
         for p in ent
             if f_near(p)
-                f_level(gLines, gLabels, p, "", color.new(color.lime, 40), line.style_dotted)
-        eTop = array.max(ent)                                   // ближайший к цене вход (покупки ниже цены)
-        if f_near(eTop)
-            array.push(gLabels, label.new(bar_index + 2, eTop, "входы сеток: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ") · ближайший " + f_pct((eTop / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.lime, size=tsz))
+                f_level(gLines, gLabels, p, "", cEnt, line.style_dotted)
+        eNear = f_nearest(ent)                                  // ближайший к цене вход — по расстоянию, а не max
+        if f_near(eNear)
+            array.push(gLabels, label.new(bar_index + 2, eNear, tag + "входы сеток WEEX: " + str.tostring(array.size(ent)) + " (" + f_span(ent) + ") · ближайший " + f_px(eNear) + " " + f_pct((eNear / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=stale ? color.gray : color.lime, size=tsz))
     if showTp and array.size(tps) > 0
         for p in tps
             if f_near(p)
-                f_level(gLines, gLabels, p, "", color.new(color.red, 40), line.style_dotted)
-        tLow = array.min(tps)
-        if f_near(tLow)
-            array.push(gLabels, label.new(bar_index + 2, tLow, "ближайшие тейки: " + str.tostring(array.size(tps)) + " (" + f_span(tps) + ") · ближайший " + f_pct((tLow / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.red, size=tsz))
+                f_level(gLines, gLabels, p, "", cTp, line.style_dotted)
+        tNear = f_nearest(tps)
+        if f_near(tNear)
+            array.push(gLabels, label.new(bar_index + 2, tNear, tag + "тейки сеток WEEX: " + str.tostring(array.size(tps)) + " (" + f_span(tps) + ") · ближайший " + f_px(tNear) + " " + f_pct((tNear / close - 1) * 100), style=label.style_label_left, color=color.new(color.black, 100), textcolor=stale ? color.gray : color.red, size=tsz))
     if not na(aAvg) and (avgAlways or f_near(aAvg))
-        f_level(gLines, gLabels, aAvg, "средняя лотов (без комиссий) " + f_px(aAvg) + " · цена " + f_pct((close / aAvg - 1) * 100), color.new(color.yellow, 0), line.style_solid)
+        f_level(gLines, gLabels, aAvg, tag + "средняя лотов WEEX (без комиссий и фандинга) " + f_px(aAvg) + " · цена " + f_pct((close / aAvg - 1) * 100), cAvg, line.style_solid)
     if showLine and not na(ySma) and (avgAlways or f_near(ySma))     // v2.4: подпись SMA у правого края
         array.push(gLabels, label.new(bar_index + 2, ySma, "SMA" + str.tostring(smaLen) + " дн. " + f_px(ySma) + " · цена " + f_pct(dSma), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.aqua, size=tsz))
 
@@ -223,10 +250,10 @@ if barstate.islast
         f_row(T, 6, "Коридор дня", isBot ? "нет: /tv в Telegram → ⚙ индикатора → «Строка из бота»" : "—", color.gray)
     lotTxt = na(nLot) ? (partial and gRead == 0 ? "учёт не прочитан" : "—") : str.tostring(nLot, "0") + " лот." + (na(aAvg) ? "" : " · средняя без комиссий " + f_px(aAvg) + " (цена " + f_pct((close / aAvg - 1) * 100) + ")")
     f_row(T, 7, "Лоты бота", lotTxt, partial ? color.orange : color.yellow)
-    ageH = na(u) ? na : (timenow / 1000 - u) / 3600
-    ageTxt = na(ageH) ? (isBot ? "строки нет" : "—") : ageH < 1 ? str.tostring(math.round(ageH * 60)) + " мин назад" : str.tostring(ageH, "0.0") + " ч назад"
+    ageH = ageNow                                               // v2.5: от сверки с биржей (v), не от сборки строки
+    ageTxt = unk ? "сверка с биржей неизвестна" : na(ageH) ? (isBot ? "строки нет" : "—") : (ageH < 1 ? str.tostring(math.round(ageH * 60)) + " мин назад" : str.tostring(ageH, "0.0") + " ч назад") + (na(vOk) ? " (время строки)" : " (сверка WEEX)")
     covTxt = na(gRead) ? "" : " · сетки " + str.tostring(gRead) + "/" + str.tostring(gExp) + (str.length(xMiss) > 0 ? " (нет " + xMiss + ")" : "")
-    f_row(T, 8, "Уровни бота от", ageTxt + covTxt, na(ageH) ? color.gray : partial or ageH > 12 ? color.orange : color.white)
+    f_row(T, 8, "Уровни бота от", ageTxt + covTxt, unk ? color.orange : na(ageH) ? color.gray : partial or stale ? color.orange : color.white)
 
 // оба алерта гейтированы asBot (near, flipOn/flipOff): справочная SMA или другие дневки алерт бота не шлют
 alertcondition(near, "bot7: близко к порогу", "Цена близко к порогу закрытия дня по SMA100 — лонг-сетки могут закрыться на следующий день")

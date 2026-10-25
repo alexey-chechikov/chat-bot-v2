@@ -1189,6 +1189,8 @@ class TelegramBotApp:
         # обязаны уходить в свой поток (как /card).
         self.bot = telebot.TeleBot(token, parse_mode=None, threaded=False)
         self._polling_stop = threading.Event()           # остановка собственного цикла опроса (stop_polling_loop)
+        self._builders: dict = {}                        # 25.10 G4: тяжёлые сборки по видам команд (_spawn_once)
+        self._builders_lock = threading.Lock()
         self.responder = TelegramResponder(self.bot)
         self.command_handler = CommandHandler(self.responder.send)
         self.alert_worker = MarketAlertWorker(
@@ -1225,6 +1227,25 @@ class TelegramBotApp:
 
     def _is_allowed(self, chat_id: int) -> bool:
         return not self.allowed_chat_ids or chat_id in self.allowed_chat_ids
+
+    def _spawn_once(self, name: str, target, chat_id: int, ack: str | None = None) -> bool:
+        """25.10 (аудит GPT 481385e G4): одна тяжёлая сборка на вид команды. Повтор, пока прежняя идёт, не плодит потоки
+        (отменить уже работающий поток нельзя) — ответ «уже собираю». ack — сообщение о старте, только если начали."""
+        with self._builders_lock:
+            t = self._builders.get(name)
+            if t is not None and t.is_alive():
+                busy = True
+            else:
+                busy = False
+                t = threading.Thread(target=target, name=name, daemon=True)
+                self._builders[name] = t
+        if busy:
+            self.bot.send_message(chat_id, '⏳ Уже собираю по прошлой команде — ответ придёт, повторять не нужно.')
+            return False
+        if ack:
+            self.bot.send_message(chat_id, ack)
+        t.start()
+        return True
 
     def _send_long_text(self, chat_id: int, text: str, *,
                          filename: str = "report.txt",
@@ -2612,7 +2633,7 @@ class TelegramBotApp:
                     return
                 self.bot.send_message(chat_id, text, parse_mode='HTML')
 
-            threading.Thread(target=_build_and_send, name='tv-levels', daemon=True).start()
+            self._spawn_once('tv-levels', _build_and_send, chat_id)
 
         # ── /odds — шансы касания на 1ч/4ч/12ч/сутки по часовой z-модели,
         # уровни ботов рядом с ценой, неделя/месяц фоном. /odds дни — полная
@@ -2725,14 +2746,14 @@ class TelegramBotApp:
             arg = (message.text or '').partition(' ')[2].strip().lower()
             syms = ['ETHUSDT'] if arg.startswith('eth') else (['BTCUSDT'] if arg.startswith('btc')
                                                              else ['BTCUSDT', 'ETHUSDT'])
-            self.bot.send_message(chat_id, '🗺 Собираю сводку и карту дня…')
-
             def _job() -> None:
                 try:
                     from services import grid_report, tv_levels
                     try:                                        # 22.10: аналитика «что изменилось и что следует» первой
                         from services.market_brief import story
-                        self.bot.send_message(chat_id, "\n".join(story.block())[:4096])
+                        from services.regime_watch import _chunks
+                        for part in _chunks("\n".join(story.block())):   # 25.10 G6: частями, вывод не обрезается
+                            self.bot.send_message(chat_id, part)
                     except Exception:
                         logger.exception('handle_map.story_failed')
                     data = tv_levels.collect()
@@ -2744,7 +2765,7 @@ class TelegramBotApp:
                     logger.exception('handle_map.failed')
                     self.bot.send_message(chat_id, f'❌ /map failed: {exc}')
 
-            threading.Thread(target=_job, name='map-builder', daemon=True).start()
+            self._spawn_once('map-builder', _job, chat_id, ack='🗺 Собираю сводку и карту дня…')
 
         # ── /panel — пульт сеток WEEX кнопками (21.10, оператор: «пауза всем, закрыть все позиции, старт бота,
         # заряженные шорт-боты, ордер +/−»). Кнопки шлют те же команды, что /weex (services/weex_grid/panel.py);
@@ -3004,8 +3025,6 @@ class TelegramBotApp:
             sym = parts[1].upper() if len(parts) > 1 else "BTC"
             if not sym.endswith("USDT"):
                 sym += "USDT"
-            self.bot.send_message(chat_id, f"📊 Собираю карту плотности {sym}…")
-
             def _build_and_send() -> None:
                 try:
                     from services.scalp_levels.levels import build_card
@@ -3016,7 +3035,7 @@ class TelegramBotApp:
                     return
                 self.bot.send_message(chat_id, text)
 
-            threading.Thread(target=_build_and_send, name='levels-builder', daemon=True).start()
+            self._spawn_once('levels-builder', _build_and_send, chat_id, ack=f"📊 Собираю карту плотности {sym}…")
 
         # ── /ma_cross — статус форвард-сбора MA-cross H5 (2026-06-13).
         # Текущий уклон по каждому символу + накопленные cross-to-cross исходы.
@@ -3065,8 +3084,7 @@ class TelegramBotApp:
                     return
                 self.bot.send_message(chat_id, text)
 
-            threading.Thread(target=_build_and_send, name='rynok-builder',
-                             daemon=True).start()
+            self._spawn_once('rynok-builder', _build_and_send, chat_id)
 
         @self.bot.message_handler(commands=['card'])
         def handle_card(message) -> None:
@@ -3076,10 +3094,6 @@ class TelegramBotApp:
                 return
             parts = str(message.text or '').strip().split()
             fast = len(parts) > 1 and parts[1].lower() in ('fast', 'быстро')
-            self.bot.send_message(
-                chat_id,
-                '⏳ Собираю карточку (fast, без альт-сканера)…' if fast
-                else '⏳ Собираю карточку (~30с, гоняю альт-сканер; быстрее: /card fast)…')
 
             def _build_and_send() -> None:
                 try:
@@ -3091,7 +3105,9 @@ class TelegramBotApp:
                     return
                 self.bot.send_message(chat_id, text)
 
-            threading.Thread(target=_build_and_send, name='card-builder', daemon=True).start()
+            self._spawn_once('card-builder', _build_and_send, chat_id,
+                             ack='⏳ Собираю карточку (fast, без альт-сканера)…' if fast
+                             else '⏳ Собираю карточку (~30с, гоняю альт-сканер; быстрее: /card fast)…')
 
         # ── TZ-D-ADVISOR-V1: /advise ──────────────────────────────────────────
 

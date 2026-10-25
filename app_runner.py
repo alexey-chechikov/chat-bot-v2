@@ -1103,12 +1103,14 @@ async def _run_regime_watch(stop_event: asyncio.Event, *, telegram_app=None) -> 
     else:
         photo_fn = None
     while not stop_event.is_set():
+        # 25.10 (аудит GPT 481385e G4): сборка карточки/рассказа/карт — синхронные HTTP и рисование; в event loop они
+        # держали остальные задачи (замер GPT: 60 мс sleep в карточке задержал независимую пробу). Теперь — в потоке.
         try:
-            maybe_send_regime_card(send_fn=send_fn, photo_fn=photo_fn)
+            await asyncio.to_thread(maybe_send_regime_card, send_fn=send_fn, photo_fn=photo_fn)
         except Exception:
             logger.exception("regime_watch.card_tick_failed")
         try:
-            maybe_send_trend_entry(send_fn=send_fn)
+            await asyncio.to_thread(maybe_send_trend_entry, send_fn=send_fn)
         except Exception:
             logger.exception("regime_watch.trend_tick_failed")
         # 22.10: опрос по часам (:00:20, :15:20, …), а не от момента старта — после рестарта в 21:51 карточка ушла в 08:13
@@ -1131,29 +1133,24 @@ async def _run_grid_risk_pings(stop_event: asyncio.Event, *, telegram_app=None) 
     bot = telegram_app.bot
 
     def _tick() -> None:
+        # 25.10 (аудит GPT 481385e G1): срочный текст — первым и отдельно от сводки/карт/котировок; доставка по
+        # получателям с очередью повторов — services/grid_report.ping_tick
+        from datetime import datetime, timezone
         from services import grid_report, tv_levels
         if not grid_report.enabled("grid_risk_pings"):
             return
-        data = tv_levels.collect()
-        rows = grid_report.grid_rows()
-        events, st = grid_report.risk_events(rows, grid_report.threshold_risk(data), grid_report.read_ping_state(),
-                                             data["now"])
-        if events:
-            text = "\n".join(events) + "\n\n" + grid_report.report_text(rows=rows, data=data)
-            maps = {s: grid_report.render_map(s, data=data) for s in grid_report.ping_symbols(events, rows)}
-            sent = 0
-            for cid in chat_ids:
-                try:
-                    bot.send_message(cid, text)
-                    for s, png in maps.items():
-                        bot.send_photo(cid, png, caption=grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[s]))
-                    sent += 1
-                except Exception:
-                    logger.exception("grid_risk_pings.send_failed cid=%s", cid)
-            if not sent:
-                return                                          # не ушло никому — повтор через 5 мин
-            logger.info("grid_risk_pings.sent events=%d", len(events))
-        grid_report.write_ping_state(st)
+        now = datetime.now(timezone.utc)
+        try:
+            data = tv_levels.collect(now)
+        except Exception:
+            logger.exception("grid_risk_pings.collect_failed")
+            data = None
+        st = grid_report.ping_tick(
+            chat_ids, lambda cid, text: bot.send_message(cid, text),
+            lambda cid, png, cap: bot.send_photo(cid, png, caption=cap),
+            rows=grid_report.grid_rows(), data=data, state=grid_report.read_ping_state(), now=now)
+        if st is not None:
+            grid_report.write_ping_state(st)
 
     while not stop_event.is_set():
         try:

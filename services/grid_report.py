@@ -27,6 +27,7 @@ BAG_LEVELS = (100.0, 250.0, 500.0, 1000.0)
 THR_LEVELS = (3.0, 1.5)
 RESUME_MIN_CAPPED_S = 3600          # «снова ставит входы» — только если на потолке стояла не меньше часа
 RESUME_EVERY_S = 6 * 3600           # и не чаще раза в 6 ч на сетку
+STALE_TICK_S = 600                  # нет полного успешного прохода дольше 10 мин (обычно ~45 с) — пинг G5
 SHORT = {"BTCUSDT": "BTC", "ETHUSDT": "ETH"}
 MAP_CAPTION = ("Карта дня {sym}: коридор с шансом касания (калиброван вне выборки), входы и ближайшие тейки сеток, средняя "
                "лонгов, плотность POC/VAH/VAL, вчерашние H/L, ликвидации")
@@ -80,9 +81,11 @@ def grid_rows(prices: dict[str, float | None] | None = None) -> list[dict]:
         px = prices[sym]
         row = {"name": name, "sym": sym, "step": float(cfg["step_pct"]), "target": float(cfg["target_pct"]),
                "sides": cfg.get("sides") or ["LONG"], "lots": 0, "qty": 0.0, "bag": 0.0, "closed": 0.0,
-               "cost": 0.0, "blocked": "", "error": ""}
+               "cost": 0.0, "blocked": "", "error": "", "ok_ts": None, "tick_err": None}
         try:
             st = json.loads(run_files(name, False)[0].read_text(encoding="utf-8"))
+            row["ok_ts"] = st.get("last_tick_ok_ts")                # 25.10 G5: последний полный успешный проход
+            row["tick_err"] = st.get("last_tick_error")
             for side, d in (("LONG", 1), ("SHORT", -1)):
                 s = st.get(side) or {}
                 row["closed"] += float(s.get("realized") or 0) - float(s.get("fees") or 0) \
@@ -99,6 +102,8 @@ def grid_rows(prices: dict[str, float | None] | None = None) -> list[dict]:
         except Exception as exc:                                # noqa: BLE001
             logger.exception("grid_report.state_unreadable %s", name)
             row["error"] = type(exc).__name__
+        if not row["error"] and row["lots"] and not px:
+            row["error"] = "нет цены"                       # 25.10 G3: мешок неизвестен — не 0
         row["total"] = row["closed"] + row["bag"]
         rows.append(row)
     return rows
@@ -162,9 +167,12 @@ def report_text(now: datetime | None = None, rows: list[dict] | None = None, dat
         cap = " ⛔ на потолке — входов нет" if "потолок" in r["blocked"] else (f" ⚠️ {r['blocked']}" if r["blocked"] else "")
         out.append(f"• {r['name']} {r['step']:g}/{r['target']:g}: лотов {r['lots']}{cap} · мешок {_m(r['bag'])} · "
                    f"закрыто {_m(r['closed'])} → итог {_m(r['total'])}")
-    bag = sum(r["bag"] for r in rows)
-    total = sum(r["total"] for r in rows)
-    tail = f"Всего: мешок {_m(bag)} · итог {_m(total)}"
+    ok = [r for r in rows if not r["error"]]                   # 25.10 G3: непрочитанное — не 0 в общем итоге
+    bag = sum(r["bag"] for r in ok)
+    total = sum(r["total"] for r in ok)
+    miss = len(rows) - len(ok)
+    tail = (f"Всего (без {miss} непрочитанных — итог неполный): " if miss else "Всего: ") + \
+        f"мешок {_m(bag)} · итог {_m(total)}"
     used = sum(r["cost"] for r in rows)
     if data.get("cap"):
         tail += f" · занято ${used:,.0f} из ${data['cap']:,.0f}"
@@ -187,8 +195,34 @@ def risk_events(rows: list[dict], risk: dict[str, dict], state: dict, now: datet
     day = now.strftime("%Y-%m-%d")
     t = now.timestamp()
     st = {"cap": dict(state.get("cap") or {}), "bag": list(state.get("bag") or []), "thr": dict(state.get("thr") or {}),
-          "capped": dict(state.get("capped") or {}), "resumed": dict(state.get("resumed") or {})}
+          "capped": dict(state.get("capped") or {}), "resumed": dict(state.get("resumed") or {}),
+          "stale": list(state.get("stale") or [])}
     ev = []
+    # 25.10 (аудит GPT 481385e G5): задачу сеток никто не сторожил — упала или застряла, приложение живёт молча.
+    # Сторож со стороны: нет полного успешного прохода дольше STALE_TICK_S — один пинг на эпизод, парный — когда пошли.
+    # Перезапуска нет: слепой рестарт при неясных ордерах опасен (решение — оператору).
+    stale = []
+    for r in rows:
+        ok = r.get("ok_ts")
+        if r.get("error") in ("", None, "нет цены") and isinstance(ok, (int, float)) and t - ok > STALE_TICK_S:
+            stale.append(r)
+    names = sorted(r["name"] for r in stale)
+    if stale and names != sorted(st["stale"]):
+        new = [r for r in stale if r["name"] not in st["stale"]]
+        if new:
+            age = max(t - r["ok_ts"] for r in new) / 60
+            err = next((r["tick_err"] for r in new if isinstance(r.get("tick_err"), dict)
+                        and float(r["tick_err"].get("ts") or 0) >= float(r["ok_ts"])), None)
+            why = f"; последняя ошибка: {err.get('phase')} — {str(err.get('err', ''))[:120]}" if err else \
+                "; ошибок в учёте нет — цикл, похоже, стоит"
+            ev.append(f"⚠️ Сетки {', '.join(r['name'] for r in new)}: нет полного прохода {age:.0f} мин — тейки и входы "
+                      f"не сопровождаются{why}")
+        st["stale"] = names
+    elif not stale and st["stale"]:
+        ok_now = [r["name"] for r in rows if r["name"] in st["stale"] and not r.get("error")]
+        if ok_now:
+            ev.append(f"✅ Сетки {', '.join(sorted(ok_now))} снова проходят цикл")
+            st["stale"] = []
     for r in rows:
         name, at_cap = r["name"], "потолок" in r.get("blocked", "")
         if r.get("error"):
@@ -199,7 +233,8 @@ def risk_events(rows: list[dict], risk: dict[str, dict], state: dict, now: datet
                 st["cap"][name] = day
                 ev.append(f"⛔ {name} на потолке позиции — новых входов нет, ждёт тейков (лотов {r['lots']}, "
                           f"мешок {_m(r['bag'])})")
-        elif name in st["capped"]:
+        elif name in st["capped"] and not r.get("blocked"):
+            # 25.10 G2: только когда входы реально разрешены; ушла с потолка на паузу/долг/бюджет — ждём молча
             # 24.10 (оператор: «да»): парный пинг — сетка снова ставит входы. Только после упора ≥ RESUME_MIN_CAPPED_S и
             # не чаще раза в RESUME_EVERY_S на сетку (у самого потолка сетка качается: тейк → вход → снова потолок)
             since = float(st["capped"].pop(name))
@@ -207,13 +242,14 @@ def risk_events(rows: list[dict], risk: dict[str, dict], state: dict, now: datet
                 st["resumed"][name] = t
                 ev.append(f"✅ {name} снова ставит входы — тейк освободил место под потолком (лотов {r['lots']}, "
                           f"мешок {_m(r['bag'])}; стояла {(t - since) / 3600:.1f} ч)")
-    bag = sum(r["bag"] for r in rows if not r.get("error"))
-    hit = [lv for lv in BAG_LEVELS if bag <= -lv]
-    st["bag"] = [lv for lv in st["bag"] if bag <= -lv / 2]    # вернулся выше половины уровня — уровень снят
-    new = [lv for lv in hit if lv not in st["bag"]]
-    if new:
-        st["bag"] = sorted(set(st["bag"]) | set(hit))
-        ev.append(f"📉 Мешок всех лонг-сеток {_m(bag)} — ниже −{max(new):,.0f}$")
+    if not any(r.get("error") for r in rows):          # 25.10 G3: неполные данные уровни не трогают
+        bag = sum(r["bag"] for r in rows)
+        hit = [lv for lv in BAG_LEVELS if bag <= -lv]
+        st["bag"] = [lv for lv in st["bag"] if bag <= -lv / 2]    # вернулся выше половины уровня — уровень снят
+        new = [lv for lv in hit if lv not in st["bag"]]
+        if new:
+            st["bag"] = sorted(set(st["bag"]) | set(hit))
+            ev.append(f"📉 Мешок всех лонг-сеток {_m(bag)} — ниже −{max(new):,.0f}$")
     for sym, r in risk.items():
         for lv in THR_LEVELS:
             key = f"{sym}:{lv:g}"
@@ -223,6 +259,73 @@ def risk_events(rows: list[dict], risk: dict[str, dict], state: dict, now: datet
                           f"лонги закроются по рынку (мешок на пороге ≈ {_m(r['bag'])})")
                 break
     return ev, st
+
+
+RETRY_MAX = 6                       # недоставленный получателю срочный текст — повтор раз в проход (5 мин), до 30 мин
+
+
+def ping_tick(chat_ids: list, send_text, send_photo, *, rows: list[dict], data: dict | None, state: dict,
+              now: datetime, render=None, summary=None) -> dict:
+    """Один проход риск-пингов (аудит GPT 481385e G1). Срочный текст событий уходит ПЕРВЫМ отдельным сообщением: ни
+    сводка, ни карты, ни котировки его не держат. Состояние риска фиксируется, как только текст дошёл хотя бы одному
+    получателю; кому не дошёл — очередь undelivered (получатель × текст), повтор каждый проход до RETRY_MAX попыток.
+    Сводка и карты — отдельные попытки после текста: их сбой текст не отменяет и не повторяет. Нет данных котировок
+    (data None) — события по порогу SMA не считаются, остальные идут. Возвращает новое состояние (пишет вызывающий);
+    None — нечего записывать (событий не было и очередь не менялась)."""
+    render = render or render_map
+    summary = summary or (lambda: report_text(now=now, rows=rows, data=data))
+    queue, left = list(state.get("undelivered") or []), []
+    for q in queue:                                             # сначала — недоставленное прошлых проходов
+        try:
+            send_text(q["cid"], q["text"])
+        except Exception:                                       # noqa: BLE001
+            logger.exception("grid_risk_pings.retry_failed cid=%s", q["cid"])
+            if q.get("attempts", 1) + 1 < RETRY_MAX:
+                left.append({**q, "attempts": q.get("attempts", 1) + 1})
+    try:
+        risk = threshold_risk(data) if data else {}
+    except Exception:                                           # noqa: BLE001
+        logger.exception("grid_risk_pings.threshold_failed")
+        risk = {}
+    events, st = risk_events(rows, risk, state, now)
+    same = {**state, "undelivered": left} if queue != left else None   # состояние риска прежнее, очередь — новая
+    if not events:
+        return same
+    text = "\n".join(events)
+    got, failed = [], []
+    for cid in chat_ids:
+        try:
+            send_text(cid, text)
+            got.append(cid)
+        except Exception:                                       # noqa: BLE001
+            logger.exception("grid_risk_pings.send_failed cid=%s", cid)
+            failed.append(cid)
+    if not got:
+        return same                                             # не ушло никому — состояние риска не трогаем
+    st["undelivered"] = left + [{"cid": c, "text": text, "ts": now.timestamp(), "attempts": 1} for c in failed]
+    try:
+        body = summary()
+    except Exception as exc:                                    # noqa: BLE001
+        logger.exception("grid_risk_pings.summary_failed")
+        body = f"сводка не собрана: {type(exc).__name__}"
+    for cid in got:
+        try:
+            send_text(cid, body)
+        except Exception:                                       # noqa: BLE001
+            logger.exception("grid_risk_pings.summary_send_failed cid=%s", cid)
+    for sym in (ping_symbols(events, rows) if data else []):
+        try:
+            png = render(sym, data=data)
+        except Exception:                                       # noqa: BLE001
+            logger.exception("grid_risk_pings.map_failed %s", sym)
+            continue
+        for cid in got:
+            try:
+                send_photo(cid, png, MAP_CAPTION.format(sym=SHORT[sym]))
+            except Exception:                                   # noqa: BLE001
+                logger.exception("grid_risk_pings.photo_failed cid=%s", cid)
+    logger.info("grid_risk_pings.sent events=%d recipients=%d failed=%d", len(events), len(got), len(failed))
+    return st
 
 
 def read_ping_state() -> dict:

@@ -49,7 +49,7 @@ def curve(args):
         if i in F:
             fund += d * Q * o[i] * F[i]                     # лонг платит, шорт получает при ставке > 0
         act = (bool(reg[i]) if d > 0 else (True if mode == "always" else not bool(reg[i])))
-        if prev is not None and bound[i] and prev and not act and lots:
+        if prev is not None and bound[i] and prev and not act:  # 25.10 R1 (аудит GPT): сброс опорной и без лотов — иначе вход от уровня старого режима
             px = o[i] * (1 - d * SLIP)
             real += d * (Q * px - QE)
             fee += Q * px * TAKER

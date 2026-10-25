@@ -39,7 +39,9 @@ def first_pass(h, l, i, up, dn, w):
     tb = b[0] if len(b) else None
     if ta is None and tb is None:
         return 0, i + len(hs)
-    if tb is not None and (ta is None or tb <= ta):
+    if ta is not None and tb is not None and ta == tb:
+        return 2, i + 1 + ta              # 25.10 R5: оба в одной минуте — порядок неизвестен
+    if tb is not None and (ta is None or tb < ta):
         return -1, i + 1 + tb
     return 1, i + 1 + ta
 
@@ -71,13 +73,16 @@ def main():
             last_cond = i
         r, _ = first_pass(h, l, i, c[i] * (1 + UP), c[i] * (1 - DN), 1440)
         for k in keys:
-            route[k][{1: 0, -1: 1, 0: 2}[r]] += 1
+            if r != 2:
+                route[k][{1: 0, -1: 1, 0: 2}[r]] += 1
         e = c[i] * (1 - LIM)
         f = np.flatnonzero(l[i + 1:i + 1441] <= e)
         if not len(f):
             continue
         j = i + 1 + f[0]
         r2, k2 = first_pass(h, l, j, e * (1 + TP), e * (1 - SL), 10080)
+        if r2 == 2:
+            continue                             # неоднозначно — вне доли
         if r2 == 1:
             res = TP - COST_TP
         elif r2 == -1:

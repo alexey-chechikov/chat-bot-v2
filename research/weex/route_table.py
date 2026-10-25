@@ -6,7 +6,8 @@
   (оба в одной минуте — «низ»); никто — не в доле.
 - Состояния (заранее): «падение ≥3.5%» — цена ≥3.5% ниже максимума 12 ч; «падение 2–3.5%»; «рост ≥3.5%» — ≥3.5% выше
   минимума 12 ч; «рост 2–3.5%»; иначе «спокойно». Оба условия сразу — берётся большее по модулю.
-- Внутри состояния события не чаще раза в 24 ч (иначе один эпизод считается десятки раз); доля «вверх первым», 95%
+- Внутри состояния события не чаще раза в 24 ч (иначе один эпизод считается десятки раз; 25.10 R5: интервал от
+  якоря, без исхода и «оба в одной минуте» — отдельными счётчиками); доля «вверх первым», 95%
   интервал, половины по времени.
 Пишет state/market_brief/route_table.json. Запуск: route_table.py --btc=<копия> --eth=<копия>
 """
@@ -56,15 +57,20 @@ def table(path: str) -> dict:
     mid = n // 2
     acc = {s: {"up": [0, 0], "dn": [0, 0]} for s in STATES}       # [1-я половина, 2-я]
     last = {s: -10**9 for s in STATES}
+    extra = {s: {"nohit": 0, "amb": 0} for s in STATES}
     for i in range(LOOK + 59, n - W - 1, 60):
         s = state_of(c[i], hmax[i], lmin[i])
         if i - last[s] < W:
             continue
+        last[s] = i                                # 25.10 R5: интервал от якоря, не от исхода (причинно)
         hs, ls = h[i + 1:i + 1 + W], l[i + 1:i + 1 + W]
         a, b = np.flatnonzero(hs >= c[i] * (1 + B)), np.flatnonzero(ls <= c[i] * (1 - B))
         if not len(a) and not len(b):
+            extra[s]["nohit"] += 1
             continue
-        last[s] = i
+        if len(a) and len(b) and a[0] == b[0]:
+            extra[s]["amb"] += 1          # оба в одной минуте — порядок неизвестен
+            continue
         up = len(a) and (not len(b) or a[0] < b[0])
         acc[s]["up" if up else "dn"][0 if i < mid else 1] += 1
     out = {}
@@ -73,7 +79,7 @@ def table(path: str) -> dict:
         n_ = up + dn
         lo, hi = wilson(up, n_)
         halves = [v["up"][k] / (v["up"][k] + v["dn"][k]) if v["up"][k] + v["dn"][k] else None for k in (0, 1)]
-        out[s] = {"n": n_, "p_up": up / n_ if n_ else None, "lo": lo, "hi": hi, "halves": halves}
+        out[s] = {"n": n_, "p_up": up / n_ if n_ else None, "lo": lo, "hi": hi, "halves": halves, **extra[s]}
     return {"from": str(pd.to_datetime(ts[0], unit="ms")), "to": str(pd.to_datetime(ts[-1], unit="ms")), "states": out}
 
 
@@ -87,7 +93,7 @@ def main():
         for s, v in t["states"].items():
             hv = " / ".join("—" if x is None else f"{x * 100:.0f}%" for x in v["halves"])
             print(f"  {s:<15} n {v['n']:4d} · вверх первым {v['p_up'] * 100:5.1f}% [{v['lo'] * 100:.0f}…{v['hi'] * 100:.0f}]"
-                  f" · половины {hv}")
+                  f" · половины {hv} · без исхода {v['nohit']}, неоднозн. {v['amb']}")
 
 
 if __name__ == "__main__":

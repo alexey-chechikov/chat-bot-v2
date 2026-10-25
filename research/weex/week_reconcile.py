@@ -14,6 +14,8 @@
 - Биржа: журналы state/weex_grid*_journal.jsonl (живые строки) в том же окне: входы, тейки, объём, закрыто (gross),
   комиссии; лоты на конце — снимок + входы − тейки (сверяются с учётом сетки сейчас, если окно до «сейчас»).
 - Мешок на конце — по одной цене (закрытие последней минуты копии) и для бэктеста, и для биржи.
+- 25.10 (аудит GPT R2): PnL недели = закрыто − комиссии − фандинг + мешок на конце − мешок стартовых лотов по
+  цене старта (открытие первой минуты окна); «с мешком от входа» — прежний итог, включает убыток до недели.
 - Выравнивание (оператор): итог на единицу плотности — $1000 на 1% хода; плотность = ордер × цена / шаг, взвешенная по
   времени действия каждого размера.
 Запуск: week_reconcile.py --btc=<копия> --eth=<копия>
@@ -128,19 +130,22 @@ def live(name: str, g: dict, t_end: float, pe: float) -> dict:
         r = json.loads(line)
         if r.get("dry") or r.get("side") != "LONG" or not (T0 < ts(r["ts"]) <= t_end):
             continue
+        kind = r.get("kind") or ""
+        if kind not in ("вход", "тейк"):
+            if "комисси" in kind:                          # 25.10 R3: поздняя комиссия — без qty/price
+                fee += float(r.get("fee") or 0)
+            continue
         q, px = float(r["qty"]), float(r["price"])
-        if r.get("kind") == "вход":
+        if kind == "вход":
             ent += 1
             lots.append([px, q])
-        elif r.get("kind") == "тейк":
+        elif kind == "тейк":
             tk += 1
             real += float(r.get("pnl") or 0)
             e = float(r.get("entry") or 0)
             j = min(range(len(lots)), key=lambda i: abs(lots[i][0] - e) + abs(lots[i][1] - q) * 1e6) if lots else None
             if j is not None:
                 lots.pop(j)
-        else:
-            continue
         fee += float(r.get("fee") or 0)
         vol += q * px
     return {"ent": ent, "tk": tk, "vol": vol, "real": real, "fee": fee, "lots": len(lots),
@@ -164,6 +169,7 @@ def main():
         funding = {int(t) // 60000: float(r) for t, r in zip(fr["fundingTime"], fr["fundingRate"])}
         t_end = float(tms[-1]) + 60
         pe = closes[-1]
+        p0 = pts[0][0]                                       # цена старта окна (открытие первой минуты)
         for name in names:
             g = snap["grids"][name]
             cfg = g["config"]
@@ -172,22 +178,26 @@ def main():
             st = json.load(open(ST + STATE[name]))
             now_lots = len(st["LONG"]["lots"])
             dens = density(name, cfg, pe, t_end)
-            rows.append((name, sym, s, lv, dens, now_lots))
+            bag0 = sum(float(x["qty"]) * (p0 - float(x["entry"])) for x in g["sides"]["LONG"]["lots"])
+            rows.append((name, sym, s, lv, dens, now_lots, bag0))
         print(f"{sym}: окно {datetime.fromtimestamp(T0, timezone.utc):%d.%m %H:%M} … "
               f"{datetime.fromtimestamp(t_end, timezone.utc):%d.%m %H:%M} UTC ({(t_end - T0) / 86400:.1f} сут), "
               f"цена на конце {pe:,.2f}")
     print(f"\n{'сетка':<5} {'':<8} | {'входов':>6} {'тейков':>6} | {'объём $':>9} | {'закрыто':>8} {'комиссии':>8} "
-          f"{'фандинг':>8} | {'лотов':>5} {'мешок':>8} | {'итог':>8} | {'на $1000/1%':>11}")
-    for name, sym, s, lv, dens, now_lots in rows:
+          f"{'фандинг':>8} | {'лотов':>5} {'мешок':>8} | {'с мешком от входа':>17} | {'PnL недели':>10} | "
+          f"{'PnL на $1000/1%':>15}")
+    for name, sym, s, lv, dens, now_lots, bag0 in rows:
         for tag, x, fnd in (("бэктест", s, s["fund"]), ("биржа", lv, None)):
             tot = x["real"] - x["fee"] + x["bag"] - (fnd or 0)
             ftxt = f"{-fnd:+8.2f}" if fnd is not None else f"{'—':>8}"
             print(f"{name:<5} {tag:<8} | {x['ent']:6d} {x['tk']:6d} | {x['vol']:9,.0f} | {x['real']:+8.2f} {-x['fee']:+8.2f} "
-                  f"{ftxt} | {x['lots']:5d} {x['bag']:+8.2f} | {tot:+8.2f} | {tot / dens * 1000:+11.2f}")
+                  f"{ftxt} | {x['lots']:5d} {x['bag']:+8.2f} | {tot:+17.2f} | {tot - bag0:+10.2f} | "
+                  f"{(tot - bag0) / dens * 1000:+15.2f}")
         d_tk = (s["tk"] - lv["tk"]) / lv["tk"] * 100 if lv["tk"] else 0
         d_real = (s["real"] - lv["real"]) / lv["real"] * 100 if lv["real"] else 0
         print(f"{'':<5} {'разница':<8} | тейков {d_tk:+.0f}% · закрыто {d_real:+.0f}% · плотность ${dens:,.0f}/1% · "
-              f"лоты по журналу {lv['lots']} против учёта сетки сейчас {now_lots}")
+              f"лоты по журналу {lv['lots']} против учёта сетки сейчас {now_lots} · мешок стартовых лотов по цене "
+              f"старта {bag0:+.2f}")
 
 
 if __name__ == "__main__":

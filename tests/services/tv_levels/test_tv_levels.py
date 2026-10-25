@@ -33,9 +33,11 @@ def _grids(tmp_path: Path, extra_states=None, extra_cfgs=None, blocks=None):
             "ETH": {"symbol": "ETHUSDT", "enabled": False, "dry_run": False, **GRID},   # выключена
             **(extra_cfgs or {})}
     states = {
-        "BTC": {"LONG": {"entry": {"id": "eb", "price": 83127.2}, "lots": [_lot(84000.0, "0.0012", 85176.0)]}},
+        "BTC": {"LONG": {"entry": {"id": "eb", "price": 83127.2}, "lots": [_lot(84000.0, "0.0012", 85176.0)]},
+                "last_tick_ok_ts": NOW.timestamp() - 20},
         "B34": {"LONG": {"entry": {"id": "e3", "price": 83316.3}, "lots": [_lot(83400.0, "0.0012", 83683.3),
-                                                                         _lot(83500.0, "0.0024", 83784.0)]}},
+                                                                         _lot(83500.0, "0.0024", 83784.0)]},
+                "last_tick_ok_ts": NOW.timestamp() - 45},
         "XAU": {"LONG": {"entry": {"price": 4000.0}, "lots": [_lot(4100.0, "0.023", 4112.3)]}},
         **(extra_states or {})}
     for name, st in states.items():
@@ -172,6 +174,7 @@ def test_tv_line_round_trips_through_pine_parser(tmp_path):
                             r"|[et][\d.]+(,[\d.]+)*", tok), tok
     btc = _pine_parse(line, "BTC")
     assert btc["u"] == NOW.timestamp() and btc["g"] == (2, 3) and btc["x"] == ["B49"]
+    assert btc["v"] == NOW.timestamp() - 45                              # старейшая сверка прочитанных сеток
     assert btc["k"] == (80683.9, 84665.5) and btc["w"] == int(NOW.timestamp() + 70_000)
     assert btc["z"] == [(83442.7, 38.0), (81194.4, 20.0)]
     assert btc["e"] == [83127.2, 83316.3] and btc["t"] == [83683.3, 85176.0]
@@ -190,7 +193,7 @@ def test_card_lines_and_message(tmp_path):
     assert "учёт прочитан 2 из 3 сеток — не прочитаны: B49 (JSONDecodeError)" in cl[0]
     msg = tv_levels.tv_message(data)
     assert f"<code>{tv_levels.tv_line(data)}</code>" in msg
-    assert "зоны ↑83,443 (38%) ↓81,194 (20%)" in msg
+    assert "зоны CG, касание по ATR ↑83,443 (38%) ↓81,194 (20%)" in msg
     assert "лонги закроются, если день UTC закроется ниже 74,739" in msg
     assert "безубыток" not in msg                                     # средняя без комиссий — не безубыток
 
@@ -396,3 +399,21 @@ def test_day_maps_sent_after_card_and_failure_keeps_card(tmp_path, monkeypatch):
     sent.clear()
     assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=now, photo_fn=lambda png, cap: None) is True
     assert sent[0] == "карточка" and (tmp_path / "card.json").exists()
+
+
+def test_a5_stale_or_unknown_sync_is_marked(tmp_path):
+    """25.10 (аудит GPT 481385e A5): u — время сборки строки, а не сверки с биржей. Сверка старше 5 мин или неизвестна
+    (у сетки нет last_tick_ok_ts) — предупреждение в тексте и v0 в строке (индикатор красит уровни серым)."""
+    fresh = _data(tmp_path)
+    assert not any("сверка с биржей" in x for x in tv_levels.level_lines(fresh))
+    old = {"LONG": {"entry": {"id": "e8", "price": 83000.0}, "lots": []}, "last_tick_ok_ts": NOW.timestamp() - 1800}
+    cfg89 = {"B89": {"symbol": "BTCUSDT", "enabled": True, "dry_run": False, **GRID}}
+    g = _grids(tmp_path, extra_states={"B89": old}, extra_cfgs=cfg89)
+    data = COLLECT(NOW, grids=g, corridor=CORR, thr={"BTCUSDT": 74738.75}, px={"BTCUSDT": 83388.0}, cap=None)
+    assert any("сверка с биржей 30 мин назад" in x for x in tv_levels.level_lines(data))
+    assert _pine_parse(tv_levels.tv_line(data), "BTC")["v"] == NOW.timestamp() - 1800
+    unknown = {"LONG": {"entry": {"id": "e8", "price": 83000.0}, "lots": []}}
+    g = _grids(tmp_path, extra_states={"B89": unknown}, extra_cfgs=cfg89)
+    data = COLLECT(NOW, grids=g, corridor=CORR, thr={"BTCUSDT": 74738.75}, px={"BTCUSDT": 83388.0}, cap=None)
+    assert any("время сверки с биржей неизвестно" in x for x in tv_levels.card_lines(data))
+    assert " v0" in tv_levels.tv_line(data)

@@ -1,0 +1,551 @@
+diff --git a/services/weex_grid/engine.py b/services/weex_grid/engine.py
+index ad259cb..58bb649 100644
+--- a/services/weex_grid/engine.py
++++ b/services/weex_grid/engine.py
+@@ -635,6 +635,24 @@ class Grid:
+         50 исполнений по 0.0001 занимали 50 слотов при тех же $500)."""
+         return len({l.get("parent") or f"lot{id(l)}" for l in self.st[side]["lots"]})
+ 
++    def _order_budget_ok(self) -> tuple[bool, str]:
++        """25.10 (аудит GPT E1; замер 24.10: отказы WEEX −1191 «Business precondition not satisfied» начались при ≈200
++        открытых заявках счёта, и по ETH тоже — лимит общий на счёт). Новый вход — только если заявки этого символа
++        сейчас (свои, соседей, ручные) + заявки остальных символов счёта по подсчёту цикла + 1 ≤ order_budget.
++        Подсчёт остальных не прочитан (None при заданном бюджете) — новых входов нет: покрытие неполное. Бюджет не
++        задан (холостой, тесты) — без ограничения. Тейки бюджетом не ограничиваются; место им освобождает долг по
++        выходам (вход снимается)."""
++        budget = self.cfg.get("order_budget")
++        if not budget:
++            return True, ""
++        other = self.cfg.get("other_open_orders")
++        if other is None:
++            return False, "бюджет заявок: подсчёт по счёту не прочитан"
++        used = int(getattr(self, "_symbol_open", 0)) + int(other)
++        if used + 1 > int(budget):
++            return False, f"бюджет заявок счёта: {used} из {int(budget)}"
++        return True, ""
++
+     def may_add(self, side: str, price: float, mid: float, qty: float | None = None,
+                 parent: str | None = None) -> tuple[bool, str]:
+         """Можно ли держать/ставить вход объёмом qty (по умолчанию — размер ордера из конфига) по
+@@ -745,6 +763,9 @@ class Grid:
+             if kind == "e":
+                 self._room_used -= float(q) * price
+             logger.warning("weex_grid.place_rejected side=%s kind=%s price=%s resp=%s", side, kind, price, r)
++            if kind == "t":
++                # 25.10 (аудит GPT E2): отказ тейка (например, лимит заявок счёта) — лот без выхода; проход не «здоровый»
++                self._issue(f"тейк {cid}: отказ биржи ({r.get('errorCode') or r.get('msg') or r.get('code')})")
+             self.save()
+             return None
+         s["pending"] = None
+@@ -1305,8 +1326,9 @@ class Grid:
+         # проход прерывается до решений о сиротах и владении (13.10 и 15.10 P1, разборы GPT). Свои — только с префиксом
+         # b7g+знак этой сетки: ордера соседней сетки того же символа (b7g+другой знак) и ручные для неё не существуют
+         self._phase = "open_orders"
+-        self.open = {str(o["orderId"]): o for o in self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
+-                     if str(o.get("clientOrderId", "")).startswith(self.own)}
++        rows = self._orders_list(self.c.open_orders(sym), f"открытые ордера {sym}")
++        self._symbol_open = len(rows)       # 25.10 (аудит GPT E1): все открытые заявки символа — для бюджета заявок счёта
++        self.open = {str(o["orderId"]): o for o in rows if str(o.get("clientOrderId", "")).startswith(self.own)}
+         self._listed = set(self.open)
+         self._phase = "orphans"
+         self._orphans()
+@@ -1598,6 +1620,11 @@ class Grid:
+                 self.save()
+                 if s.get("pending"):
+                     can_place = False         # исход постановки неизвестен — новых ордеров больше не ставим
++        # 25.10 (аудит GPT E1/E2): долг по выходам — лоты стороны без тейка на бирже. Пока он есть у этой сетки или у
++        # соседней сетки счёта (cfg account_exit_debt от цикла), свой вход снимается и новый не ставится: место в
++        # лимите заявок — сначала тейкам
++        debt = sum(1 for l in s["lots"] if l.get("tp_order") is None)
++        self.st.setdefault("exit_debt", {})[side] = debt
+         # 3) опорная цена — как у GinArea: шаг от крайнего ОТКРЫТОГО ордера (лонг — нижний, шорт —
+         # верхний); после тейка уровень заполняется снова. Сверено 09.10 по журналу шортового бота
+         # 5021652508: 9 из 9 входов после тейка ровно на шаг от верхнего открытого (±0.06%).
+@@ -1622,6 +1649,16 @@ class Grid:
+             self._drop_entry(side)
+             s["blocked"] = "выключено" if not enabled else why
+             return
++        others = [n for n in (cfg.get("account_exit_debt") or []) if n != self.name]
++        if debt or others:
++            self._drop_entry(side)                              # свой вход освобождает место тейку
++            s["blocked"] = (f"долг по тейкам: {debt} лот. без тейка" if debt
++                            else f"долг по тейкам у {', '.join(others)}")
++            return
++        bok, bwhy = self._order_budget_ok()
++        if not bok:
++            s["blocked"] = bwhy               # новый вход не ставим, стоящий не переставляем: место он уже занимает
++            return
+         s["blocked"] = ""
+         if e:
+             if float(e.get("filled") or 0) > 0:
+@@ -2072,7 +2109,7 @@ class Grid:
+                      + f" · оборот ${turn:,.0f}")
+         inc = self.st.get("fee_incomplete") or {}
+         if inc:
+-            lines.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
++            lines.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — комиссия занижена, итог завышен")
+         return "\n".join(lines)
+ 
+     def _card_compact(self, mid: float) -> str:
+@@ -2102,7 +2139,7 @@ class Grid:
+         rows.append(f"итог с мешком ${self.bot_pnl(mid):+.2f} · оборот ${turn:,.0f}")
+         inc = self.st.get("fee_incomplete") or {}
+         if inc:
+-            rows.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — в итоге нижняя оценка")
++            rows.append(f"⚠️ комиссия неполная у {len(inc)} орд. (ответ сделок на пределе 100) — комиссия занижена, итог завышен")
+         return "\n".join(rows)
+ 
+ 
+diff --git a/services/weex_grid/loop.py b/services/weex_grid/loop.py
+index 30e21f7..0090b2d 100644
+--- a/services/weex_grid/loop.py
++++ b/services/weex_grid/loop.py
+@@ -30,6 +30,10 @@ _SIGMA: dict[str, dict] = {}
+ AUDIT_PASSES = 3
+ AUDIT_FILE = eg.STATE.with_name("weex_position_audit.json")
+ TREND_IDLE_SEC = 300     # 23.10: тренд без эпизода/заявки — не чаще раза в 5 мин (Runner._trend_due)
++# 25.10 (аудит GPT E1): бюджет открытых заявок счёта для новых входов. Замер 24.10: WEEX −1191 начался при ≈200
++# (193–195 заявок бота + 7 ручных), ETH отказывал одновременно — лимит общий на счёт. 15 мест — ручным и тейкам новых
++# исполнений. Переопределяется ключом order_budget в state/weex_portfolio_config.json
++ORDER_BUDGET = 185
+ 
+ 
+ def position_gaps(grids: list[dict], busy: set, positions: list) -> dict:
+@@ -221,12 +225,14 @@ class Runner:
+         найденная сирота не уменьшала долю соседей, ask×1.01 не ограничивал итоговый вход → потолок мог быть превышен.
+         Выигрыш был мал (25–30 с против 30–45 с). Вернуть параллель — только с общим атомарным резервом риска."""
+         first = None
++        acct = self._account_open_orders()                      # 25.10 (аудит GPT E1): заявки счёта по символам
++        debts = self._exit_debts()                              # сетки с лотами без тейка (по прошлому проходу)
+         for name in eg.GRIDS:
+             try:
+                 with STATE_LOCK:
+                     # свободное — заново перед каждой сеткой: входы предыдущей уже в её учёте (11.10, разбор
+                     # GPT: одно место раздавалось всем сеткам и тренду)
+-                    self.tick_one(name, self._portfolio_free())
++                    self.tick_one(name, self._portfolio_free(), acct=acct, debts=debts)
+             except eg.GridHalt as exc:
+                 # битый конфиг/учёт: эта сетка стоит (ничего не торгует), остальные работают
+                 logger.error("weex_grid.halt grid=%s err=%s", name, exc)
+@@ -274,12 +280,59 @@ class Runner:
+             logger.exception("weex_portfolio.failed")
+             return 0.0
+ 
+-    def tick_one(self, name: str, free: float | None = None) -> None:
++    def _live_symbols(self) -> set[str]:
++        out = set()
++        for n in eg.GRIDS:
++            try:
++                c = grid_config(n)
++            except Exception:                                   # noqa: BLE001 — битый конфиг разберёт tick_one
++                continue
++            if not c.get("dry_run"):
++                out.add(c["symbol"])
++        return out
++
++    def _account_open_orders(self) -> dict[str, int] | None:
++        """25.10 (аудит GPT E1): открытые заявки счёта по символам живых сеток (все: свои, соседей, ручные) — один раз
++        на проход. Сбой любого символа → None: бюджет заявок неизвестен, новых входов нет (тейки работают)."""
++        syms = self._live_symbols()
++        if not syms:
++            return {}
++        try:
++            c = self._client()
++            return {s: len(c.open_orders(s) or []) for s in sorted(syms)}
++        except Exception:                                       # noqa: BLE001
++            logger.exception("weex_grid.order_budget_unreadable")
++            return None
++
++    def _exit_debts(self) -> list[str]:
++        """Живые сетки, у которых по их учёту есть лоты без тейка (exit_debt > 0)."""
++        out = []
++        for n in eg.GRIDS:
++            try:
++                c = grid_config(n)
++                if c.get("dry_run"):
++                    continue
++                p = run_files(n, False)[0]
++                st = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
++            except Exception:                                   # noqa: BLE001 — нечитаемое разберёт tick_one
++                continue
++            if any(int(v or 0) > 0 for v in (st.get("exit_debt") or {}).values()):
++                out.append(n)
++        return out
++
++    def tick_one(self, name: str, free: float | None = None, acct: dict[str, int] | None | str = "skip",
++                 debts: list[str] | None = None) -> None:
+         cfg = grid_config(name)
+         if not cfg["dry_run"] and free is not None:
+             cfg = {**cfg, "portfolio_free_usd": free}
+         if not cfg["dry_run"]:
+             cfg = {**cfg, "audit_block": self._audit_blocks(cfg["symbol"])}
++            if acct != "skip":                                  # вызов из прохода цикла — бюджет заявок счёта
++                from services.weex_grid import portfolio
++                budget = int(portfolio.load().get("order_budget") or ORDER_BUDGET)
++                other = None if acct is None else sum(v for s, v in acct.items() if s != cfg["symbol"])
++                cfg = {**cfg, "order_budget": budget, "other_open_orders": other,
++                       "account_exit_debt": [n for n in (debts or []) if n != name]}
+         dry = bool(cfg["dry_run"])
+         if dry:
+             self._live_leftovers(name, cfg)
+diff --git a/services/weex_trend/engine.py b/services/weex_trend/engine.py
+index f0ab128..3d3802c 100644
+--- a/services/weex_trend/engine.py
++++ b/services/weex_trend/engine.py
+@@ -28,6 +28,7 @@ import time
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
++from services.weex_api.client import WeexIncomplete
+ from services.weex_grid.engine import (ConfigError, GridHalt, StateCorrupt, atomic_write, fmt_px,  # noqa: F401
+                                        round_tick)
+ 
+@@ -43,6 +44,7 @@ OPEN_SIDE = {"LONG": "BUY", "SHORT": "SELL"}
+ CLOSE_SIDE = {"LONG": "SELL", "SHORT": "BUY"}
+ LIVE = {"NEW", "PENDING", "CANCELING", "UNTRIGGERED", "UNACTIVATED", "PARTIALLY_FILLED"}
+ PENDING_TTL = 120.0
++HISTORY_BUDGET = 16           # запросов истории на один поиск заявки (окно делится пополам, WEEX игнорирует page)
+ RISK_FEE = 0.0005           # тейкер на сторону с запасом (замер 0.048%) — входит в риск сделки
+ DEFAULT = {
+     "enabled": False,               # новые входы; позиция ведётся до выхода и при enabled=false
+@@ -183,16 +185,20 @@ class Trend:
+         except Exception as exc:                                # noqa: BLE001
+             logger.warning("weex_trend.send_failed kind=%s err=%s", kind, exc)
+             return None
+-        if not r or not r.get("success", False) or not r.get("orderId"):
+-            if r and r.get("success"):
+-                return None                                     # «успех» без номера — исход неизвестен
++        if isinstance(r, dict) and r.get("success") is True and r.get("orderId"):
++            self.st["pending"] = None
++            self.save()
++            return {"id": str(r["orderId"]), "cid": cid}
++        if isinstance(r, dict) and r.get("success") is False:
++            # явный отказ — ТОЛЬКО объект с success=false (как у сеток, engine._place)
+             self.st["pending"] = None
+             self.save()
+             logger.warning("weex_trend.rejected kind=%s resp=%s", kind, r)
+             return {"rejected": True, "resp": r}
+-        self.st["pending"] = None
+-        self.save()
+-        return {"id": str(r["orderId"]), "cid": cid}
++        # 25.10 (аудит GPT 481385e E3): {} / None / не объект / «успех» без номера — исход НЕИЗВЕСТЕН: рыночный вход мог
++        # быть принят. Раньше {} и None считались отказом — намерение и эпизод стирались, позиция могла остаться без учёта
++        logger.warning("weex_trend.send_unknown kind=%s resp=%s", kind, str(r)[:200])
++        return None
+ 
+     def _resolve_pending(self) -> bool:
+         p = self.st.get("pending")
+@@ -200,6 +206,7 @@ class Trend:
+             return True
+         sym = self.cfg["symbol"]
+         found = None
++        complete = True
+         try:
+             if p["kind"] == "stop":
+                 rows = list(self.c.open_algo_orders(sym) or [])
+@@ -211,11 +218,12 @@ class Trend:
+             else:
+                 srv = p.get("srv") or p["t"]
+                 rows = list(self.c.open_orders(sym) or [])
+-                for page in range(5):
+-                    rows += list(self.c.order_history(sym, limit=100, page=page,
+-                                                      start_ms=int((srv - 600) * 1000),
+-                                                      end_ms=int((srv + 600) * 1000)) or [])
+                 o = next((x for x in rows if x.get("clientOrderId") == p["cid"]), None)
++                if o is None:
++                    # 25.10 (аудит GPT E3): WEEX игнорирует page — пять «страниц» были пятью копиями первых 100 строк.
++                    # Окно делится пополам, пока ответ не станет меньше 100 (как engine._history_window у сеток)
++                    o, complete = self._history_find(sym, p["cid"], int((srv - 600) * 1000), int((srv + 600) * 1000),
++                                                     [HISTORY_BUDGET])
+                 if o is not None:
+                     found = {"id": str(o.get("orderId")), "cid": p["cid"]}
+         except Exception:                                       # noqa: BLE001
+@@ -225,6 +233,10 @@ class Trend:
+         if found is None:
+             if self.now() - p["t"] < PENDING_TTL:
+                 return False
++            if p["kind"] != "stop" and not complete:
++                # неполный поиск не доказывает, что заявка не дошла: намерение и эпизод остаются, проход повторит поиск
++                logger.warning("weex_trend.pending_search_incomplete kind=%s cid=%s", p["kind"], p["cid"])
++                return False
+             logger.warning("weex_trend.pending_not_found kind=%s cid=%s", p["kind"], p["cid"])
+             self.st["pending"] = None
+             if p["kind"] == "entry" and ep and ep.get("status") == "opening" and not ep.get("entry_order"):
+@@ -244,6 +256,32 @@ class Trend:
+         self.save()
+         return True
+ 
++    def _history_find(self, sym: str, cid: str, a: int, b: int, budget: list[int]) -> tuple[dict | None, bool]:
++        """Своя заявка по clientOrderId в истории окна [a, b] мс без листания: ответ меньше 100 — окно прочитано целиком;
++        ровно 100 (предел) — делим пополам до 1 с. (заявка, поиск полный). Не список — WeexIncomplete. Бюджет
++        запросов кончился — (None, False): отсутствие не доказано."""
++        if budget[0] <= 0:
++            return None, False
++        budget[0] -= 1
++        rows = self.c.order_history(sym, limit=100, page=0, start_ms=a, end_ms=b)
++        if not isinstance(rows, list):
++            raise WeexIncomplete(f"история {sym} {a}..{b}: не список ({str(rows)[:120]})")
++        o = next((x for x in rows if isinstance(x, dict) and x.get("clientOrderId") == cid), None)
++        if o is not None:
++            return o, True
++        if len(rows) < 100:
++            return None, True
++        if b - a <= 1000:
++            return None, False
++        m = (a + b) // 2
++        complete = True
++        for lo, hi in ((a, m), (m, b)):
++            o, ok = self._history_find(sym, cid, lo, hi, budget)
++            if o is not None:
++                return o, True
++            complete = complete and ok
++        return None, complete
++
+     def _cancel_algo(self, algo: dict | None) -> None:
+         if not algo:
+             return
+diff --git a/tests/services/weex_grid/test_weex_gpt1018.py b/tests/services/weex_grid/test_weex_gpt1018.py
+index cae2b60..8ab6b3e 100644
+--- a/tests/services/weex_grid/test_weex_gpt1018.py
++++ b/tests/services/weex_grid/test_weex_gpt1018.py
+@@ -112,7 +112,7 @@ def test_p1_runner_sequential_fresh_free_before_each_grid(monkeypatch):
+     monkeypatch.setattr(r, "_portfolio_free", lambda: next(frees))
+     r.trend = SimpleNamespace(tick=lambda portfolio_free=None: None)
+     seen = []
+-    monkeypatch.setattr(r, "tick_one", lambda name, free=None: seen.append((name, free)))
++    monkeypatch.setattr(r, "tick_one", lambda name, free=None, **kw: seen.append((name, free)))   # 25.10: + acct/debts
+     r.tick()
+     assert seen == [("A", 300.0), ("B", 200.0), ("C", 100.0)]
+     assert not hasattr(lp, "ThreadPoolExecutor") or not hasattr(r, "_room_shares")
+diff --git a/tests/services/weex_grid/test_weex_gpt1020.py b/tests/services/weex_grid/test_weex_gpt1020.py
+index 3fca371..a0369ea 100644
+--- a/tests/services/weex_grid/test_weex_gpt1020.py
++++ b/tests/services/weex_grid/test_weex_gpt1020.py
+@@ -128,7 +128,7 @@ def test_saturated_trades_marked_incomplete_once_and_not_repolled(tmp_path):
+     g.st["fee_checked"] = 0.0
+     g._settle_fees()
+     assert ex.calls == n                                          # поздняя дозапись его не перечитывает
+-    assert "комиссия неполная" in g.card(100000.0)
++    assert "комиссия неполная" in g.card(100000.0) and "итог завышен" in g.card(100000.0)   # 25.10 GPT: не «нижняя оценка итога»
+ 
+ 
+ def test_99_trades_complete(tmp_path):
+diff --git a/tests/services/weex_grid/test_weex_gpt1024.py b/tests/services/weex_grid/test_weex_gpt1024.py
+new file mode 100644
+index 0000000..2a194e5
+--- /dev/null
++++ b/tests/services/weex_grid/test_weex_gpt1024.py
+@@ -0,0 +1,126 @@
++"""Аудит GPT 481385e (24.10): E1/E2 — явный отказ тейка (лимит заявок счёта) не должен давать «здоровый проход» и
++не должен сопровождаться новым входом; E3 — неизвестный ответ на заявку тренда не снимает pending."""
++from __future__ import annotations
++
++from services.weex_grid import engine as eg
++
++LIVE = eg.LIVE
++
++
++class MovePx:
++    def __init__(self, p: float = 100000.0):
++        self.p = p
++
++    def __call__(self):
++        return self.p - 0.05, self.p + 0.05
++
++
++class CapTP(eg.DryExchange):
++    """Как WEEX на лимите открытых заявок счёта: явный отказ (success=false) на тейк."""
++    reject_tp = False
++
++    def place_limit(self, symbol, side, position_side, qty, price, cid, reduce_only=False, post_only=True):
++        if self.reject_tp and reduce_only:
++            return {"success": False, "errorCode": "SYNTHETIC_ACCOUNT_ORDER_CAP", "orderId": None}
++        return super().place_limit(symbol, side, position_side, qty, price, cid, reduce_only, post_only)
++
++
++def make(tmp_path, **cfg):
++    px = MovePx()
++    clock = {"t": 1_800_000_000.0}
++    ex = CapTP(px, now_fn=lambda: clock["t"])
++    conf = {**eg.DEFAULT, "enabled": True, "dry_run": True, "sides": ["LONG"], "step_pct": 0.6, "target_pct": 1.4,
++            "order_qty": "0.0012", "max_notional_usd": 100000.0, **cfg}
++
++    def now():
++        clock["t"] += 10
++        return clock["t"]
++    g = eg.Grid(ex, conf, state_path=tmp_path / "st.json", journal_path=tmp_path / "j.jsonl", now_fn=now)
++    return g, ex, px
++
++
++def entries_live(ex):
++    return [o for o in ex.orders.values() if not o["reduceOnly"] and o["status"] in LIVE]
++
++
++def test_tp_reject_is_not_healthy_and_blocks_new_entry(tmp_path):
++    g, ex, px = make(tmp_path)
++    g.tick()                                                    # вход на шаг ниже
++    assert len(entries_live(ex)) == 1
++    ok_before = g.st.get("last_tick_ok_ts")
++    px.p = 99300.0                                              # вход исполняется
++    ex.reject_tp = True                                         # а тейк биржа отклоняет: лимит заявок
++    g.tick()
++    lots = g.st["LONG"]["lots"]
++    assert len(lots) == 1 and lots[0].get("tp_order") is None   # лот без тейка
++    assert g.st.get("last_tick_ok_ts") == ok_before             # проход НЕ здоровый
++    assert g.st.get("last_tick_error")                          # и это видно
++    assert entries_live(ex) == []                               # новый вход при долге по тейкам не ставится
++    assert g.st.get("exit_debt", {}).get("LONG") == 1           # долг по выходам считается явно
++
++
++def test_tp_debt_clears_and_entries_resume(tmp_path):
++    g, ex, px = make(tmp_path)
++    g.tick()
++    px.p = 99300.0
++    ex.reject_tp = True
++    g.tick()
++    ex.reject_tp = False                                        # место освободилось
++    g.tick()
++    lots = g.st["LONG"]["lots"]
++    assert lots[0].get("tp_order") is not None
++    assert not g.st.get("exit_debt", {}).get("LONG")
++    g.tick()                                                    # долга нет — вход снова ставится
++    assert len(entries_live(ex)) == 1
++
++
++def test_neighbour_exit_debt_drops_own_entry(tmp_path):
++    """E1: у соседней сетки счёта лот без тейка — эта сетка снимает свой вход и новых не ставит."""
++    g, ex, px = make(tmp_path)
++    g.tick()
++    assert len(entries_live(ex)) == 1
++    g.cfg["account_exit_debt"] = ["B34"]
++    g.tick()
++    assert entries_live(ex) == [] and "долг по тейкам у B34" in g.st["LONG"]["blocked"]
++
++
++def test_order_budget_gates_new_entry(tmp_path):
++    """E1: бюджет заявок счёта — новый вход только при месте; подсчёт не прочитан — входов нет."""
++    g, ex, px = make(tmp_path, order_budget=5, other_open_orders=5)
++    g.tick()
++    assert entries_live(ex) == [] and "бюджет заявок счёта: 5 из 5" in g.st["LONG"]["blocked"]
++    g.cfg["other_open_orders"] = None
++    g.tick()
++    assert entries_live(ex) == [] and "не прочитан" in g.st["LONG"]["blocked"]
++    g.cfg["other_open_orders"] = 0
++    g.tick()
++    assert len(entries_live(ex)) == 1
++    g.cfg["other_open_orders"] = 4                              # вход уже стоит: 1 + 4 = 5 — новый не нужен, стоящий остаётся
++    g.tick()
++    assert len(entries_live(ex)) == 1
++
++
++def test_runner_passes_budget_and_neighbour_debts(tmp_path, monkeypatch):
++    """E1: цикл передаёт живой сетке бюджет заявок, заявки ДРУГИХ символов счёта и долги ДРУГИХ сеток."""
++    from services.weex_grid import loop
++    monkeypatch.setattr(loop, "AUDIT_FILE", tmp_path / "audit.json")
++    seen = {}
++
++    class FakeGrid:
++        def __init__(self, client, cfg, **kw):
++            seen.update(cfg)
++
++        def tick(self):
++            pass
++    live = {**eg.DEFAULT, "symbol": "BTCUSDT", "dry_run": False, "enabled": True}
++    monkeypatch.setattr(loop, "grid_config", lambda name: dict(live))
++    monkeypatch.setattr(loop, "run_files", lambda name, dry: (tmp_path / f"{name}.json", tmp_path / f"{name}.jsonl"))
++    monkeypatch.setattr(loop.eg, "Grid", FakeGrid)
++    r = loop.Runner()
++    monkeypatch.setattr(r, "_client", lambda: object())
++    r.tick_one("B34", None, acct={"BTCUSDT": 150, "ETHUSDT": 20}, debts=["B49", "B34"])
++    assert seen["order_budget"] == loop.ORDER_BUDGET and seen["other_open_orders"] == 20
++    assert seen["account_exit_debt"] == ["B49"]
++    seen.clear()
++    r.tick_one("B34", None, acct=None, debts=[])
++    assert seen["other_open_orders"] is None                   # подсчёт не прочитан — сетка входов не ставит
+diff --git a/tests/services/weex_trend/test_weex_trend_gpt1024.py b/tests/services/weex_trend/test_weex_trend_gpt1024.py
+new file mode 100644
+index 0000000..8ccbb06
+--- /dev/null
++++ b/tests/services/weex_trend/test_weex_trend_gpt1024.py
+@@ -0,0 +1,81 @@
++"""Аудит GPT 481385e (24.10), E3: неизвестный ответ на заявку тренда ({} / None) не равен отказу — намерение и эпизод
++остаются; неполный поиск по истории (WEEX игнорирует page, полные 100 строк) не доказывает, что заявка не дошла."""
++import json
++from datetime import datetime, timezone
++
++import pytest
++
++from services.weex_trend import engine as te
++
++
++class Px:
++    def __init__(self, mid=2500.0):
++        self.mid = mid
++
++    def __call__(self):
++        return round(self.mid - 0.01, 2), round(self.mid + 0.01, 2)
++
++
++def iso(t):
++    return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds")
++
++
++class LostReply(te.DryTrendExchange):
++    """Рыночный вход принят, но ответ потерян ({} или None); история — как у WEEX: page игнорируется."""
++    reply = {}
++    foreign = 0
++
++    def place_market(self, symbol, side, position_side, qty, cid, reduce_only=False):
++        r = super().place_market(symbol, side, position_side, qty, cid, reduce_only)
++        return self.reply if not reduce_only else r
++
++    def order_history(self, symbol, limit=100, page=0, start_ms=None, end_ms=None):
++        if self.foreign:                                       # окно забито чужими ордерами, своего на «странице» нет
++            return [{"orderId": f"x{i}", "clientOrderId": f"other{i}", "status": "FILLED"} for i in range(limit)]
++        return super().order_history(symbol, limit, page, start_ms, end_ms)
++
++
++def setup(tmp_path, reply, foreign=0):
++    clock = {"t": 1_800_000_000.0}
++    px = Px()
++    ex = LostReply(px, now_fn=lambda: clock["t"])
++    ex.reply, ex.foreign = reply, foreign
++    conf = {**te.DEFAULT, "enabled": True, "dry_run": True, "poll_sec": 0, "risk_usd": 33.0, "max_notional_usd": 1500.0}
++    sig = tmp_path / "sig.json"
++    sig.write_text(json.dumps({"ETHUSDT": {"side": "SHORT", "entry_px": px.mid, "stop": 2600.0,
++                                           "entry_ts": iso(clock["t"]), "exh_sent": False}}))
++
++    def make():
++        return te.Trend(ex, conf, state_path=tmp_path / "st.json", journal_path=tmp_path / "j.jsonl", signals_path=sig,
++                        now_fn=lambda: clock["t"])
++    return clock, ex, make
++
++
++@pytest.mark.parametrize("reply", [{}, None])
++def test_unknown_entry_reply_keeps_pending_and_episode(tmp_path, reply):
++    clock, ex, make = setup(tmp_path, reply)
++    clock["t"] += 60
++    make().tick()
++    st = json.loads((tmp_path / "st.json").read_text())
++    assert st.get("pending") and st["pending"]["kind"] == "entry"        # исход неизвестен — намерение живо
++    assert st.get("episode") and st["episode"]["status"] == "opening"
++
++
++def test_explicit_reject_clears_pending_once(tmp_path):
++    clock, ex, make = setup(tmp_path, {"success": False, "errorCode": "SYNTHETIC"})
++    clock["t"] += 60
++    make().tick()
++    st = json.loads((tmp_path / "st.json").read_text())
++    assert not st.get("pending") and not st.get("episode")
++
++
++def test_incomplete_history_does_not_prove_absence(tmp_path):
++    clock, ex, make = setup(tmp_path, {}, foreign=1)
++    clock["t"] += 60
++    make().tick()                                               # вход ушёл, ответ потерян
++    ex.orders.clear()                                          # в открытых нет; в истории — только 100 чужих строк
++    clock["t"] += te.PENDING_TTL + 60
++    make().tick()
++    st = json.loads((tmp_path / "st.json").read_text())
++    assert st.get("pending"), "полный ответ истории (100 строк) — поиск неполный, намерение снимать нельзя"
++    assert st.get("episode")

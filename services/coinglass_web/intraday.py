@@ -74,23 +74,34 @@ def _forecast_progress(now: datetime) -> list[str]:
     for f in (r for r in dr._mine("forecast") if r["date"] == day):
         if now_ms <= f["A_ms"]:
             continue
-        rows = dr.klines(f["sym"], "1m", f["A_ms"], now_ms)
+        rows = [r for r in (dr.klines(f["sym"], "1m", f["A_ms"], now_ms) or []) if int(r[0]) < now_ms]
         if not rows:
             continue
+        # 25.10 (аудит GPT A2): «внутри» и «не задета» — только при полном покрытии закрытых минут окна (как финальная
+        # проверка day_range._check_one); увиденное касание/пробой утверждается всегда, отсутствие — нет
+        expected = (now_ms - f["A_ms"]) // MIN
+        seen = {int(r[0]) for r in rows}
+        missing = [t for t in range(f["A_ms"], now_ms, MIN) if t not in seen]
+        full = not missing and len(seen) == expected
+        gap = "" if full else f" · наблюдения неполные: {len(seen)} из {expected} мин"
         hi, lo = max(float(r[2]) for r in rows), min(float(r[3]) for r in rows)
         clo, chi = f["corridor"]
-        st = "пока внутри" if lo >= clo and hi <= chi else " и ".join(
-            w for w, b in (("пробит вверх", hi > chi), ("пробит вниз", lo < clo)) if b)
+        broke = " и ".join(w for w, b in (("пробит вверх", hi > chi), ("пробит вниз", lo < clo)) if b)
+        st = broke or ("пока внутри" if full else "по увиденным минутам внутри, пробой в пропусках не исключён")
         p = dr._p
         out.append(f"• {f['sym'][:3]}: коридор дня {p(clo, f['sym'])}–{p(chi, f['sym'])} {st} "
-                   f"(с утра макс {p(hi, f['sym'])}, мин {p(lo, f['sym'])})")
+                   f"(с утра макс {p(hi, f['sym'])}, мин {p(lo, f['sym'])}){gap}")
         for x in f["levels"]:
-            hit = next((r for r in rows if (float(r[2]) >= x["price"] if x["side"] == "up" else float(r[3]) <= x["price"])),
-                       None)
+            hit = next((r for r in sorted(rows, key=lambda r: int(r[0]))
+                        if (float(r[2]) >= x["price"] if x["side"] == "up" else float(r[3]) <= x["price"])), None)
             when = (datetime.fromtimestamp(int(hit[0]) / 1000, timezone.utc).astimezone(WARSAW).strftime("%H:%M")
                     if hit else None)
-            out.append(f"  {x['name']} {p(x['price'], f['sym'])}: " + (f"задета в {when}" if when else "не задета")
-                       + f" (утром шанс {x['chance'] * 100:.0f}%)")
+            if when:
+                early_gap = any(t < int(hit[0]) for t in missing)
+                res = f"задета в {when}" if not early_gap else f"задета не позже {when} (до этого пропуски)"
+            else:
+                res = "не задета" if full else "неизвестно — пропуски в данных"
+            out.append(f"  {x['name']} {p(x['price'], f['sym'])}: {res} (утром шанс {x['chance'] * 100:.0f}%)")
     return out
 
 
