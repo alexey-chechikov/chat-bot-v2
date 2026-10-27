@@ -1,0 +1,776 @@
+From 40839edf137addf1a7e328d76c651fe6713b4dd3 Mon Sep 17 00:00:00 2001
+From: Alexey Chechikov <alexeychechikov@MacBook-Air-Alexey.local>
+Date: Tue, 27 Oct 2026 13:58:29 +0100
+Subject: [PATCH] =?UTF-8?q?=D0=9E=D0=BA=D0=BD=D0=BE=20=D0=B4=D0=B8=D0=BD?=
+ =?UTF-8?q?=D0=B0=D0=BC=D0=B8=D1=87=D0=B5=D1=81=D0=BA=D0=B8=D1=85=20=D1=82?=
+ =?UTF-8?q?=D0=B5=D0=B9=D0=BA=D0=BE=D0=B2=20=D1=81=D0=B5=D1=82=D0=BE=D0=BA?=
+ =?UTF-8?q?=20WEEX=20(27.10):=20=D0=B4=D0=B0=D0=BB=D1=8C=D0=BD=D0=B8=D0=B5?=
+ =?UTF-8?q?=20=D1=82=D0=B5=D0=B9=D0=BA=D0=B8=20=D1=81=D0=BF=D1=8F=D1=82=20?=
+ =?UTF-8?q?=D0=B1=D0=B5=D0=B7=20=D0=B7=D0=B0=D1=8F=D0=B2=D0=BA=D0=B8=20?=
+ =?UTF-8?q?=D0=BD=D0=B0=20=D0=B1=D0=B8=D1=80=D0=B6=D0=B5=20=E2=80=94=20?=
+ =?UTF-8?q?=D0=B6=D0=B4=D1=91=D1=82=20=C2=AB=D0=B4=D0=B0=C2=BB=20=D0=BE?=
+ =?UTF-8?q?=D0=BF=D0=B5=D1=80=D0=B0=D1=82=D0=BE=D1=80=D0=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Оператор 27.10: «давай разрабатывать динамические ордера … минусы о них я в курсе, но теперешний вариант тоже меня не
+устраивает». В тот день все пять живых сеток стояли без входов: «бюджет заявок счёта 185 из 185», из 173 тейков ближе
+2% к цене было 60.
+
+- engine.tp_window(cfg) → (arm, park) или None; tp_arm_pct/tp_park_pct, 0/0 — выключено (по умолчанию у всех сеток).
+  Негодное окно (arm < цели, park ≤ arm, > 50%, один из двух) — ConfigError, сетка встаёт.
+- Grid._side 2б: тейк дальше park % снимается (дальние первыми, не больше TP_PARK_BATCH=10 за проход); исполненное до
+  снятия — по курсору, тейк забывается только на подтверждённом конечном статусе. Лот без тейка дальше arm % спит:
+  тейк не ставится, в долг по выходам (exit_debt) не идёт. Ближе arm % — тейк ставится, как новый.
+- Карточка: «тейков на бирже N, спят M (окно a/p%)»; счётчик снятий tp_parks в учёте стороны.
+- /weex <сетка> set окно 2 [снятие 3.5]; снятие по умолчанию окно+1; окно 0 — выключено; окно против цели
+  проверяется до сохранения.
+- research/weex/orphan_check.py: спящий лот — не находка, печатается числом; ближе окна без тейка — находка.
+- Тесты: test_weex_dyn_tp.py (29), test_rw_orphan_check_window.py (4); 6 мутаций пойманы.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ research/weex/orphan_check.py                 |  21 +-
+ services/weex_grid/engine.py                  |  83 +++-
+ services/weex_grid/loop.py                    |  20 +-
+ .../test_rw_orphan_check_window.py            |  38 ++
+ tests/services/weex_grid/test_weex_dyn_tp.py  | 402 ++++++++++++++++++
+ 5 files changed, 554 insertions(+), 10 deletions(-)
+ create mode 100644 tests/research_weex/test_rw_orphan_check_window.py
+ create mode 100644 tests/services/weex_grid/test_weex_dyn_tp.py
+
+diff --git a/research/weex/orphan_check.py b/research/weex/orphan_check.py
+index cd87459..00776fa 100644
+--- a/research/weex/orphan_check.py
++++ b/research/weex/orphan_check.py
+@@ -10,6 +10,8 @@
+   отменён/отклонён/истёк — остаток без TP         — НАХОДКА (код 1);
+   неизвестен (пустой/чужой ответ, нет статуса)    — НАХОДКА (код 2: не «ок», но и не доказанная дыра).
+ Тейка нет в учёте — лот без тейка (код 1). Плюс условные (algo) ордера с префиксом b7g — у сеток их быть не должно.
++27.10, окно динамических тейков (engine.tp_window): лот без тейка, которому до тейка больше окна, «спит» — не находка,
++печатается числом. Ближе окна и без тейка — находка, как раньше (сразу после подхода цены — гонка с проходом сетки).
+ Ревью скилов 12.10: проверка была только в одну сторону, «своих N, в учёте N» вводило в заблуждение.
+ Сразу после постановки/исполнения возможна гонка с проходом сетки — при находке перепроверить через 10–20 с.
+ Несколько сеток на символе (15.10: BTC и B34/B49/B89): «свои» сетки — только b7g + её знак (engine.cid_tag), ордера
+@@ -129,6 +131,14 @@ def main() -> None:
+                   + (" — СИРОТЫ" if stray or stray_algo else ""))
+             continue
+         st = json.loads(st_path.read_text())
++        try:
++            win = eg.tp_window(cfg)
++        except eg.ConfigError as exc:                  # сетка с таким окном стоит (GridHalt) — спящих не различить
++            print(f"{name} {sym}: {exc} — сетка стоит; лоты без тейка считаю находками")
++            win, bad = None, True
++        bid = ask = None
++        if win:
++            bid, ask = c.book(sym)
+         known, pend = set(), set()
+         for s in ("LONG", "SHORT"):
+             side = st.get(s, {})
+@@ -147,12 +157,18 @@ def main() -> None:
+         open_by_id = {str(o["orderId"]): o for o in mine}
+         lots_total = 0
+         no_tp, unk, notes = [], [], []
++        asleep = 0
+         for s in ("LONG", "SHORT"):
+             for l in st.get(s, {}).get("lots", []):
+                 lots_total += 1
+                 row = (s, l["entry"], l["qty"], (l.get("tp_order") or {}).get("id"))
+                 if not l.get("tp_order"):
+-                    no_tp.append((*row, "тейка нет в учёте"))
++                    dist = eg.tp_distance(s, l["tp"], bid, ask) if win else None
++                    if dist is not None and dist > win[0]:
++                        asleep += 1                    # спит по окну: тейк встанет при подходе цены
++                    else:
++                        no_tp.append((*row, "тейка нет в учёте" + (f" (до тейка {dist:.2f}%, окно {win[0]:g}%)"
++                                                                     if dist is not None else "")))
+                     continue
+                 listed = open_by_id.get(str(l["tp_order"]["id"]))
+                 if listed is not None:
+@@ -178,7 +194,8 @@ def main() -> None:
+         unknown |= bool(unk)
+         print(f"{name} {sym}: своих ордеров {len(mine)} — сопоставлено с учётом {matched}, по cid неясной постановки "
+               f"{by_cid}, сирот {len(orphans)}; лотов {lots_total}, без тейка на бирже {len(no_tp)}, тейк неизвестен "
+-              f"{len(unk)}, тейк вне списка (исполнен/жив) {len(notes)}; algo b7 {len(algo)}")
++              f"{len(unk)}, тейк вне списка (исполнен/жив) {len(notes)}; algo b7 {len(algo)}"
++              + (f"; спят по окну {win[0]:g}/{win[1]:g}%: {asleep}" if win else ""))
+         for o in orphans:
+             print("   сирота:", o["positionSide"], o["side"], o["price"], o["origQty"], o.get("clientOrderId"))
+         for s, entry, q, tid, why in no_tp:
+diff --git a/services/weex_grid/engine.py b/services/weex_grid/engine.py
+index 9c2a924..a6a2750 100644
+--- a/services/weex_grid/engine.py
++++ b/services/weex_grid/engine.py
+@@ -58,6 +58,8 @@ DEFAULT = {
+     "poll_sec": 10,
+     "qty_step": 0.0001,          # шаг объёма контракта (BTC 0.0001, ETH 0.001)
+     "qty_max": 0.01,             # верхняя граница ордера для /weex set (защита от опечатки)
++    "tp_arm_pct": 0.0,           # окно динамических тейков (tp_window): 0/0 — выключено, тейк каждого лота на бирже
++    "tp_park_pct": 0.0,
+ }
+ # Сетки по монетам. BTC — исходные файлы (weex_grid_config.json …), остальные — weex_grid_<имя>_*.
+ # Новая сетка создаётся ВЫКЛЮЧЕННОЙ и ХОЛОСТОЙ: живой режим включает только оператор (/weex eth live).
+@@ -129,6 +131,9 @@ HISTORY_SPLIT_BUDGET = 8
+ TRADES_SPLIT_BUDGET = 8
+ TRADES_DETAILS = 20      # деталей незнакомых ордеров за один поиск по сделкам (прочитанные чужие запоминаются в намерении)
+ REGIME_RETRY = 30.0      # с: после сбоя дневок режим не перезапрашивается (4 сетки BTC — не 4 таймаута по 15 с за проход)
++# 27.10: спящих тейков, снимаемых окном за один проход сетки (включение окна снимает до ~110 тейков — не одним залпом:
++# лимит веса WEEX 500 за 10 с на IP). Постановка тейков при подходе цены не ограничена — выход важнее места
++TP_PARK_BATCH = 10
+ 
+ 
+ class GridHalt(RuntimeError):
+@@ -163,6 +168,35 @@ def cid_tag(cfg: dict) -> str:
+     return tag
+ 
+ 
++def tp_window(cfg: dict) -> tuple[float, float] | None:
++    """Окно динамических тейков (27.10, оператор: «давай разрабатывать динамические ордера … теперешний вариант тоже
++    меня не устраивает»; 27.10 все пять сеток стояли без входов — «бюджет заявок счёта 185 из 185», из 173 тейков
++    ближе 2% к цене было 60). (arm, park) в % или None — окно выключено, тейк каждого лота стоит на бирже, как было.
++    Лот без тейка получает его, когда цене до тейка не больше arm %; стоящий тейк снимается, когда до него больше park %
++    (гистерезис: между arm и park ничего не меняется). arm не меньше цели — тейк только что купленного лота ставится
++    сразу. Негодно (не число, arm < цели, park ≤ arm, > 50 %, задан один из двух) — ConfigError: сетка встаёт,
++    умолчания не подставляются."""
++    try:
++        arm = float(cfg.get("tp_arm_pct") or 0)
++        park = float(cfg.get("tp_park_pct") or 0)
++        target = float(cfg.get("target_pct") or 0)
++    except (TypeError, ValueError) as exc:
++        raise ConfigError(f"окно тейков негодно: {exc}") from exc
++    if not (math.isfinite(arm) and math.isfinite(park)):
++        raise ConfigError(f"окно тейков {arm!r}/{park!r}: не конечное число")
++    if arm == 0 and park == 0:
++        return None
++    if not (0 < target <= arm < park <= 50):
++        raise ConfigError(f"окно тейков {arm:g}/{park:g}% негодно: нужно цель ({target:g}%) ≤ поставить < снять ≤ 50%")
++    return arm, park
++
++
++def tp_distance(side: str, tp: float, bid: float, ask: float) -> float:
++    """Сколько % цене идти до тейка лота: лонг — от bid вверх, шорт — от ask вниз; ≤ 0 — цена уже за тейком."""
++    ref = bid if side == "LONG" else ask
++    return DIR[side] * (float(tp) - ref) / ref * 100
++
++
+ def grid_label(name: str | None, symbol: str) -> str:
+     """Имя сетки в сообщениях и карточке: у прежних сеток (BTC, ETH, XAU) — символ, как раньше; у сетки со своим именем
+     на символе другой монеты (B34 на BTCUSDT) — «B34 BTCUSDT», иначе четыре сетки BTC в сообщениях не различить."""
+@@ -275,9 +309,10 @@ def new_side_state() -> dict:
+     # привязки тейка восстановление считает только то, что ещё не учтено (перепроверка GPT 10.10).
+     # transfers / transferred_mtm — передачи стороны оператору: остаток и его MTM на момент передачи (13.10, дополнение
+     # GPT §3) — итог владения включает переданный мешок, передача не меняет заработанное
++    # tp_parks — сколько раз окно снимало тейк (27.10): мера «дёрганья» динамических тейков
+     return {"ref": None, "entry": None, "lots": [], "realized": 0.0, "fees": 0.0,
+             "n_entries": 0, "n_tps": 0, "seq": 0, "turnover": 0.0, "pending": None,
+-            "strays": [], "fee_book": {}, "order_fills": {}, "transferred_mtm": 0.0, "transfers": []}
++            "strays": [], "fee_book": {}, "order_fills": {}, "transferred_mtm": 0.0, "transfers": [], "tp_parks": 0}
+ 
+ 
+ _REGIME_CACHE: dict[tuple, object] = {}    # (символ, дни) → (день, решение); ("fail", символ, дни) → время сбоя
+@@ -388,6 +423,7 @@ class Grid:
+         self.name = name
+         self.tag = check_tag(name, self.cfg) if name else cid_tag(self.cfg)
+         self.own = PREFIX + self.tag                 # префикс СВОИХ ордеров: b7g + знак сетки
++        self.win = tp_window(self.cfg)               # 27.10: окно динамических тейков; негодное — ConfigError до запросов
+         self.label = grid_label(name, self.cfg["symbol"])
+         self.state_path = Path(state_path)
+         self.journal_path = Path(journal_path)
+@@ -681,6 +717,20 @@ class Grid:
+         50 исполнений по 0.0001 занимали 50 слотов при тех же $500)."""
+         return len({l.get("parent") or f"lot{id(l)}" for l in self.st[side]["lots"]})
+ 
++    def _sleeps(self, side: str, lot: dict, bid: float, ask: float) -> bool:
++        """Лот без тейка «спит» по окну динамических тейков (27.10): цене до его тейка больше arm %. Это не долг по
++        выходам — тейк встанет, когда цена подойдёт."""
++        return bool(self.win) and lot.get("tp_order") is None and tp_distance(side, lot["tp"], bid, ask) > self.win[0]
++
++    def _tp_note(self, side: str, mid: float) -> str:
++        """Карточка: тейков на бирже и спящих по окну (только при включённом окне)."""
++        if not self.win:
++            return ""
++        lots = self.st[side]["lots"]
++        sleep = sum(1 for l in lots if self._sleeps(side, l, mid, mid))
++        return (f" · тейков на бирже {sum(1 for l in lots if l.get('tp_order'))}, спят {sleep} "
++                f"(окно {self.win[0]:g}/{self.win[1]:g}%)")
++
+     def _order_budget_ok(self) -> tuple[bool, str]:
+         """25.10 (аудит GPT E1; замер 24.10: отказы WEEX −1191 «Business precondition not satisfied» начались при ≈200
+         открытых заявках счёта, и по ETH тоже — лимит общий на счёт). Новый вход — только если заявки этого символа
+@@ -1643,6 +1693,25 @@ class Grid:
+                 if kind != "terminal":
+                     continue                  # live — отмена ещё не прошла; unknown — исход неясен: тейк остаётся
+                 self._take_tp_fill(side, lot, o, info, terminal=True)
++        # 2б) динамические тейки (27.10, tp_window): тейк дальше park % от цены снимается — лот «спит» без заявки на бирже
++        # и не занимает место в лимите заявок счёта (≈200), пока цене до тейка не станет не больше arm % (ниже: тейк
++        # ставится заново). Снятие — как у несовпавшего тейка: исполненное до снятия учитывается по курсору, тейк
++        # забывается только на подтверждённом конечном статусе; live/unknown — тейк остаётся, повтор следующим проходом.
++        # Дальние первыми, не больше TP_PARK_BATCH за проход
++        if self.win:
++            far = sorted(((tp_distance(side, l["tp"], bid, ask), l) for l in s["lots"]
++                          if l.get("tp_order") and l["tp_order"]["id"] in open_ids), key=lambda x: -x[0])
++            for dist, lot in [x for x in far if x[0] > self.win[1]][:TP_PARK_BATCH]:
++                o = lot["tp_order"]
++                self._cancel(o)
++                open_ids.discard(o["id"])
++                s["tp_parks"] = int(s.get("tp_parks") or 0) + 1
++                logger.info("weex_grid.tp_park side=%s tp=%s dist=%.2f%% order=%s", side, lot["tp"], dist, o["id"])
++                kind, info = checked[o["id"]] = self._detail(o["id"], side, o)
++                if kind == "terminal":
++                    self._take_tp_fill(side, lot, o, info, terminal=True)
++                else:
++                    self.save()
+         for lot in list(s["lots"]):
+             o = lot.get("tp_order")
+             if o and o["id"] in open_ids:
+@@ -1664,6 +1733,8 @@ class Grid:
+                 if self._take_tp_fill(side, lot, o, info, terminal=True):
+                     continue
+             if lot.get("tp_order") is None:
++                if self._sleeps(side, lot, bid, ask):
++                    continue                  # спит по окну: тейк встанет, когда цена подойдёт ближе arm % (2б)
+                 if not can_place:
+                     continue                  # неясный ордер на стороне — тейк не ставим поверх (не дублировать)
+                 lot["tp_order"] = self._place(side, "t", lot["tp"], True, bid, ask, qty=lot["qty"], lot=lot)
+@@ -1674,8 +1745,8 @@ class Grid:
+                     can_place = False         # исход постановки неизвестен — новых ордеров больше не ставим
+         # 25.10 (аудит GPT E1/E2): долг по выходам — лоты стороны без тейка на бирже. Пока он есть у этой сетки или у
+         # соседней сетки счёта (cfg account_exit_debt от цикла), свой вход снимается и новый не ставится: место в
+-        # лимите заявок — сначала тейкам
+-        debt = sum(1 for l in s["lots"] if l.get("tp_order") is None)
++        # лимите заявок — сначала тейкам. Спящий по окну лот (27.10) — не долг: его тейк и не должен стоять
++        debt = sum(1 for l in s["lots"] if l.get("tp_order") is None and not self._sleeps(side, l, bid, ask))
+         self.st.setdefault("exit_debt", {})[side] = debt
+         # 3) опорная цена — как у GinArea: шаг от крайнего ОТКРЫТОГО ордера (лонг — нижний, шорт —
+         # верхний); после тейка уровень заполняется снова. Сверено 09.10 по журналу шортового бота
+@@ -2155,7 +2226,8 @@ class Grid:
+             un = sum(DIR[side] * float(l["qty"]) * (mid - l["entry"]) for l in s["lots"])
+             ent = f"вход {fmt_px(s['entry']['price'], tick)}" if s.get("entry") else ("вход нет: " + s.get("blocked", "") if s.get("blocked") else "вход нет")
+             lines.append(f"{'🟢 ЛОНГ' if side == 'LONG' else '🔴 ШОРТ'}: {self._slots(side)} орд. ({q:g}), мешок ${un:+.2f}, "
+-                         f"закрыто ${s['realized']:+.2f}, комиссии ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}")
++                         f"закрыто ${s['realized']:+.2f}, комиссии ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}"
++                         + self._tp_note(side, mid))
+         tot = self.bot_pnl(mid)
+         turn = sum(self.st[s]["turnover"] for s in ("LONG", "SHORT"))
+         lines.append(f"итог сетки с мешком ${tot:+.2f}"
+@@ -2188,7 +2260,8 @@ class Grid:
+             ent = (f"вход {fmt_px(s['entry']['price'], tick)}" if s.get("entry") else
+                    f"вход нет: {s['blocked']}" if s.get("blocked") else "вход нет")
+             rows.append(f"{'🟢 Л' if side == 'LONG' else '🔴 Ш'} {self._slots(side)} орд. ({q:g}), мешок ${un:+.2f}, "
+-                        f"закрыто ${s['realized']:+.2f}, ком. ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}")
++                        f"закрыто ${s['realized']:+.2f}, ком. ${s['fees']:.3f}, тейков {s['n_tps']} · {ent}"
++                        + self._tp_note(side, mid))
+         turn = sum(self.st[s]["turnover"] for s in DIR)
+         rows.append(f"итог с мешком ${self.bot_pnl(mid):+.2f} · оборот ${turn:,.0f}")
+         inc = self.st.get("fee_incomplete") or {}
+diff --git a/services/weex_grid/loop.py b/services/weex_grid/loop.py
+index 94398d9..eb0f272 100644
+--- a/services/weex_grid/loop.py
++++ b/services/weex_grid/loop.py
+@@ -479,11 +479,16 @@ SET_KEYS = {"target": "target_pct", "цель": "target_pct", "таргет": "t
+             "max": "max_lots_per_side", "макс": "max_lots_per_side",
+             "стресс": "stress_budget_frac", "stress": "stress_budget_frac",
+             # 25.10: полоса режима SMA (гистерезис), % — engine.regime_up; 0 = как было
+-            "полоса": "regime_band_pct", "band": "regime_band_pct"}
++            "полоса": "regime_band_pct", "band": "regime_band_pct",
++            # 27.10: окно динамических тейков (engine.tp_window) — «окно 2» ставит тейк ближе 2% к цене, снимает дальше
++            # 2+1%; «снятие 3.5» — свой порог снятия; «окно 0» — выключено, все тейки на бирже, как было
++            "окно": "tp_arm_pct", "window": "tp_arm_pct", "снятие": "tp_park_pct", "park": "tp_park_pct"}
++TP_PARK_GAP = 1.0        # %: порог снятия по умолчанию = окно + 1 (гистерезис против дёрганья тейков)
+ # 0 у стопа дня и стресс-бюджета = выключено (оператор 09.10: «стопы снимай, ограничиваем количеством»)
+ LIMITS = {"target_pct": (0.05, 5.0), "step_pct": (0.05, 5.0), "max_notional_usd": (10.0, 20_000.0),
+           "daily_loss_stop_usd": (0.0, 2_000.0), "max_lots_per_side": (1, 200),
+-          "stress_budget_frac": (0.0, 1.0), "regime_band_pct": (0.0, 10.0)}   # объём ордера — по qty_step/qty_max
++          "stress_budget_frac": (0.0, 1.0), "regime_band_pct": (0.0, 10.0),
++          "tp_arm_pct": (0.0, 20.0), "tp_park_pct": (0.0, 30.0)}   # объём ордера — по qty_step/qty_max
+ NAMES = {"btc": "BTC", "бтк": "BTC", "биток": "BTC", "биткоин": "BTC",
+          "eth": "ETH", "эфир": "ETH", "эth": "ETH",
+          "xau": "XAU", "gold": "XAU", "золото": "XAU", "голд": "XAU",
+@@ -542,7 +547,7 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
+     for k, v in zip(toks[::2], toks[1::2]):
+         key = SET_KEYS.get(k.lower())
+         if key is None:
+-            return f"Не знаю параметр «{k}». Есть: цель, шаг, ордер, qty, потолок, стоп, макс, полоса."
++            return f"Не знаю параметр «{k}». Есть: цель, шаг, ордер, qty, потолок, стоп, макс, полоса, окно, снятие."
+         try:
+             val = float(v.replace("$", ""))
+         except ValueError:
+@@ -554,6 +559,13 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
+         if not lo - 1e-12 <= val <= hi + 1e-12:
+             return f"{key} = {val:g} вне допустимого [{lo:g}; {hi:g}] — не меняю."
+         changes[key] = int(val) if key == "max_lots_per_side" else (f"{val:.{qdec}f}" if key == "order_qty" else val)
++    if "tp_arm_pct" in changes and "tp_park_pct" not in changes:      # 27.10: снятие по умолчанию — окно + 1%
++        arm = float(changes["tp_arm_pct"])
++        changes["tp_park_pct"] = round(arm + TP_PARK_GAP, 4) if arm > 0 else 0.0
++    try:
++        eg.tp_window({**cfg, **changes})       # окно против цели: негодное не сохраняем (иначе сетка встала бы)
++    except eg.ConfigError as exc:
++        return f"{exc} — не меняю."
+     cfg.update(changes)
+     save_grid_config(cfg, name)
+     price = price or price_fn()
+@@ -567,6 +579,8 @@ def set_params(arg: str, price_fn, name: str = "BTC") -> str:
+             f"{min(n_cap, int(cfg['max_lots_per_side']))} ордеров; "
+             f"стоп дня {'ВЫКЛ' if stop <= 0 else f'${stop:,.0f}'}; стресс-бюджет {'ВЫКЛ' if stress <= 0 else f'{stress:.0%}'}"
+             + (f"; полоса режима {float(cfg.get('regime_band_pct') or 0):g}%" if int(cfg.get("regime_sma") or 0) > 0 else "")
++            + (f"; окно тейков {float(cfg['tp_arm_pct']):g}/{float(cfg['tp_park_pct']):g}% (на бирже только тейки ближе "
++               f"{float(cfg['tp_arm_pct']):g}% к цене)" if eg.tp_window(cfg) else "; окно тейков ВЫКЛ (все тейки на бирже)")
+             + ".\nДействует на новые ордера; уже стоящие тейки остаются на старой цели.")
+ 
+ 
+diff --git a/tests/research_weex/test_rw_orphan_check_window.py b/tests/research_weex/test_rw_orphan_check_window.py
+new file mode 100644
+index 0000000..25ece76
+--- /dev/null
++++ b/tests/research_weex/test_rw_orphan_check_window.py
+@@ -0,0 +1,38 @@
++"""research/weex/orphan_check.py при окне динамических тейков (27.10, engine.tp_window): лот без тейка, которому до тейка
++больше окна, спит — не находка; ближе окна без тейка — находка, как раньше; негодное окно — находка (сетка стоит)."""
++from tests.research_weex.harness import FakeClient, make_grid, run_script, side_state
++
++
++def sleeping_state():
++    lot = {"entry": 100.0, "qty": "1", "tp": 101.0, "t": 1.0, "tp_order": None}
++    return {"symbol": "BTCUSDT", "LONG": side_state(lots=[lot]), "SHORT": side_state(), "halted": False}
++
++
++def run(tmp_path, monkeypatch, book, **cfg):
++    make_grid(tmp_path, monkeypatch, cfg={"release_sides": [], "target_pct": 0.5, **cfg}, st=sleeping_state(),
++              journal=[])
++    return run_script("orphan_check.py", FakeClient(book=book), monkeypatch)
++
++
++def test_lot_beyond_window_sleeps_not_finding(tmp_path, monkeypatch):
++    code, out = run(tmp_path, monkeypatch, (98.0, 98.0), tp_arm_pct=2.0, tp_park_pct=3.0)   # до тейка 3.06%
++    assert code == 0, out
++    assert "спят по окну 2/3%: 1" in out and "лот без тейка" not in out
++
++
++def test_lot_inside_window_without_tp_is_finding(tmp_path, monkeypatch):
++    code, out = run(tmp_path, monkeypatch, (100.0, 100.0), tp_arm_pct=2.0, tp_park_pct=3.0)  # до тейка 1%
++    assert code == 1, out
++    assert "лот без тейка" in out and "окно 2%" in out
++
++
++def test_no_window_lot_without_tp_is_finding(tmp_path, monkeypatch):
++    code, out = run(tmp_path, monkeypatch, (98.0, 98.0))
++    assert code == 1, out
++    assert "лот без тейка" in out and "спят" not in out
++
++
++def test_broken_window_is_finding(tmp_path, monkeypatch):
++    code, out = run(tmp_path, monkeypatch, (98.0, 98.0), tp_arm_pct=0.2, tp_park_pct=3.0)   # окно меньше цели
++    assert code == 1, out
++    assert "сетка стоит" in out and "лот без тейка" in out
+diff --git a/tests/services/weex_grid/test_weex_dyn_tp.py b/tests/services/weex_grid/test_weex_dyn_tp.py
+new file mode 100644
+index 0000000..4c96e89
+--- /dev/null
++++ b/tests/services/weex_grid/test_weex_dyn_tp.py
+@@ -0,0 +1,402 @@
++"""27.10: окно динамических тейков (engine.tp_window). Оператор: «давай разрабатывать динамические ордера … минусы о них
++я в курсе, но теперешний вариант тоже меня не устраивает» — 27.10 все пять сеток стояли без входов («бюджет заявок счёта
++185 из 185»), из 173 тейков ближе 2% к цене было 60. Тейк дальше park % от цены снимается — лот спит без заявки на
++бирже; цене до тейка не больше arm % — тейк ставится снова. Снятие учитывает исполненное до снятия и забывает тейк только
++на подтверждённом конечном статусе; спящий лот — не долг по выходам; закрытие по режиму закрывает и спящие лоты."""
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from services.weex_grid import engine as eg
++
++LIVE = eg.LIVE
++
++
++class MovePx:
++    def __init__(self, p: float = 100000.0):
++        self.p = p
++
++    def __call__(self):
++        return self.p - 0.05, self.p + 0.05
++
++
++class Ex(eg.DryExchange):
++    """Имитатор: отмена снимает и частично исполненный; гонки — подменённая деталь, отмена, которая ещё не прошла,
++    отказ тейка (лимит заявок счёта)."""
++
++    def __init__(self, *a, **kw):
++        super().__init__(*a, **kw)
++        self.info_override: dict[str, dict] = {}
++        self.lazy_cancel = False
++        self.reject_tp = False
++        self.cancels: list[str] = []
++
++    def cancel(self, oid):
++        self.cancels.append(str(oid))
++        o = self.orders.get(str(oid))
++        if not self.lazy_cancel and o and o["status"] in ("NEW", "PARTIALLY_FILLED"):
++            o["status"] = "CANCELED"
++        return {"success": True, "orderId": oid}
++
++    def order_info(self, oid):
++        if str(oid) in self.info_override:
++            return self.info_override[str(oid)]
++        return super().order_info(oid)
++
++    def place_limit(self, symbol, side, position_side, qty, price, cid, reduce_only=False, post_only=True):
++        if self.reject_tp and reduce_only:
++            return {"success": False, "errorCode": "SYNTHETIC_ACCOUNT_ORDER_CAP", "orderId": None}
++        return super().place_limit(symbol, side, position_side, qty, price, cid, reduce_only, post_only)
++
++
++def make(tmp_path, side="LONG", ex=None, px=None, regime_fn=None, **cfg):
++    px = px or MovePx()
++    clock = {"t": 1_800_000_000.0}
++    ex = ex or Ex(px, now_fn=lambda: clock["t"])
++    conf = {**eg.DEFAULT, "enabled": True, "dry_run": True, "sides": [side], "step_pct": 0.6, "target_pct": 1.4,
++            "order_qty": "0.0012", "max_notional_usd": 100000.0, "max_lots_per_side": 50,
++            "daily_loss_stop_usd": 0.0, "stress_budget_frac": 0.0,          # как у живых сеток: выключены
++            "tp_arm_pct": 2.0, "tp_park_pct": 3.0, **cfg}
++
++    def now():
++        clock["t"] += 10
++        return clock["t"]
++    tmp_path.mkdir(parents=True, exist_ok=True)
++    g = eg.Grid(ex, conf, state_path=tmp_path / "st.json", journal_path=tmp_path / "j.jsonl", now_fn=now,
++                regime_fn=regime_fn)
++    return g, ex, px
++
++
++def move(g, px, to, pct=0.3):
++    """Цена шагами по pct % к to, проход на каждом шаге (входы и тейки исполняются по одному)."""
++    while abs(px.p - to) > 1e-9:
++        px.p = max(to, px.p * (1 - pct / 100)) if to < px.p else min(to, px.p * (1 + pct / 100))
++        g.tick()
++
++
++def at_dist(px, tp, dist, side="LONG"):
++    """Цена, при которой до тейка ровно dist % (лонг — от bid вверх, шорт — от ask вниз)."""
++    px.p = tp / (1 + dist / 100) + 0.05 if side == "LONG" else tp / (1 - dist / 100) - 0.05
++
++
++def tps(ex, side="LONG"):
++    return [o for o in ex.orders.values() if o["reduceOnly"] and o["status"] in LIVE and o["positionSide"] == side]
++
++
++def entries(ex):
++    return [o for o in ex.orders.values() if not o["reduceOnly"] and o["status"] in LIVE]
++
++
++def journal(tmp_path):
++    p = tmp_path / "j.jsonl"
++    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
++
++
++def one_lot(tmp_path, **cfg):
++    """Сетка с одним лотом (вход 99 400, тейк 100 791.6) и его тейком на бирже."""
++    g, ex, px = make(tmp_path, max_lots_per_side=1, **cfg)
++    g.tick()
++    px.p = 99399.0
++    g.tick()
++    g.tick()
++    lot = g.st["LONG"]["lots"][0]
++    assert lot["tp_order"] is not None and len(tps(ex)) == 1
++    return g, ex, px, lot
++
++
++# ---------------------------------------------------------------- конфиг
++@pytest.mark.parametrize("arm,park,target,want", [
++    (0, 0, 1.4, None),
++    (2, 3, 1.4, (2.0, 3.0)),
++    (1.4, 1.5, 1.4, (1.4, 1.5)),
++    (None, None, 1.4, None),
++])
++def test_window_valid(arm, park, target, want):
++    assert eg.tp_window({"tp_arm_pct": arm, "tp_park_pct": park, "target_pct": target}) == want
++
++
++@pytest.mark.parametrize("arm,park", [(1, 3), (2, 2), (3, 2), (2, 0), (0, 3), (2, 60), (float("nan"), 3), ("x", 3)])
++def test_window_invalid_halts_grid(tmp_path, arm, park):
++    """Негодное окно — ConfigError (сетка встаёт), а не выключенное окно по умолчанию."""
++    with pytest.raises(eg.ConfigError):
++        eg.tp_window({"tp_arm_pct": arm, "tp_park_pct": park, "target_pct": 1.4})
++    with pytest.raises(eg.ConfigError):
++        make(tmp_path, tp_arm_pct=arm, tp_park_pct=park)
++
++
++def test_distance_sides():
++    assert eg.tp_distance("LONG", 102.0, 100.0, 100.1) == pytest.approx(2.0)
++    assert eg.tp_distance("SHORT", 98.0, 99.9, 100.0) == pytest.approx(2.0)
++    assert eg.tp_distance("LONG", 99.0, 100.0, 100.1) < 0          # цена уже за тейком
++
++
++# ---------------------------------------------------------------- основное поведение
++def test_far_tps_sleep_near_tps_stand_and_entries_go_on(tmp_path):
++    g, ex, px = make(tmp_path)
++    g.tick()
++    move(g, px, 95000.0)
++    g.tick()
++    lots = g.st["LONG"]["lots"]
++    assert len(lots) == 8
++    bid, ask = px()
++    sleeping = [l for l in lots if eg.tp_distance("LONG", l["tp"], bid, ask) > 3.0]
++    near = [l for l in lots if eg.tp_distance("LONG", l["tp"], bid, ask) <= 2.0]
++    assert sleeping and near
++    assert all(l["tp_order"] is None for l in sleeping)
++    assert all(l["tp_order"] is not None for l in near)
++    live = tps(ex)
++    assert len(live) == sum(1 for l in lots if l["tp_order"]) < len(lots)
++    assert {o["origQty"] for o in live} == {"0.0012"}
++    assert g.st["exit_debt"]["LONG"] == 0                       # спящие — не долг
++    assert len(entries(ex)) == 1 and not g.st["LONG"]["blocked"]
++    assert g.st["LONG"]["tp_parks"] == len(sleeping)
++    assert not g.st["LONG"]["strays"]
++
++
++def test_rise_rearms_and_closes_sleeping_lots_at_their_tp(tmp_path):
++    g, ex, px = make(tmp_path)
++    g.tick()
++    move(g, px, 95000.0)
++    g.tick()
++    top = max(g.st["LONG"]["lots"], key=lambda l: l["entry"])
++    assert top["tp_order"] is None
++    move(g, px, top["tp"] * 1.002)
++    assert not g.st["LONG"]["lots"]                             # все закрыты тейками
++    rows = [r for r in journal(tmp_path) if r.get("kind") == "тейк"]
++    assert len(rows) == 8
++    for r in rows:                                              # каждый — по своей цене тейка, в плюс
++        assert r["price"] == pytest.approx(eg.round_tick(r["entry"] * 1.014, 0.1, up=True))
++        assert r["pnl"] > 0
++    assert g.st["LONG"]["realized"] == pytest.approx(sum(r["pnl"] for r in rows))
++
++
++def test_hysteresis_between_arm_and_park(tmp_path):
++    g, ex, px, lot = one_lot(tmp_path)
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    lot = g.st["LONG"]["lots"][0]
++    assert lot["tp_order"] is None and tps(ex) == [] and g.st["LONG"]["tp_parks"] == 1
++    at_dist(px, lot["tp"], 2.5)                                 # между окнами: спящий так и спит
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"] is None and tps(ex) == []
++    at_dist(px, lot["tp"], 1.9)                                 # ближе arm — тейк ставится
++    g.tick()
++    live = tps(ex)
++    assert len(live) == 1 and live[0]["origQty"] == "0.0012" and float(live[0]["price"]) == pytest.approx(lot["tp"])
++    at_dist(px, lot["tp"], 2.8)                                 # между окнами: стоящий так и стоит
++    g.tick()
++    assert len(tps(ex)) == 1 and g.st["LONG"]["tp_parks"] == 1
++    at_dist(px, lot["tp"], 3.2)                                 # дальше park — снова спит
++    g.tick()
++    assert tps(ex) == [] and g.st["LONG"]["tp_parks"] == 2
++
++
++def test_partial_fill_before_park_is_booked_and_rest_rearmed(tmp_path):
++    g, ex, px, lot = one_lot(tmp_path)
++    oid = lot["tp_order"]["id"]
++    ex.orders[oid].update(status="PARTIALLY_FILLED", executedQty="0.0005", avgPrice=str(lot["tp"]))
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    lot = g.st["LONG"]["lots"][0]
++    assert lot["qty"] == "0.0007" and lot["tp_order"] is None
++    assert g.st["LONG"]["realized"] == pytest.approx(0.0005 * (lot["tp"] - lot["entry"]))
++    assert [r["kind"] for r in journal(tmp_path) if "тейк" in str(r.get("kind"))] == ["тейк (часть)"]
++    at_dist(px, lot["tp"], 1.5)
++    g.tick()
++    live = tps(ex)
++    assert len(live) == 1 and live[0]["origQty"] == "0.0007"   # новый тейк — ровно на остаток
++    assert g.st["exit_debt"]["LONG"] == 0
++
++
++def test_unknown_detail_after_cancel_keeps_tp_until_confirmed(tmp_path):
++    g, ex, px, lot = one_lot(tmp_path)
++    oid = lot["tp_order"]["id"]
++    ex.info_override[oid] = {}                                  # пустой ответ детали
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    lot = g.st["LONG"]["lots"][0]
++    assert lot["tp_order"] and lot["tp_order"]["id"] == oid     # неясно — тейк не забыт
++    assert oid in g.st.get("unknown_orders", {})
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"]["id"] == oid
++    del ex.info_override[oid]                                   # биржа ответила: CANCELED
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"] is None
++    assert sum(1 for o in ex.orders.values() if o["reduceOnly"]) == 1   # второго тейка не ставилось
++    assert not g.st["LONG"]["strays"] and g.st["exit_debt"]["LONG"] == 0
++
++
++def test_cancel_not_yet_done_keeps_tp_no_duplicate(tmp_path):
++    g, ex, px, lot = one_lot(tmp_path)
++    oid = lot["tp_order"]["id"]
++    ex.lazy_cancel = True                                       # отмена ещё не прошла — ордер жив
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"]["id"] == oid and len(tps(ex)) == 1
++    ex.lazy_cancel = False
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"] is None and tps(ex) == []
++    assert sum(1 for o in ex.orders.values() if o["reduceOnly"]) == 1
++
++
++def test_tp_filled_in_race_with_park_is_booked_not_parked(tmp_path):
++    """Тейк исполнился (фитиль), пока окно его снимало: деталь после отмены — FILLED: лот закрыт, прибыль учтена."""
++    g, ex, px, lot = one_lot(tmp_path)
++    oid = lot["tp_order"]["id"]
++    ex.lazy_cancel = True
++    ex.info_override[oid] = {"orderId": oid, "status": "FILLED", "executedQty": "0.0012", "avgPrice": str(lot["tp"]),
++                             "positionSide": "LONG", "symbol": "BTCUSDT"}
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    ex.orders[oid].update(status="FILLED", executedQty="0.0012", avgPrice=str(lot["tp"]))
++    assert g.st["LONG"]["lots"] == []
++    assert g.st["LONG"]["realized"] == pytest.approx(0.0012 * (lot["tp"] - lot["entry"]))
++    assert [r["kind"] for r in journal(tmp_path) if "тейк" in str(r.get("kind"))] == ["тейк"]
++
++
++def test_park_batch_limit_farthest_first(tmp_path):
++    """Включение окна на сетке с длинной лесенкой: за проход снимается не больше TP_PARK_BATCH тейков, дальние первыми."""
++    off, ex, px = make(tmp_path / "a", step_pct=0.3, target_pct=0.6, tp_arm_pct=0, tp_park_pct=0)
++    off.tick()
++    move(off, px, 92000.0, pct=0.15)
++    n = len(off.st["LONG"]["lots"])
++    assert n >= 25 and len(tps(ex)) == n                        # окно выключено: тейк у каждого лота
++    g, _, _ = make(tmp_path / "a", ex=ex, px=px, step_pct=0.3, target_pct=0.6, tp_arm_pct=1.0, tp_park_pct=1.5)
++    bid, ask = px()
++    far = sorted(g.st["LONG"]["lots"], key=lambda l: -eg.tp_distance("LONG", l["tp"], bid, ask))
++    n_far = sum(1 for l in far if eg.tp_distance("LONG", l["tp"], bid, ask) > 1.5)
++    assert n_far > eg.TP_PARK_BATCH
++    g.tick()
++    lots = sorted(g.st["LONG"]["lots"], key=lambda l: -eg.tp_distance("LONG", l["tp"], bid, ask))
++    assert [l["tp_order"] is None for l in lots[:eg.TP_PARK_BATCH]] == [True] * eg.TP_PARK_BATCH
++    assert sum(1 for l in lots if l["tp_order"] is None) == eg.TP_PARK_BATCH
++    assert g.st["exit_debt"]["LONG"] == 0
++    g.tick()
++    g.tick()
++    assert sum(1 for l in g.st["LONG"]["lots"] if l["tp_order"] is None) == n_far
++    assert len(tps(ex)) == n - n_far
++
++
++def test_sleeping_lot_is_not_debt_but_unplaced_near_tp_is(tmp_path):
++    g, ex, px = make(tmp_path, max_lots_per_side=2)
++    g.tick()
++    px.p = 99399.0
++    g.tick()
++    lot = g.st["LONG"]["lots"][0]
++    g.cfg["step_pct"] = 5.0                                     # следующий вход далеко — цена ниже его не исполнит
++    g.tick()
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"] is None and len(g.st["LONG"]["lots"]) == 1
++    assert g.st["exit_debt"]["LONG"] == 0 and len(entries(ex)) == 1       # спящий — не долг: вход стоит
++    ex.reject_tp = True                                         # лимит заявок: тейк не ставится
++    at_dist(px, lot["tp"], 1.5)
++    g.tick()
++    assert g.st["LONG"]["lots"][0]["tp_order"] is None
++    assert g.st["exit_debt"]["LONG"] == 1 and entries(ex) == []
++    assert "долг по тейкам" in g.st["LONG"]["blocked"]
++
++
++def test_short_side_mirrors(tmp_path):
++    g, ex, px = make(tmp_path, side="SHORT")
++    g.tick()
++    move(g, px, 105000.0)
++    g.tick()
++    lots = g.st["SHORT"]["lots"]
++    bid, ask = px()
++    sleeping = [l for l in lots if eg.tp_distance("SHORT", l["tp"], bid, ask) > 3.0]
++    assert sleeping and all(l["tp_order"] is None for l in sleeping)
++    assert all(l["tp_order"] for l in lots if eg.tp_distance("SHORT", l["tp"], bid, ask) <= 2.0)
++    assert len(tps(ex, "SHORT")) == sum(1 for l in lots if l["tp_order"])
++    low = min(lots, key=lambda l: l["entry"])
++    move(g, px, low["tp"] * 0.998)
++    assert not g.st["SHORT"]["lots"] and g.st["SHORT"]["realized"] > 0
++
++
++def test_gap_through_sleeping_tp_places_maker_at_ask(tmp_path):
++    """Цена перепрыгнула тейк спящего лота за один проход (мак спал, свеча): тейк ставится мейкером по ask — не хуже
++    цены тейка; исполняется следующим движением."""
++    g, ex, px, lot = one_lot(tmp_path)
++    at_dist(px, lot["tp"], 3.5)
++    g.tick()
++    px.p = lot["tp"] * 1.005
++    g.tick()
++    live = tps(ex)
++    assert len(live) == 1 and float(live[0]["price"]) >= lot["tp"]
++    px.p *= 1.001
++    g.tick()
++    assert g.st["LONG"]["lots"] == [] and g.st["LONG"]["realized"] > 0.0012 * (lot["tp"] - lot["entry"])
++
++
++def test_order_budget_frees_with_window(tmp_path):
++    """Тот же путь цены и тот же бюджет заявок: без окна входы встают («бюджет заявок»), с окном — идут дальше."""
++    runs = {}
++    for name, arm, park in (("off", 0, 0), ("on", 2.0, 3.0)):
++        g, ex, px = make(tmp_path / name, tp_arm_pct=arm, tp_park_pct=park, order_budget=6, other_open_orders=0)
++        g.tick()
++        move(g, px, 95000.0)
++        g.tick()
++        runs[name] = (len(g.st["LONG"]["lots"]), g.st["LONG"]["blocked"], len(entries(ex)), len(tps(ex)))
++    assert "бюджет заявок" in runs["off"][1] and runs["off"][0] < 8
++    assert runs["on"][0] == 8 and runs["on"][2] == 1 and runs["on"][3] + runs["on"][2] <= 6
++
++
++def test_regime_flatten_closes_sleeping_lots_too(tmp_path):
++    regime = {"up": True}
++    g, ex, px = make(tmp_path, regime_sma=100, regime_fn=lambda *a, **k: regime["up"])
++    g.tick()
++    move(g, px, 95000.0)
++    g.tick()
++    lots = g.st["LONG"]["lots"]
++    q = sum(float(l["qty"]) for l in lots)
++    assert any(l["tp_order"] is None for l in lots)
++    regime["up"] = False
++    g.tick()
++    g.tick()
++    assert g.st["LONG"]["lots"] == [] and tps(ex) == [] and entries(ex) == []
++    mk = [o for o in ex.orders.values() if o.get("type") == "MARKET"]
++    assert len(mk) == 1 and float(mk[0]["executedQty"]) == pytest.approx(q)
++
++
++def test_card_shows_sleeping(tmp_path):
++    g, ex, px = make(tmp_path)
++    g.tick()
++    move(g, px, 95000.0)
++    g.tick()
++    text = g.card(px.p)
++    assert "спят" in text and "окно 2/3%" in text
++    off, _, _ = make(tmp_path / "off", tp_arm_pct=0, tp_park_pct=0)
++    assert "спят" not in off.card(100000.0)
++
++
++def test_window_off_keeps_every_tp(tmp_path):
++    """Окно выключено (по умолчанию у всех сеток): тейк у каждого лота, как было."""
++    g, ex, px = make(tmp_path, tp_arm_pct=0, tp_park_pct=0)
++    g.tick()
++    move(g, px, 95000.0)
++    g.tick()
++    lots = g.st["LONG"]["lots"]
++    assert len(lots) == 8 and all(l["tp_order"] for l in lots) and len(tps(ex)) == 8
++    assert g.st["LONG"]["tp_parks"] == 0
++
++
++# ---------------------------------------------------------------- команда /weex set окно
++def test_set_window_command(monkeypatch):
++    from services.weex_grid import loop
++    store = {"cfg": {**eg.DEFAULT, "symbol": "BTCUSDT", "target_pct": 1.4}}
++    monkeypatch.setattr(loop, "grid_config", lambda name="BTC": dict(store["cfg"]))
++    monkeypatch.setattr(loop, "save_grid_config", lambda cfg, name="BTC": store.update(cfg=dict(cfg)))
++    price = lambda: 80000.0                                     # noqa: E731
++    out = loop.set_params("окно 2", price, "B34")
++    assert (store["cfg"]["tp_arm_pct"], store["cfg"]["tp_park_pct"]) == (2.0, 3.0) and "окно тейков 2/3%" in out
++    out = loop.set_params("окно 1", price, "B34")               # меньше цели 1.4 — отказ, конфиг тот же
++    assert "не меняю" in out and store["cfg"]["tp_arm_pct"] == 2.0
++    out = loop.set_params("окно 2.5 снятие 4", price, "B34")
++    assert (store["cfg"]["tp_arm_pct"], store["cfg"]["tp_park_pct"]) == (2.5, 4.0)
++    out = loop.set_params("цель 3", price, "B34")               # цель выше окна — отказ
++    assert "не меняю" in out and store["cfg"]["target_pct"] == 1.4
++    out = loop.set_params("окно 0", price, "B34")
++    assert (store["cfg"]["tp_arm_pct"], store["cfg"]["tp_park_pct"]) == (0.0, 0.0) and "окно тейков ВЫКЛ" in out
+-- 
+2.50.1 (Apple Git-155)
+
