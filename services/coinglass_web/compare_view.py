@@ -15,34 +15,57 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from services.coinglass_web import compare
+from services.coinglass_web import compare, scenarios, tv_export
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "state" / "coinglass" / "compare"
 CAPTION_LIMIT = 1024
 PLOTLY = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
 # РЕЗУЛЬТАТЫ ПРОВЕРОК — показываются рядом с совокупностью, чтобы её не приняли за сигнал
-COMPOSITE_NOTE = ("Проверка 01.05–27.10 (research/coinglass_compare/operator_lines.py): все 4 линии в одну сторону за 72 ч — "
-                  "BTC 2 дня из 175, ETH 10 (4 попадания из 10); 3 из 4 → 3 суток вперёд: BTC 53%, ETH 48% — монетка; "
-                  "3 из 4 → сутки вперёд: BTC 60% (n 91), ETH 61% (n 96) — найдено после прогона, у ETH это импульс "
-                  "цены (сам импульс 60%), соседние окна 43–58%. Кандидат, не доказательство; с 28.10 счёт вперёд.")
+COMPOSITE_NOTE = ("Проверка 01.05–27.10 (research/coinglass_compare/operator_lines.py; «3 из 4» = не меньше трёх "
+                  "ненулевых наклонов, нулевых за 180 дней не было — operator_lines_recount.py): все 4 линии в одну "
+                  "сторону за 72 ч — BTC 2 дня из 175, ETH 10 (4 попадания из 10); 3 из 4 → 3 суток: BTC 53%, ETH 48% — "
+                  "монетка; 3 из 4 → сутки: BTC 60% [50–70] (n 91), ETH 61% [51–71] (n 96) — найдено после прогона, у "
+                  "ETH это импульс цены, соседние окна 43–58%. Кандидат, не доказательство. Счёт вперёд — версия "
+                  "comp-2 (с 29.10): решение в 06–08 UTC по данным на момент решения, вход — следующая минута Binance. "
+                  "Даже 35 из 60 — это 58% с интервалом 46–70%: промежуточная точка, не допуск в торговлю.")
+
+
+def export_status(sym: str, path: Path | None = None) -> dict | None:
+    """Последний прогон выгрузки CoinGlass по символу: статус сверки, время, куда записано."""
+    path = path or tv_export.RUNS
+    if not path.exists():
+        return None
+    for line in reversed(compare._tail_lines(path, 600_000)):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        s = (r.get("symbols") or {}).get(sym)
+        if s:
+            return {"run": r.get("run"), "status": s.get("status"), "why": s.get("why") or s.get("error"),
+                    "obs": s.get("obs"), "log": s.get("log", "tv"),
+                    "legend": [c.get("ok") for c in s.get("legend_checks", [])]}
+    return None
 
 # (ключ, подпись, панель, источник, единицы, охват/примечание)
 SERIES = (
     ("px_close", "Цена (свечи)", "price", "Binance REST /fapi/v1/klines 1ч", "USDT", "незакрытый час помечен"),
     ("volume_usd", "Объём", "vol", "CoinGlass, Binance {sym}", "USD", ""),
     ("taker_delta", "Дельта тейкеров (кто бьёт по рынку)", "taker", "CoinGlass Aggregated Futures Taker Buy/Sell",
-     "{coin}", "все биржи CoinGlass; + покупают, − продают"),
+     "{coin}", "12 бирж по умолчанию CoinGlass (Binance, Bybit, OKX, Deribit, Hyperliquid…; без CME, Bitget, Gate, "
+               "MEXC) — список в tv_runs inputs; + агрессивнее покупатели, − продавцы"),
     ("bn_taker_delta_usd", "Дельта тейкеров Binance", "taker", "Binance REST klines (taker buy)", "USD",
      "только Binance; скрыта, включается в легенде"),
     ("bid_ask_delta", "Стакан ±1%: заявки на покупку − на продажу", "book",
-     "CoinGlass Aggregated Futures Bid & Ask Delta", "{coin}", "лимитные заявки, не сделки"),
+     "CoinGlass Aggregated Futures Bid & Ask Delta", "{coin}",
+     "лимитные заявки ±1% (Depth 1), не сделки; те же 12 бирж, что у тейкеров"),
     ("fr_pct", "Фандинг Binance — текущая ставка", "fund", "CoinGlass «Ставка финансирования (Свечи)», закрытие часа",
-     "% за 8 ч", "меняющаяся ставка, не выплата"),
-    ("fr_oiw_pct", "Фандинг, взвешенный по OI", "fund", "CoinGlass", "% за 8 ч", "все биржи"),
-    ("fr_premium_pct", "premiumIndex (наш сбор)", "fund", "deriv_live, 5 мин → последнее в часе", "% за 8 ч",
+     "% за {fi} ч", "меняющаяся ставка, не выплата"),
+    ("fr_oiw_pct", "Фандинг, взвешенный по OI", "fund", "CoinGlass", "% за интервал", "все биржи; интервалы бирж разные"),
+    ("fr_premium_pct", "premiumIndex (наш сбор)", "fund", "deriv_live, 5 мин → последнее в часе", "% за {fi} ч",
      "для сверки с CoinGlass; скрыт"),
-    ("paid_pct", "Выплаты фандинга Binance", "fund", "Binance REST /fapi/v1/fundingRate", "% за 8 ч",
+    ("paid_pct", "Выплаты фандинга Binance", "fund", "Binance REST /fapi/v1/fundingRate", "% за {fi} ч",
      "раз в 8 ч — точки, не непрерывная история"),
     ("liq_all_long", "Ликвидации лонгов, все биржи", "liq", "CoinGlass «Совокупные ликвидации»", "USD",
      "«∅» CoinGlass = пусто, не ноль"),
@@ -63,7 +86,7 @@ SERIES = (
     ("oi_coins", "OI Binance", "oi", "CoinGlass «Открытый интерес (Свечи)», закрытие", "{coin}", ""),
 )
 PANELS = (("price", "Цена", 0.2), ("vol", "Объём, USD", 0.06), ("taker", "Кто бьёт по рынку: дельта тейкеров", 0.09),
-          ("book", "Стакан ±1%: покупка − продажа", 0.08), ("fund", "Фандинг, % за 8 ч", 0.1),
+          ("book", "Стакан ±1%: покупка − продажа", 0.08), ("fund", "Фандинг, % за интервал ({fi} ч у Binance)", 0.1),
           ("liq", "Ликвидации, USD (лонги ↑, шорты ↓)", 0.12), ("ls", "Лонг/шорт", 0.1),
           ("wi2", "Whale Index 2", 0.08), ("oi", "OI Binance", 0.07))
 
@@ -78,7 +101,7 @@ def _clean(v):
     return None if math.isnan(f) or math.isinf(f) else round(f, 6)
 
 
-def coverage(df: pd.DataFrame, paid: pd.DataFrame, sym: str, coin: str, now: datetime) -> list[dict]:
+def coverage(df: pd.DataFrame, paid: pd.DataFrame, sym: str, coin: str, now: datetime, fi: str = "?") -> list[dict]:
     """Охват каждого ряда в окне показа: первый/последний, пропуски среди закрытых часов, свежесть."""
     closed_end = pd.Timestamp(now).floor("1h")
     out = []
@@ -92,7 +115,7 @@ def coverage(df: pd.DataFrame, paid: pd.DataFrame, sym: str, coin: str, now: dat
             missing = int(closed.isna().sum())
         s = s.dropna()
         last = s.index.max() if len(s) else None
-        out.append({"key": key, "label": label, "source": src.format(sym=sym), "units": units.format(coin=coin),
+        out.append({"key": key, "label": label, "source": src.format(sym=sym), "units": units.format(coin=coin, fi=fi),
                     "note": note, "first": s.index.min().strftime("%d.%m %H:%M") if len(s) else None,
                     "last": last.strftime("%d.%m %H:%M") if last is not None else None,
                     "missing": missing, "hours": int((df.index < closed_end).sum()) if key != "paid_pct" else None,
@@ -114,8 +137,15 @@ def payload(sym: str, now: datetime | None = None, *, data=None) -> dict:
         d["id"] = f"E{i}"
         episodes.append(d)
     view = df[df.index >= start]
+    fi = (meta.get("funding_interval") or {}).get("hours")
+    fi = str(fi) if fi else "?"
     comp = compare.composite(df, pd.Timestamp(now).floor("1h"))
-    p = {"sym": sym, "coin": coin, "built": now.isoformat(timespec="seconds"),
+    rec, src = scenarios.current(sym, df, now)
+    sc = scenarios.card(rec, sym, now) if rec else None
+    if sc:
+        sc["source"] = src
+    p = {"sym": sym, "coin": coin, "built": now.isoformat(timespec="seconds"), "scenario": sc,
+         "export": export_status(sym),
          "t": [t.strftime("%Y-%m-%d %H:%M") for t in view.index],
          "warsaw": [t.tz_convert(compare.WARSAW).strftime("%d.%m %H:%M") for t in view.index],
          "closed": [bool(t + pd.Timedelta(hours=1) <= pd.Timestamp(now)) for t in view.index],
@@ -124,13 +154,13 @@ def payload(sym: str, now: datetime | None = None, *, data=None) -> dict:
          "paid": {"t": [t.strftime("%Y-%m-%d %H:%M") for t in paid.index[paid.index >= start]] if not paid.empty else [],
                   "v": [_clean(v) for v in paid["paid_pct"][paid.index >= start]] if not paid.empty else []},
          "episodes": episodes, "coverage": coverage(view, paid[paid.index >= start] if not paid.empty else paid, sym,
-                                                    coin, now),
+                                                    coin, now, fi),
          "now": compare.now_summary(df, now, coin), "checks": meta.get("checks"), "errors": meta.get("errors"),
          "composite": comp, "composite_live": compare.composite_stats(sym), "composite_note": COMPOSITE_NOTE,
-         "tv_last_obs": meta.get("tv_last_obs")}
-    p["meta_series"] = [{"key": k, "label": lab, "panel": pan, "units": u.format(coin=coin),
-                         "source": src.format(sym=sym), "note": note} for k, lab, pan, src, u, note in SERIES]
-    p["panels"] = [{"id": a, "title": b, "h": c} for a, b, c in PANELS]
+         "tv_last_obs": meta.get("tv_last_obs"), "funding_interval": meta.get("funding_interval")}
+    p["meta_series"] = [{"key": k, "label": lab, "panel": pan, "units": u.format(coin=coin, fi=fi),
+                         "source": s_.format(sym=sym), "note": note} for k, lab, pan, s_, u, note in SERIES]
+    p["panels"] = [{"id": a, "title": b.format(fi=fi), "h": c} for a, b, c in PANELS]
     return json.loads(json.dumps(p, ensure_ascii=False, default=_clean))
 
 
@@ -177,6 +207,10 @@ table.cov{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--
 table.cov td,table.cov th{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
 .nowbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .nowbox li{margin:2px 0}.scroll{overflow-x:auto}
+.st{font-size:17px;font-weight:650;margin:0 0 4px}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+gap:10px;margin-top:6px}.act{border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+table.ph{border-collapse:collapse;font-size:12px;margin:4px 0;width:100%}table.ph td,table.ph th{border-bottom:1px solid
+var(--line);padding:2px 4px;text-align:right;font-variant-numeric:tabular-nums}table.ph td:first-child,table.ph th:first-child{text-align:left}
 @media (max-width:900px){.wrap{grid-template-columns:1fr}#read{position:sticky;top:env(safe-area-inset-top,0px);
 z-index:5;max-height:38vh;order:-1}#chart{height:1300px}.cards{grid-template-columns:1fr}}
 </style></head><body>
@@ -189,11 +223,13 @@ z-index:5;max-height:38vh;order:-1}#chart{height:1300px}.cards{grid-template-col
 <div class="bar" id="epbtns"></div>
 <div class="wrap"><div id="chart"></div><div id="read"><div class="muted">Наведите курсор (на телефоне — коснитесь)
 на любую панель: здесь будут все числа этого часа.</div></div></div>
+<section><h2>Состояние рынка и теневое действие сеток</h2><div class="nowbox" id="scn"></div></section>
 <section><h2>Что сейчас</h2><div class="nowbox"><ul id="now"></ul><div id="comp" class="sub"></div></div></section>
 <section><h2>Эпизоды: где метрики сошлись и где разошлись</h2><div class="sub" style="margin-bottom:8px">Эпизод —
 часы, где необычны метрики минимум трёх разных семейств (цена/объём, поток, ликвидации, OI, фандинг, позиции):
-|z| ≥ 3 против медианы и разброса предыдущих 7 суток, только прошлое. Совпадение — описание, не прогноз.
-«После» в вывод не входит.</div><div class="cards" id="eps"></div></section>
+для цены, потока, OI, фандинга и позиций — |z| ≥ 3 по медиане и MAD предыдущих 7 суток; для объёма и ликвидаций —
+всплеск: не ниже 98-го процентиля недели и ≥ 3 её медиан (кратность медианы, это не z). Только прошлое. Совпадение —
+описание, не прогноз. «После» в вывод не входит.</div><div class="cards" id="eps"></div></section>
 <section><h2>Источники и охват</h2><div class="scroll"><table class="cov" id="cov"></table></div>
 <div class="sub" id="checks" style="margin-top:6px"></div></section>
 <script id="data" type="application/json">__DATA__</script>
@@ -297,9 +333,15 @@ function hook(p) { const el = document.getElementById('chart');
 function epCards(p) { const box = document.getElementById('eps'), btns = document.getElementById('epbtns');
   btns.innerHTML = p.episodes.map(e => `<button data-e="${e.id}">${e.id} ${e.when.split(' Варшава')[0]}</button>`).join('');
   const num = x => x === null || x === undefined ? 'нет данных' : x;
+  const utc = s => s ? s.slice(5, 16).replace('T', ' ') + ' UTC' : '';
+  const phTab = e => { const ph = e.phases; if (!ph || !ph.phases.length) return '';
+    return `<div class="lbl">Фазы по часам</div><table class="ph"><tr><th>часы (UTC)</th><th>что было</th><th>тейкеры</th><th>OI Binance</th><th>ликв. лонгов / шортов</th></tr>` +
+      ph.phases.map(f => `<tr><td>${f.from.slice(11, 16)}–${f.to.slice(11, 16)}</td><td>${f.label}</td><td>${fmt(f.taker, 'taker')}</td><td>${sg(f.oi_pct, 2, '%')}</td><td>${fmt(f.liq_long, 'liq')} / ${fmt(f.liq_short, 'liq')}</td></tr>`).join('') +
+      `</table><div class="sub">${ph.note}</div>`; };
   box.innerHTML = p.episodes.length ? p.episodes.map(e => { const n = e.numbers, pr = n.price,
-    a6 = e.after['6h'], a24 = e.after['24h'],
-    aft = h => h ? `цена ${sg(h.price_pct, 2, '%')}, OI ${sg(h.oi_pct, 2, '%')}${h.new_low ? ', новый минимум' : ''}${h.new_high ? ', новый максимум' : ''}` : 'ещё не наступило';
+    a6 = e.after['6h'], a24 = e.after['24h'], cv = n.coverage || {},
+    part = Object.entries(cv).filter(([k, v]) => v[0] < v[1] && !/ours/.test(k)).map(([k, v]) => `${k} ${v[0]} из ${v[1]} ч`),
+    aft = h => h ? `цена ${sg(h.price_pct, 2, '%')}, OI ${sg(h.oi_pct, 2, '%')}; ${h.first_close_beyond ? 'гипотеза не выдержала: закрытие за уровнем ' + utc(h.first_close_beyond) : 'закрытий за уровнем гипотезы не было'}` : 'ещё не наступило';
     return `<div class="card" id="card-${e.id}"><h3>${e.id} · ${e.when} · ${e.hours} ч · ${e.direction}</h3>
     <div class="sub">необычны: ${e.metrics.join(', ')}</div>
     <div class="lbl">Числа</div><ul>
@@ -308,12 +350,14 @@ function epCards(p) { const box = document.getElementById('eps'), btns = documen
     <li>OI ${sg(n.oi_pct, 2, '%')}; фандинг ${n.funding_pct.map(v => sg(v, 4, '%')).join(' → ')}</li>
     <li>толпа L/S ${n.ls_acc.map(v => v === null ? '—' : v.toFixed(2)).join(' → ')}; топы ${n.ls_top.map(v => v === null ? '—' : v.toFixed(2)).join(' → ')}; Whale Index 2 ${n.wi2.map(v => sg(v, 1)).join(' → ')}</li>
     <li>ликвидации все биржи: лонги ${fmt(n.liq_all_usd[0], 'liq')}, шорты ${fmt(n.liq_all_usd[1], 'liq')}; Coin-залогом ${fmt(n.liq_coin_usd[0], 'liq')} / ${fmt(n.liq_coin_usd[1], 'liq')}; наши потоки ${fmt(n.liq_ours_usd[0], 'liq')} / ${fmt(n.liq_ours_usd[1], 'liq')}</li></ul>
+    ${part.length ? `<div class="sub gap">окна неполные: ${part.join(', ')} — суммы по полученным часам, в выводы не идут</div>` : ''}
+    ${phTab(e)}
     <div class="lbl">Совпало</div><ul>${e.agree.length ? e.agree.map(x => `<li>${x}</li>`).join('') : '<li class="muted">—</li>'}</ul>
     <div class="lbl">Разошлось</div><ul>${e.differ.length ? e.differ.map(x => `<li>${x}</li>`).join('') : '<li class="muted">—</li>'}</ul>
-    <div class="lbl">Основное объяснение</div><div>${e.main}</div>
+    <div class="lbl">Наблюдение и с чем совместимо</div><div>${e.main}</div>
     <div class="lbl">Альтернатива</div><div>${e.alt}</div>
-    <div class="lbl">Что наблюдать</div><div>${e.watch}</div>
-    <div class="lbl">Отменяет объяснение</div><div>${e.cancel}</div>
+    <div class="lbl">Гипотеза на 24 ч (записана сразу)</div><div>${e.watch}</div>
+    <div class="lbl">Условие смены сценария</div><div>${e.cancel}</div>
     <div class="lbl">Что было после (в вывод не входит)</div><div class="sub">через 6 ч: ${aft(a6)}<br>через 24 ч: ${aft(a24)}</div>
     </div>`; }).join('') : '<div class="muted">За 14 дней эпизодов по правилу нет.</div>';
   btns.querySelectorAll('button').forEach(b => b.onclick = () => { const e = p.episodes.find(x => x.id === b.dataset.e);
@@ -321,12 +365,28 @@ function epCards(p) { const box = document.getElementById('eps'), btns = documen
     Plotly.relayout('chart', {'xaxis.range': [new Date(s - 18 * 3600e3).toISOString().slice(0, 16).replace('T', ' '),
       new Date(f + 30 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')]});
     document.getElementById('card-' + e.id).scrollIntoView({behavior: 'smooth', block: 'nearest'}); }); }
+function scn(p) { const el = document.getElementById('scn'), c = p.scenario;
+  if (!c) { el.innerHTML = '<div class="muted">Состояние не определено: данных не хватает.</div>'; return; }
+  const li = a => a.length ? a.map(x => `<li>${x}</li>`).join('') : '<li class="muted">—</li>';
+  const act = (name, a) => `<div class="act"><b>${name}</b>: новые входы — ${a.entries}; продолжать — ${a.continue}; остаток — ${a.residual}; запуск — ${a.start}<div class="sub">${a.why}</div></div>`;
+  const b = c.box ? `${c.box.kind === 'flat' ? 'флет' : 'опорная коробка'} ${px(c.box.L)}–${px(c.box.H)} (${(c.box.width_pct ?? 0).toFixed(2)}%, с ${c.box.set_bar.slice(5, 16).replace('T', ' ')} UTC)` : (c.move ? `движение ${c.move.dir > 0 ? 'вверх' : 'вниз'}: экстремум ${px(c.move.extreme)}, опора ${px(c.move.support)}` : '—');
+  el.innerHTML = `<div class="st">${p.sym}: ${c.state_ru} <span class="sub">(${c.state}, вариант ${c.variant === 'flow' ? 'цена + поток' : 'только цена'})</span></div>
+    <div class="sub">по часам до ${c.observed_warsaw} Варшава · давность ${c.age_min} мин · источник: ${c.source}</div>
+    <div class="cols"><div><div class="lbl">Поддерживает</div><ul>${li(c.support)}</ul></div>
+    <div><div class="lbl">Противоречит</div><ul>${li(c.contra)}</ul></div></div>
+    <div class="lbl">Границы</div><div>${b}</div>
+    ${c.tags.length ? `<div class="sub">метки: ${c.tags.join('; ')}</div>` : ''}
+    <div class="lbl">Следующий переход</div><div>${c.next}</div>
+    <div class="lbl">Теневое действие (только журнал)</div><div class="cols">${act('Лонг-сетки', c.actions.long)}${act('Шорт-сетки', c.actions.short)}</div>
+    <div class="lbl">Все наблюдения часа</div><ul>${c.facts.map(f => `<li><span class="muted">${f.block}:</span> ${f.text}</li>`).join('')}</ul>
+    <div class="sub">${c.note}</div>`; }
 function side(p) { document.getElementById('now').innerHTML = p.now.map(x => `<li>${x}</li>`).join('');
   const c = p.composite, nm = {bid_ask_delta: 'стакан', fr_pct: 'фандинг', ls_acc: 'толпа L/S', wi2: 'Whale Index 2'},
     ar = s => s > 0 ? '↑' : (s < 0 ? '↓' : '→');
-  const live = p.composite_live && p.composite_live.n ? ` Счёт вперёд с 28.10: попаданий ${(p.composite_live.hit * 100).toFixed(0)}% из ${p.composite_live.n}.` : ' Счёт вперёд с 28.10: исходов пока нет.';
+  const L = p.composite_live || {}, live = L.n ? ` Счёт вперёд (${L.version}): попаданий ${(L.hit * 100).toFixed(0)}% из ${L.n}, интервал ${(L.ci95[0] * 100).toFixed(0)}–${(L.ci95[1] * 100).toFixed(0)}%.` : ` Счёт вперёд (${L.version || 'comp-2'}): исходов пока нет.`;
   document.getElementById('comp').innerHTML = (c ? `<b>Линии 72 ч</b> (как на скрине оператора): ` + Object.entries(c.signs)
-    .map(([k, s]) => `${nm[k]} ${ar(s)}`).join(', ') + ` → сумма ${c.S >= 0 ? '+' : ''}${c.S} из ±4. ` : 'Линии 72 ч: данных мало. ')
+    .map(([k, s]) => `${nm[k]} ${ar(s)}`).join(', ') + ` → вверх ${c.pos}, вниз ${c.neg}, без наклона ${c.zero}; ` +
+    (c.call ? `согласны 3+ линии ${c.call > 0 ? 'вверх' : 'вниз'}. ` : 'трёх согласных нет. ') : 'Линии 72 ч: в окне есть пропуски. ')
     + p.composite_note + live;
   const cov = p.coverage; document.getElementById('cov').innerHTML = '<tr><th>ряд</th><th>источник</th><th>единицы</th>' +
     '<th>с</th><th>по</th><th>пропуски (закрытые часы)</th><th>свежесть</th><th>примечание</th></tr>' + cov.map(r =>
@@ -337,12 +397,13 @@ function side(p) { document.getElementById('now').innerHTML = p.now.map(x => `<l
   document.getElementById('checks').innerHTML = 'Проверки: ' + [cc ? `закрытие часа CoinGlass = Binance в ${(cc.share_exact * 100).toFixed(1)}% из ${cc.bars} (со сдвигом на час медиана расхождения ${(ck.close_shifted_1h_max_rel_diff * 100).toFixed(2)}% — время выровнено)` : 'цена CoinGlass/Binance не сверена',
     fr ? `ставка CoinGlass против нашего premiumIndex: медиана расхождения ${fr.median_abs_diff_pp.toFixed(5)} п.п.` : '',
     ls ? `L/S аккаунтов CoinGlass против нашего: медиана ${ls.median_abs_diff.toFixed(3)}` : '',
-    `дублей часов ${ck.duplicate_bars ?? '—'}`, Object.keys(p.errors || {}).length ? 'сбои: ' + JSON.stringify(p.errors) : ''].filter(Boolean).join('; ') + '.';
+    `дублей часов ${ck.duplicate_bars ?? '—'}`, Object.keys(p.errors || {}).length ? 'сбои: ' + JSON.stringify(p.errors) : '',
+    p.export ? `последняя выгрузка CoinGlass ${(p.export.obs || p.export.run || '').slice(5, 16).replace('T', ' ')} UTC: ${p.export.status === 'ok' ? 'сверена с легендой (' + p.export.legend.filter(Boolean).length + ' из ' + p.export.legend.length + ' баров)' : '<span class="gap">НЕ сверена — в карантине, в графике и сигналах не участвует: ' + (p.export.why || '') + '</span>'}` : ''].filter(Boolean).join('; ') + '.';
   document.getElementById('built').textContent = `собрано ${p.built.replace('T', ' ').slice(0, 16)} UTC · CoinGlass выгружен ${(p.tv_last_obs || '—').replace('T', ' ').slice(0, 16)} UTC`; }
 function draw() { const p = D[cur], dm = domains(p);
   Plotly.react('chart', traces(p, dm), layout(p, dm), {responsive: true, displaylogo: false, scrollZoom: true,
     modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d']}).then(() => hook(p));
-  epCards(p); side(p); readout(p, p.t.length - 1); }
+  scn(p); epCards(p); side(p); readout(p, p.t.length - 1); }
 document.getElementById('syms').innerHTML = SYMS.map(s => `<button data-s="${s}" class="${s === cur ? 'on' : ''}">${s}</button>`).join('');
 document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { cur = b.dataset.s;
   document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -448,6 +509,14 @@ def render_png(p: dict) -> bytes:
 def caption(p: dict) -> str:
     """Подпись к картинке: «что сейчас» и эпизоды одной строкой каждый; режется по 1024."""
     lines = [f"🔭 {p['sym']}: метрики вместе за 14 дней (полный разбор с курсором — файл HTML)"]
+    sc = p.get("scenario")
+    if sc:
+        a = sc["actions"]
+        lines.append(f"🧭 Состояние: {sc['state_ru']} (по часам до {sc['observed_warsaw']}). {sc['next']}")
+        lines.append(f"Теневое (только журнал): лонг-сетки — {a['long']['entries']}"
+                     + (f", {a['long']['residual']}" if a["long"]["residual"] != "держать" else "")
+                     + f"; шорт-сетки — {a['short']['entries']}"
+                     + (f", {a['short']['residual']}" if a["short"]["residual"] != "держать" else ""))
     lines += [f"• {x}" for x in p["now"]]
     for e in reversed(p["episodes"]):
         d = e["differ"][0] if e["differ"] else "без расхождений"

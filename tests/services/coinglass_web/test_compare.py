@@ -167,42 +167,52 @@ def test_describe_long_flush_and_after_only_when_matured():
     df.loc[h:, "oi_coins"] *= 0.97
     ep = {"start": h, "end": h, "peak": h, "score": 30.0, "metrics": ["price", "taker", "liq_long", "oi"]}
     d = compare.describe(df, ep, now=(h + pd.Timedelta(hours=8)).to_pydatetime())
-    assert d["direction"] == "падение" and d["main"].startswith("Закрытие лонгов")
-    assert any("агрессор в сторону движения" in x for x in d["agree"])
-    assert any("выбивало лонгов на падении" in x for x in d["agree"])
+    assert d["direction"] == "падение" and "совместима с закрытием лонгов, в том числе принудительным" in d["main"]
+    assert any("агрессивнее сторона движения" in x for x in d["agree"])
+    assert any("преобладали ликвидации лонгов на падении" in x for x in d["agree"])
     assert d["after"]["6h"] is not None and d["after"]["24h"] is None   # сутки ещё не прошли — исхода нет
     assert "−" in d["main"] and "-3" not in d["main"]
+    assert d["hypothesis"]["side"] == -1 and "не будет обновлён закрытием часа" in d["watch"]
 
 
 def test_now_summary_strength_against_past_week():
     df = _frame()
     df.loc[df.index[-7]:, "taker_delta"] = -3000                  # последние часы — сильные продажи
     lines = compare.now_summary(df, (df.index[-1] + pd.Timedelta(minutes=30)).to_pydatetime(), "BTC")
-    assert lines[0].startswith("Рынком продают 6 ч") and "сильнее обычного" in lines[0]
+    assert lines[0].startswith("Чистая дельта тейкеров 6 ч") and "агрессивнее продавцы" in lines[0]
+    assert "сильнее обычного" in lines[0]
 
 
-def test_composite_signs_and_log_only_today_then_outcome(tmp_path):
+def test_composite_v2_logs_in_slot_once_then_outcome(tmp_path, monkeypatch):
     df = _frame(600)                                              # данные дальше дня решения + суток исхода
     df["bid_ask_delta"] = np.linspace(-100, 100, len(df))
     df["fr_pct"] = np.linspace(0.001, 0.01, len(df))
     df["ls_acc"] = np.linspace(1, 2, len(df))
     df["wi2"] = np.linspace(-50, 50, len(df))
-    at = df.index[480].floor("1D")
-    c = compare.composite(df, at)
-    assert c["S"] == 4 and set(c["signs"].values()) == {1}
+    day = df.index[480].floor("1D")
+    c = compare.composite(df, day)
+    assert c["S"] == 4 and c["pos"] == 4 and c["call"] == 1
+    monkeypatch.setattr(compare, "binance_open_at", lambda sym, t: float(df.at[pd.Timestamp(t).floor("1h"), "px_open"]))
     path = tmp_path / "comp.jsonl"
-    now = (at + pd.Timedelta(hours=2)).to_pydatetime()
+    early = (day + pd.Timedelta(hours=2)).to_pydatetime()         # до окна 06–08 UTC — решения нет
+    assert compare.log_composite("BTCUSDT", df, early, path=path)["call"] is None and not path.exists()
+    now = (day + pd.Timedelta(hours=6, minutes=2)).to_pydatetime()
     compare.log_composite("BTCUSDT", df, now, path=path)
     compare.log_composite("BTCUSDT", df, now, path=path)          # повтор — без дубля
     recs = [json.loads(x) for x in path.read_text().splitlines()]
-    assert [r["kind"] for r in recs] == ["call"] and recs[0]["day"] == at.strftime("%Y-%m-%d") and recs[0]["call"] == 1
-    later = (at + pd.Timedelta(hours=25)).to_pydatetime()
+    assert [r["kind"] for r in recs] == ["call"] and recs[0]["v"] == "comp-2" and recs[0]["call"] == 1
+    assert recs[0]["execution_at"] == (day + pd.Timedelta(hours=6, minutes=3)).isoformat()
+    later = (day + pd.Timedelta(hours=31)).to_pydatetime()        # следующий день 07:00 — свой вызов и исход вчерашнего
     compare.log_composite("BTCUSDT", df, later, path=path)
     out = [json.loads(x) for x in path.read_text().splitlines() if '"outcome"' in x]
     assert len(out) == 1 and out[0]["hit"] is not None and compare.composite_stats("BTCUSDT", path)["n"] == 1
+    late = (day + pd.Timedelta(hours=57)).to_pydatetime()         # третий день, 09:00 — окно пропущено
+    compare.log_composite("BTCUSDT", df, late, path=path)
+    assert json.loads(path.read_text().splitlines()[-1])["kind"] in ("skip", "outcome")
+    assert any(json.loads(x).get("kind") == "skip" for x in path.read_text().splitlines())
 
 
-def test_log_episodes_fixed_once_with_lag(tmp_path):
+def test_log_episodes_final_once_with_lag(tmp_path):
     df = _frame()
     h = df.index[350]
     df.loc[h, "px_close"] *= 0.97
@@ -213,7 +223,7 @@ def test_log_episodes_fixed_once_with_lag(tmp_path):
     z = compare.zscores(df)
     n1 = compare.log_episodes("BTCUSDT", df, z, now, path=path)
     assert n1 >= 1 and compare.log_episodes("BTCUSDT", df, z, now, path=path) == 0
-    rec = next(json.loads(x) for x in path.read_text().splitlines() if '"episode"' in x and h.isoformat() in x)
+    rec = next(json.loads(x) for x in path.read_text().splitlines() if '"final"' in x and h.isoformat() in x)
     assert rec["fixed_after_end_h"] > 40 and "after" not in rec   # найден задним числом — видно по задержке
 
 
@@ -229,13 +239,26 @@ def test_checks_detect_aligned_hours():
 
 def _payload():
     df = _frame()
+    df["taker_buy"] = np.abs(df["taker_delta"]) + 500
+    df["taker_sell"] = -(df["taker_buy"] - df["taker_delta"])
     paid = pd.DataFrame({"paid_pct": [0.01, 0.008]}, index=[df.index[-20], df.index[-12]])
     now = (df.index[-1] + pd.Timedelta(minutes=30)).to_pydatetime()
     return compare_view.payload("BTCUSDT", now, data=(df, paid, {"checks": compare.checks(df), "errors": {}}))
 
 
+@pytest.fixture(autouse=True)
+def _no_live_journals(tmp_path, monkeypatch):
+    """Показ не читает живые журналы и прогоны мака."""
+    from services.coinglass_web import scenarios
+    monkeypatch.setattr(scenarios, "JOURNAL", tmp_path / "shadow.jsonl")
+    monkeypatch.setattr(tv_export, "RUNS", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(compare, "COMPOSITE", tmp_path / "comp.jsonl")
+
+
 def test_payload_keeps_payments_apart_and_caption_fits():
     p = _payload()
+    assert p["scenario"] and p["scenario"]["source"].startswith("расчёт по графику")
+    assert compare_view.caption(p).splitlines()[1].startswith("🧭 Состояние:")
     assert "paid_pct" not in p["s"] and len(p["paid"]["t"]) == 2   # выплаты — точками, не линией ставки
     assert len(compare_view.caption(p)) <= compare_view.CAPTION_LIMIT
     cov = {r["key"]: r for r in p["coverage"]}

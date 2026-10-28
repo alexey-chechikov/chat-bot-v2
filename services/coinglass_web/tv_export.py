@@ -7,8 +7,12 @@
 Каждый прогон сверяет выгрузку с легендой графика: курсор на 3 бара, числа легенды против строк выгрузки.
 
 Пишет (только добавление):
-- state/coinglass/tv/<SYM>_1h.jsonl — новые или изменившиеся бары: {"bar": начало бара UTC, "obs": время выгрузки,
-  "closed": бар закрыт к obs, значения}; «как было известно в момент T» = последняя запись бара с obs ≤ T;
+- state/coinglass/tv/<SYM>_1h.jsonl — ТОЛЬКО сверенные выгрузки (данные устойчивы и все 3 бара совпали с легендой):
+  новые или изменившиеся бары {"bar": начало бара UTC, "obs": время выгрузки, "closed": бар закрыт к obs,
+  "verified": true, значения}; «как было известно в момент T» = последняя запись бара с obs ≤ T;
+- state/coinglass/tv_quarantine/<SYM>_1h.jsonl — выгрузки, не прошедшие сверку (та же запись, "verified": false и
+  причина): для разбора, в сигналы и график не идут (разбор GPT e53a117 P1: раньше писались в рабочий журнал до
+  определения статуса);
 - state/coinglass/tv_runs.jsonl — прогон: настройки графика, найденные индикаторы, охват столбцов, сверка, сбои.
 Пустое значение CoinGlass (на графике «∅») хранится как null, нулём не становится.
 
@@ -25,6 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "state" / "coinglass" / "tv"
+QUARANTINE = ROOT / "state" / "coinglass" / "tv_quarantine"
 RUNS = ROOT / "state" / "coinglass" / "tv_runs.jsonl"
 URL = "https://www.coinglass.com/tv/ru/Binance_{sym}"
 DAYS = 21
@@ -65,9 +70,13 @@ SETUP_JS = """async ({studies, days}) => {
     names[key] = name || null;
     ids[key] = have ? have.id : (name ? await c.createStudy(name, false, false) : null);
   }
+  const inputs = {};
+  for (const [key, id] of Object.entries(ids)) {
+    try { inputs[key] = id ? c.getStudyById(id).getInputValues() : null; } catch (e) { inputs[key] = 'нет: ' + e; }
+  }
   const now = Math.floor(Date.now() / 1000);
   await c.setVisibleRange({from: now - days * 86400, to: now});
-  return {ready: true, ids, names, resolution: c.resolution(), symbol: c.symbol()};
+  return {ready: true, ids, names, inputs, resolution: c.resolution(), symbol: c.symbol()};
 }"""
 
 EXPORT_JS = """async (ids) => {
@@ -179,11 +188,13 @@ def _last_logged(path: Path) -> dict[int, dict]:
     return out
 
 
-def append_changes(sym: str, rows: dict[int, dict], obs: datetime, *, base: Path = DIR) -> int:
+def append_changes(sym: str, rows: dict[int, dict], obs: datetime, *, base: Path = DIR,
+                   verified: bool = True, why: str | None = None) -> int:
     """Дописать новые и изменившиеся бары; бар закрыт, если его конец ≤ времени выгрузки. → число записей."""
     base.mkdir(parents=True, exist_ok=True)
     path = base / f"{sym}_1h.jsonl"
     prev = _last_logged(path)
+    extra = {"verified": verified} if verified else {"verified": False, "why": why}
     n = 0
     with open(path, "a", encoding="utf-8") as f:
         for t in sorted(rows):
@@ -193,9 +204,20 @@ def append_changes(sym: str, rows: dict[int, dict], obs: datetime, *, base: Path
             if old and old.get("closed") == closed and all(old.get(c) == vals[c] for c in COLUMNS):
                 continue
             f.write(json.dumps({"bar": datetime.fromtimestamp(t, timezone.utc).isoformat(),
-                                "obs": obs.isoformat(timespec="seconds"), "closed": closed, **vals}) + "\n")
+                                "obs": obs.isoformat(timespec="seconds"), "closed": closed, **extra, **vals},
+                               ensure_ascii=False) + "\n")
             n += 1
     return n
+
+
+def verdict(stable: bool, checks: list[dict]) -> tuple[str, str | None]:
+    """Статус выгрузки ДО записи: ok — данные перестали меняться и все бары сверки совпали с легендой."""
+    if not stable:
+        return "check", "данные не устоялись за 90 с"
+    if not checks or not all(c.get("ok") for c in checks):
+        bad = [c.get("why") or c.get("bar") for c in checks if not c.get("ok")]
+        return "check", f"сверка с легендой не прошла: {bad}"[:200]
+    return "ok", None
 
 
 def coverage(rows: dict[int, dict]) -> dict:
@@ -265,15 +287,20 @@ def collect(symbols=SYMBOLS, days: int = DAYS) -> dict:
             for sym in symbols:
                 try:
                     r = export_symbol(br, sym, days)
-                    written = append_changes(sym, r["rows"], r["obs"])
+                    status, why = verdict(r["stable"], r["checks"])
+                    if status == "ok":
+                        written = append_changes(sym, r["rows"], r["obs"], base=DIR)
+                    else:                                       # не сверено — в карантин, не в рабочие данные
+                        written = append_changes(sym, r["rows"], r["obs"], base=QUARANTINE, verified=False, why=why)
                     ts = sorted(r["rows"])
                     summary["symbols"][sym] = {
-                        "status": "ok" if r["stable"] and all(c.get("ok") for c in r["checks"]) else "check",
+                        "status": status, "why": why, "log": "tv" if status == "ok" else "tv_quarantine",
                         "obs": r["obs"].isoformat(timespec="seconds"), "bars": len(ts), "written": written,
                         "first_bar": datetime.fromtimestamp(ts[0], timezone.utc).isoformat() if ts else None,
                         "last_bar": datetime.fromtimestamp(ts[-1], timezone.utc).isoformat() if ts else None,
                         "chart": {"symbol": r["export_symbol"], "resolution": r["export_resolution"]},
-                        "studies": r["setup"]["names"], "stable": r["stable"], "legend_checks": r["checks"],
+                        "studies": r["setup"]["names"], "inputs": r["setup"].get("inputs"),
+                        "stable": r["stable"], "legend_checks": r["checks"],
                         "coverage": coverage(r["rows"]), "seconds": r["seconds"]}
                 except Exception as exc:                        # noqa: BLE001
                     summary["symbols"][sym] = {"status": "fail", "error": f"{type(exc).__name__}: {exc}"[:300]}

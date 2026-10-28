@@ -1,0 +1,158 @@
+{
+ "BTCUSDT": {
+  "hours": 4320,
+  "breaks": 63,
+  "states_price": {
+   "DATA_UNKNOWN": 24,
+   "NO_STRUCTURE": 118,
+   "RANGE": 2795,
+   "UP_CONFIRMED": 526,
+   "DOWN_CONFIRMED": 523,
+   "STALL_WARNING": 145,
+   "STRUCTURE_BROKEN": 63,
+   "COOLDOWN": 126
+  },
+  "stall_price": {
+   "warnings": 21,
+   "break_within_24h": 5,
+   "false_pause_1atr": 4,
+   "breaks_warned_24h": 5,
+   "lead_h_median": 9.0
+  },
+  "states_flow": {
+   "DATA_UNKNOWN": 94,
+   "NO_STRUCTURE": 114,
+   "RANGE": 2246,
+   "RANGE_BUY_PRESSURE": 252,
+   "RANGE_SELL_PRESSURE": 244,
+   "UP_CONFIRMED": 554,
+   "DOWN_CONFIRMED": 617,
+   "STALL_WARNING": 13,
+   "STRUCTURE_BROKEN": 62,
+   "COOLDOWN": 124
+  },
+  "stall_flow": {
+   "warnings": 11,
+   "break_within_24h": 5,
+   "false_pause_1atr": 2,
+   "breaks_warned_24h": 5,
+   "lead_h_median": 12.0
+  },
+  "breakouts": {
+   "confirmed": 87,
+   "false": 48
+  },
+  "range_pressure_next_breakout": {
+   "RANGE": {
+    "hours": 2185,
+    "up_next": 1231
+   },
+   "RANGE_BUY_PRESSURE": {
+    "hours": 248,
+    "up_next": 184
+   },
+   "RANGE_SELL_PRESSURE": {
+    "hours": 240,
+    "up_next": 94
+   }
+  },
+  "boxes_pressure_lead6h": {
+   "покупатели": {
+    "boxes": 28,
+    "up_next": 16
+   },
+   "продавцы": {
+    "boxes": 16,
+    "up_next": 7
+   },
+   "без давления": {
+    "boxes": 25,
+    "up_next": 11
+   }
+  },
+  "flat_hours_to_breakout_median": 18.0,
+  "after_breakout_24h_atr": {
+   "n": 87,
+   "with_median": 1.467487507756621,
+   "against_median": 1.5844470284649377
+  }
+ },
+ "ETHUSDT": {
+  "hours": 4320,
+  "breaks": 45,
+  "states_price": {
+   "DATA_UNKNOWN": 24,
+   "NO_STRUCTURE": 36,
+   "RANGE": 3193,
+   "UP_CONFIRMED": 380,
+   "DOWN_CONFIRMED": 448,
+   "STALL_WARNING": 104,
+   "STRUCTURE_BROKEN": 45,
+   "COOLDOWN": 90
+  },
+  "stall_price": {
+   "warnings": 20,
+   "break_within_24h": 4,
+   "false_pause_1atr": 7,
+   "breaks_warned_24h": 4,
+   "lead_h_median": 1.0
+  },
+  "states_flow": {
+   "DATA_UNKNOWN": 94,
+   "NO_STRUCTURE": 29,
+   "RANGE": 2533,
+   "RANGE_BUY_PRESSURE": 252,
+   "RANGE_SELL_PRESSURE": 357,
+   "UP_CONFIRMED": 398,
+   "DOWN_CONFIRMED": 519,
+   "STALL_WARNING": 6,
+   "STRUCTURE_BROKEN": 44,
+   "COOLDOWN": 88
+  },
+  "stall_flow": {
+   "warnings": 6,
+   "break_within_24h": 2,
+   "false_pause_1atr": 1,
+   "breaks_warned_24h": 2,
+   "lead_h_median": 4.0
+  },
+  "breakouts": {
+   "confirmed": 64,
+   "false": 30
+  },
+  "range_pressure_next_breakout": {
+   "RANGE": {
+    "hours": 2476,
+    "up_next": 1399
+   },
+   "RANGE_SELL_PRESSURE": {
+    "hours": 354,
+    "up_next": 165
+   },
+   "RANGE_BUY_PRESSURE": {
+    "hours": 244,
+    "up_next": 164
+   }
+  },
+  "boxes_pressure_lead6h": {
+   "покупатели": {
+    "boxes": 17,
+    "up_next": 11
+   },
+   "продавцы": {
+    "boxes": 23,
+    "up_next": 8
+   },
+   "без давления": {
+    "boxes": 14,
+    "up_next": 9
+   }
+  },
+  "flat_hours_to_breakout_median": 31.0,
+  "after_breakout_24h_atr": {
+   "n": 64,
+   "with_median": 1.6996975701432309,
+   "against_median": 1.7752577956033302
+  }
+ }
+}
