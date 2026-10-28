@@ -1,0 +1,377 @@
+{
+ "sym": "ADAUSDT",
+ "obs": "2026-10-28T15:09:45+00:00",
+ "status": "ok",
+ "why": null,
+ "chart": {
+  "symbol": "Binance_ADAUSDT",
+  "resolution": "60"
+ },
+ "studies": {
+  "wi2": "<CoinGlass> Whale Index 2",
+  "liq_coin": "<CoinGlass> Совокупные ликвидации (Coin-залогом)",
+  "liq_all": "<CoinGlass> Совокупные ликвидации",
+  "ls_acc": "<CoinGlass> Лонг/Шорт коэффициент (Aккаунтов)",
+  "ls_top_pos": "<CoinGlass> Коэффициент лонг/шорт позиций топ трейдеров",
+  "fr": "<CoinGlass> Ставка финансирования (Свечи)",
+  "fr_oiw": "<CoinGlass> ставка по финансированию (взвешенная по открытому интересу)",
+  "oi": "<CoinGlass> Oткрытый интерес (Свечи)",
+  "vol": "Volume",
+  "ba": "<CoinGlass> Aggregated Futures Bid & Ask Delta",
+  "taker": "<CoinGlass> Aggregated Futures Taker Buy/Sell Volume"
+ },
+ "legend_checks": [
+  {
+   "bar": "2026-09-03T18:00:00+00:00",
+   "checks": [
+    {
+     "col": "fr_oiw_pct",
+     "shown": "0.0097",
+     "exported": 0.009726,
+     "ok": true
+    },
+    {
+     "col": "bid_ask_delta",
+     "shown": "5.433M",
+     "exported": 5433455.1142,
+     "ok": true
+    },
+    {
+     "col": "wi2",
+     "shown": "−24.4000",
+     "exported": -24.4,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_long",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_short",
+     "shown": "−126.27",
+     "exported": -126.27,
+     "ok": true
+    },
+    {
+     "col": "liq_all_long",
+     "shown": "17.489K",
+     "exported": 17489.24,
+     "ok": true
+    },
+    {
+     "col": "liq_all_short",
+     "shown": "−87.428K",
+     "exported": -87427.77,
+     "ok": true
+    },
+    {
+     "col": "ls_acc",
+     "shown": "1.7790",
+     "exported": 1.779,
+     "ok": true
+    },
+    {
+     "col": "ls_top_pos",
+     "shown": "1.8990",
+     "exported": 1.899,
+     "ok": true
+    },
+    {
+     "col": "taker_buy",
+     "shown": "41.732M",
+     "exported": 41731787.4,
+     "ok": true
+    },
+    {
+     "col": "taker_sell",
+     "shown": "−40.942M",
+     "exported": -40942230.8,
+     "ok": true
+    },
+    {
+     "col": "taker_delta",
+     "shown": "789.557K",
+     "exported": 789556.6000000015,
+     "ok": true
+    }
+   ],
+   "ok": true
+  },
+  {
+   "bar": "2026-09-21T10:00:00+00:00",
+   "checks": [
+    {
+     "col": "fr_oiw_pct",
+     "shown": "0.0099",
+     "exported": 0.009871,
+     "ok": true
+    },
+    {
+     "col": "bid_ask_delta",
+     "shown": "5.153M",
+     "exported": 5153392.6307,
+     "ok": true
+    },
+    {
+     "col": "wi2",
+     "shown": "−94.6000",
+     "exported": -94.6,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_long",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_short",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_all_long",
+     "shown": "4.853K",
+     "exported": 4852.62,
+     "ok": true
+    },
+    {
+     "col": "liq_all_short",
+     "shown": "−2.566K",
+     "exported": -2566.17,
+     "ok": true
+    },
+    {
+     "col": "ls_acc",
+     "shown": "2.3520",
+     "exported": 2.352,
+     "ok": true
+    },
+    {
+     "col": "ls_top_pos",
+     "shown": "1.9820",
+     "exported": 1.982,
+     "ok": true
+    },
+    {
+     "col": "taker_buy",
+     "shown": "46.664M",
+     "exported": 46663935.2,
+     "ok": true
+    },
+    {
+     "col": "taker_sell",
+     "shown": "−34.337M",
+     "exported": -34336894.5,
+     "ok": true
+    },
+    {
+     "col": "taker_delta",
+     "shown": "12.327M",
+     "exported": 12327040.700000003,
+     "ok": true
+    }
+   ],
+   "ok": true
+  },
+  {
+   "bar": "2026-10-09T02:00:00+00:00",
+   "checks": [
+    {
+     "col": "fr_oiw_pct",
+     "shown": "−0.0203",
+     "exported": -0.020255,
+     "ok": true
+    },
+    {
+     "col": "bid_ask_delta",
+     "shown": "4.859M",
+     "exported": 4858855.216499999,
+     "ok": true
+    },
+    {
+     "col": "wi2",
+     "shown": "−96.8000",
+     "exported": -96.8,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_long",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_coin_short",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_all_long",
+     "shown": "∅",
+     "exported": null,
+     "ok": true
+    },
+    {
+     "col": "liq_all_short",
+     "shown": "−1.531K",
+     "exported": -1530.83,
+     "ok": true
+    },
+    {
+     "col": "ls_acc",
+     "shown": "2.0880",
+     "exported": 2.088,
+     "ok": true
+    },
+    {
+     "col": "ls_top_pos",
+     "shown": "1.6600",
+     "exported": 1.66,
+     "ok": true
+    },
+    {
+     "col": "taker_buy",
+     "shown": "20.679M",
+     "exported": 20678999,
+     "ok": true
+    },
+    {
+     "col": "taker_sell",
+     "shown": "−19.093M",
+     "exported": -19093046.4,
+     "ok": true
+    },
+    {
+     "col": "taker_delta",
+     "shown": "1.586M",
+     "exported": 1585952.6000000015,
+     "ok": true
+    }
+   ],
+   "ok": true
+  }
+ ],
+ "rows": 4367,
+ "coverage": {
+  "open": {
+   "filled": 4367,
+   "bars": 4367,
+   "first": "2026-04-29T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "high": {
+   "filled": 4367,
+   "bars": 4367,
+   "first": "2026-04-29T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "low": {
+   "filled": 4367,
+   "bars": 4367,
+   "first": "2026-04-29T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "close": {
+   "filled": 4367,
+   "bars": 4367,
+   "first": "2026-04-29T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "wi2": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "liq_coin_long": {
+   "filled": 536,
+   "bars": 4367,
+   "first": "2026-05-02T05:00:00+00:00",
+   "last": "2026-10-28T13:00:00+00:00"
+  },
+  "liq_coin_short": {
+   "filled": 301,
+   "bars": 4367,
+   "first": "2026-05-04T02:00:00+00:00",
+   "last": "2026-10-26T05:00:00+00:00"
+  },
+  "liq_all_long": {
+   "filled": 3303,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "liq_all_short": {
+   "filled": 2798,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "ls_acc": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "ls_top_pos": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "fr_pct": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "fr_oiw_pct": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "oi_coins": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "volume_usd": {
+   "filled": 4367,
+   "bars": 4367,
+   "first": "2026-04-29T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "bid_ask_delta": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "taker_buy": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "taker_sell": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  },
+  "taker_delta": {
+   "filled": 4319,
+   "bars": 4367,
+   "first": "2026-05-01T16:00:00+00:00",
+   "last": "2026-10-28T14:00:00+00:00"
+  }
+ },
+ "sha256": "037c6c93a46cf1ce1964936a2d0e9a3cb719229e89454a8d64debae561b89b7f"
+}
