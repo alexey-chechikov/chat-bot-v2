@@ -90,3 +90,16 @@ class TelegramAlertClient:
         result = send_with_retry(self._bot, self._chat_ids, text,
                                   where="alert_client")
         return any(result.values())
+
+    def send_document(self, data: bytes, filename: str, caption: str = "") -> bool:
+        """Файл (например HTML сравнительной аналитики) во все чаты; True — дошёл хотя бы в один."""
+        if not self.is_enabled():
+            return False
+        ok = 0
+        for cid in self._chat_ids:
+            try:
+                self._bot.send_document(cid, data, caption=caption or None, visible_file_name=filename)
+                ok += 1
+            except Exception:
+                logger.exception("[ALERT CLIENT] send_document failed cid=%s", cid)
+        return ok > 0

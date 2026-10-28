@@ -29,7 +29,20 @@ def test_conclusion_links_yesterday_and_today():
     assert "вчера рост шёл с ростом позиций, сегодня падение с их сокращением" in concl
     assert "доля лонгов у топов снизилась" in concl and "фандинг остыл" in concl
     assert "направления нет" in concl                                        # 47/53 — шум, не «перевес»
-    assert "57% против 50% обычно — в пределах шума" in concl
+    # 27.10 (оператор: «не каждый день в пределах нормы»): шумовая статистика и раздел «раньше» не печатаются
+    assert "в пределах шума" not in text and "📌 Раньше" not in text and "57% против 50%" not in concl
+
+
+def test_history_section_only_on_real_difference():
+    q = {**QSTAT, "up": 0.66, "up_diff": True}
+    out = story.compose("BTCUSDT", LV, None, q, COND,
+                        {"n": 600, "p_up": 0.39, "lo": 0.35, "hi": 0.43, "halves": [0.40, 0.38]}, ST, cond_y=COND_Y)
+    text = "\n".join(out)
+    assert "📌 Раньше в таком состоянии (2 года BTC):" in text
+    assert "рост на следующий день 66%" in text and "заметно чаще" in text
+    assert "сначала −1%, чем +1%, в 61% случаев" in text
+    concl = next(x for x in out if x.startswith("✅ Вывод:"))
+    assert "66% против 50% обычно — заметное отличие" in concl
 
 
 def test_route_phrase_thresholds():

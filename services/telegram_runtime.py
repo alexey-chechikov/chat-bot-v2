@@ -2761,6 +2761,23 @@ class TelegramBotApp:
                     for sym in syms:
                         self.bot.send_photo(chat_id, grid_report.render_map(sym, data=data),
                                             caption=grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[sym]))
+                    # 28.10: метрики вместе (CoinGlass + Binance) картинками и HTML с общим курсором; сбой — картинка 27.10
+                    try:
+                        from services.coinglass_web import compare_view
+                        compare_view.deliver(
+                            lambda png, cap: self.bot.send_photo(chat_id, png, caption=cap),
+                            lambda data, name, cap: self.bot.send_document(chat_id, data, caption=cap,
+                                                                           visible_file_name=name),
+                            symbols=syms)
+                    except Exception:
+                        logger.exception('handle_map.compare_failed')
+                        from services import market_lens
+                        for sym in syms:
+                            try:
+                                png, cap = market_lens.build(sym)
+                                self.bot.send_photo(chat_id, png, caption=cap)
+                            except Exception:
+                                logger.exception('handle_map.lens_failed %s', sym)
                 except Exception as exc:
                     logger.exception('handle_map.failed')
                     self.bot.send_message(chat_id, f'❌ /map failed: {exc}')

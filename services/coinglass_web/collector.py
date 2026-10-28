@@ -326,6 +326,12 @@ def main() -> int:
         intraday.maybe_send()
     except Exception as exc:                                    # noqa: BLE001
         print(f"intraday: {type(exc).__name__}: {exc}"[:200])
+    try:                                                        # 28.10: суперчарт (Whale Index 2, ликвидации, тейкеры,
+        from services.coinglass_web import compare, tv_export   # стакан) → state/coinglass/tv/; эпизоды и совокупность
+        tv = tv_export.collect()
+        print("tv_export", {s: r.get("status") for s, r in tv["symbols"].items()}, "эпизоды", compare.log_all())
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"tv_export: {type(exc).__name__}: {exc}"[:200])
     lv, lq = rec.get("levels") or {}, rec.get("liquidations") or {}
     print(f"{rec['ts']} цена {lv.get('price')}; зоны {len(lv.get('zones_short', []))}/{len(lv.get('zones_long', []))}; "
           f"ликвидации 24ч {lq.get('total_24h')}; c1 {rec.get('c1')}; сбои {fails or 'нет'}")

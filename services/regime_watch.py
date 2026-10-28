@@ -439,6 +439,7 @@ def maybe_send_regime_card(*, send_fn: Optional[Callable] = None,
         return False
     _send_tv_line(send_fn, now)
     _send_maps(photo_fn, now)
+    _send_lens(photo_fn)
     return True
 
 
@@ -521,6 +522,40 @@ def _send_maps(photo_fn: Optional[Callable], now: datetime) -> None:
                      grid_report.MAP_CAPTION.format(sym=grid_report.SHORT[sym]))
     except Exception:                                           # noqa: BLE001
         logger.exception("regime_card.maps_failed")
+
+
+def _doc_sender() -> Optional[Callable]:
+    from services.telegram_alert_client import TelegramAlertClient
+    c = TelegramAlertClient.instance()
+    return c.send_document if c.is_enabled() else None
+
+
+def _send_lens(photo_fn: Optional[Callable], doc_fn: Optional[Callable] = None) -> None:
+    """Метрики вместе BTC и ETH после карт (27.10, оператор прислал свою панель: «сравнение метрик, где сходятся
+    ликвидации, лонги-шорты, фандинг — а не каждый день в пределах нормы»; 28.10 — CoinGlass: Whale Index 2, ликвидации,
+    тейкеры и стакан, эпизоды «совпало/разошлось», HTML с общим курсором). Сбой — прежняя картинка из Binance
+    (market_lens). Выключатель market_lens в state/report_delivery.json; сбой одной монеты не трогает другую и карточку."""
+    if photo_fn is None:
+        return
+    try:
+        from services import grid_report
+        if not grid_report.enabled("market_lens"):
+            return
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.lens_toggle_failed")
+        return
+    try:
+        from services.coinglass_web import compare_view
+        compare_view.deliver(photo_fn, doc_fn if doc_fn is not None else _doc_sender())
+        return
+    except Exception:                                           # noqa: BLE001
+        logger.exception("regime_card.compare_failed")
+    from services import market_lens
+    for sym in ("BTCUSDT", "ETHUSDT"):
+        try:
+            photo_fn(*market_lens.build(sym))
+        except Exception:                                       # noqa: BLE001
+            logger.exception("regime_card.lens_failed %s", sym)
 
 
 def _tv_line_enabled() -> bool:

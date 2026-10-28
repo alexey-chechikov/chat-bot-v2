@@ -415,9 +415,13 @@ def test_day_maps_sent_after_card_and_failure_keeps_card(tmp_path, monkeypatch):
     now = _card_env(tmp_path, monkeypatch)
     monkeypatch.setattr(grid_report, "enabled", lambda key: True)
     monkeypatch.setattr(grid_report, "render_map", lambda sym, data=None, now=None: sym.encode())
+    from services.coinglass_web import compare_view            # 28.10: метрики вместе — после карт, без сети
+    monkeypatch.setattr(compare_view, "deliver", lambda photo_fn, doc_fn=None, **k: [
+        photo_fn(f"lens {s}".encode(), "cap") for s in ("BTCUSDT", "ETHUSDT")])
+    monkeypatch.setattr(regime_watch, "_doc_sender", lambda: None)
     sent, photos = [], []
     assert regime_watch.maybe_send_regime_card(send_fn=sent.append, now=now, photo_fn=lambda png, cap: photos.append(png))
-    assert sent[0] == "карточка" and photos == [b"BTCUSDT", b"ETHUSDT"]
+    assert sent[0] == "карточка" and photos == [b"BTCUSDT", b"ETHUSDT", b"lens BTCUSDT", b"lens ETHUSDT"]
     (tmp_path / "card.json").unlink()
     def boom(sym, data=None, now=None):
         raise RuntimeError("matplotlib лёг")

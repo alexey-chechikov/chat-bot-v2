@@ -180,9 +180,10 @@ def conclusion(op: str, op_y: str, cond: dict, t: dict, y: dict, lq: dict, qstat
         elif st_ > 2 * max(lt, 1):
             extra.append("ликвидировали в основном шорты")
     s = head + (" (" + ", ".join(extra) + ")" if extra else "") + f". На сутки — {rverdict}"
-    if qstat and qstat.get("n") and op:
+    # 27.10 (оператор: «не как у тебя каждый день в пределах нормы»): статистика дня — только когда она отличается
+    if qstat and qstat.get("n") and op and qstat.get("up_diff"):
         s += (f"; после таких дней рост бывал {qstat['up'] * 100:.0f}% против {qstat['up_base'] * 100:.0f}% обычно"
-              + (" — заметное отличие" if qstat.get("up_diff") else " — в пределах шума"))
+              " — заметное отличие")
     return s + "."
 
 
@@ -254,18 +255,21 @@ def compose(sym: str, lv: dict, liq_y: tuple[float, float] | None, qstat: dict |
         trend = ("" if f_y is None else " · остывает" if f_t < f_y - 1e-6 else " · греется" if f_t > f_y + 1e-6 else "")
         fy = f" (вчера {f_y * 100:.3f}%)" if f_y is not None else ""
         out.append(f"• Фандинг {f_t * 100:.3f}%/сут{fy} → {mood}{trend}")
-    out.append(f"📌 Раньше в таком состоянии (2 года {c3}):")
-    if qstat and qstat.get("n") and op:
-        diff = "заметно " + ("чаще" if qstat["up"] > qstat["up_base"] else "реже") if qstat.get("up_diff") \
-            else "в пределах шума"
+    # 27.10 (оператор: «не как у тебя каждый день в пределах нормы»): раздел «раньше в таком состоянии» — только при
+    # настоящем отличии (статистика дня вне интервала с поправкой или перевес по таблице маршрутов); шум не печатается
+    hist = []
+    if qstat and qstat.get("n") and op and qstat.get("up_diff"):
         # 25.10 (перепроверка GPT): интервал рядом с долей — «54% на 50 днях» сам по себе выглядит как перевес
         from services.market_brief.brief import wilson
         lo_q, hi_q = wilson(round(qstat["up"] * qstat["n"]), qstat["n"])
-        out.append(f"• после «{op}» рост на следующий день {qstat['up'] * 100:.0f}% [95%: {lo_q * 100:.0f}–{hi_q * 100:.0f}%] "
-                   f"(обычно {qstat['up_base'] * 100:.0f}%, {qstat['n']} дн.) — {diff}")
+        diff = "заметно " + ("чаще" if qstat["up"] > qstat["up_base"] else "реже")
+        hist.append(f"• после «{op}» рост на следующий день {qstat['up'] * 100:.0f}% [95%: {lo_q * 100:.0f}–{hi_q * 100:.0f}%] "
+                    f"(обычно {qstat['up_base'] * 100:.0f}%, {qstat['n']} дн.) — {diff}")
     rline, rverdict = route_phrase(route)
-    if st and rline:
-        out.append(f"• {st['state']} от уровня 12 ч → {rline}")
+    if st and rline and "перевес" in rverdict:
+        hist.append(f"• {st['state']} от уровня 12 ч → {rline}")
+    if hist:
+        out += [f"📌 Раньше в таком состоянии (2 года {c3}):"] + hist
     concl = "✅ Вывод: " + conclusion(op, cond_y.get("oi_price", ""), cond, t, y, lq, qstat, rverdict)
     out.append(concl)
     if levels:
