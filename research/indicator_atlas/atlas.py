@@ -4,6 +4,20 @@
 
 ПРАВИЛА ЗАПИСАНЫ ДО ПРОГОНА (28.10.2026, до первого расчёта исходов). Менять — только новой версией ATLAS_VERSION.
 
+atlas-2 (28.10, разбор GPT a7d799b §3 и §6.2; результаты atlas-1 не смотрелись — прогон остановлен и отложен в
+superseded_atlas1/):
+- метки потока по абсолютному знаку: «тейкеры покупают сильно» — дисбаланс > 0 И верхние 10% прошлых окон;
+  «продают сильно» — < 0 И нижние 10%; «цена ↑, тейкеры продают» — дисбаланс < 0; стакан «зелёный» — ≥5 из 6 часов
+  СТРОГО > 0 (ноль — не зелёный), «сильно красный/зелёный» — со знаком среднего за 6 ч;
+- пропуск ≠ ноль: ликвидации, которых нет в выгрузке, остаются неизвестными; сумма за 6 ч — только по 6 известным
+  часам; метка всплеска при неизвестном окне — False (не «всплеска не было», а «нельзя сказать»);
+- UP требует r24 > 0, DOWN — r24 < 0;
+- load проверяет sha256 CSV против манифеста и что каждый бар закрыт к моменту выгрузки;
+- «высоко/низко» уровней — относительно прошлых 30 суток (перцентиль), не абсолютный уровень.
+Ревизии истории CoinGlass (revision_audit.py, BTC/ETH): у старых баров все столбцы совпадают с живым журналом;
+у последнего закрытого часа в момент выгрузки CoinGlass ещё досчитывает объём (медиана 0.6–0.9%) и дельту тейкеров
+(1.5–3.1%) — для окон 6–24 ч несущественно.
+
 Данные
 - research/coinglass_compare/data/<SYM>_1h.csv — CoinGlass exportData 1h (Binance-перп, агрегаты по 12 биржам),
   только закрытые бары, статус сверки с легендой «ok» в <SYM>_1h.manifest.json; часовой календарь, пропуски — NaN.
@@ -21,11 +35,13 @@
   живом баре = 0); всплеск — перцентиль суммы среди 720 прошлых ≥ 0.95.
 
 Метки (слова описания) — см. TOKENS; пороги: перцентиль ≤0.10 «низко» / ≥0.90 «высоко»; z ≥ +1 «↑», ≥ +2 «↑↑»,
-≤ −1 «↓», ≤ −2 «↓↓»; стакан «красный» — ≥5 из 6 часов < 0, «зелёный» — ≤1 из 6; дивергенции — знак r24 против
+≤ −1 «↓», ≤ −2 «↓↓»; стакан «красный» — ≥5 из 6 часов < 0, «зелёный» — atlas-1: ≤1 из 6 красных, atlas-2: ≥5 из 6
+часов > 0; дивергенции — знак r24 против
 знака z24 (|r24| ≥ 2 ATR и |z24| ≥ 1).
 
 Состояния на t (из прошлого, по приоритету)
-- UP — r24p ≥ 0.80 и pos24 ≥ 0.70 (рост, цена у верха);  DOWN — r24p ≤ 0.20 и pos24 ≤ 0.30;
+- UP — r24p ≥ 0.80 и pos24 ≥ 0.70 (рост, цена у верха), atlas-2: и r24 > 0;  DOWN — r24p ≤ 0.20 и pos24 ≤ 0.30,
+  atlas-2: и r24 < 0;
 - FLAT — er24 ≤ 0.25 (как sc-1) и ширина 24 ч не шире медианы (w24p ≤ 0.50), не UP/DOWN;  иначе MIX.
   (Уточнено до расчёта исходов по меткам: при одном er24 «флетом» выходило 57% часов — у случайного блуждания
   er24 обычно < 0.25.)
@@ -39,13 +55,15 @@
 """
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ATLAS_VERSION = "atlas-1"
+ATLAS_VERSION = "atlas-2"
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "research" / "coinglass_compare" / "data"
 COINS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT",
@@ -61,10 +79,15 @@ def load(sym: str, base: Path = DATA) -> pd.DataFrame:
     man = json.loads((base / f"{sym}_1h.manifest.json").read_text(encoding="utf-8"))
     if man.get("status") != "ok":
         raise ValueError(f"{sym}: выгрузка не сверена ({man.get('why')})")
-    df = pd.read_csv(base / f"{sym}_1h.csv")
+    raw = (base / f"{sym}_1h.csv").read_bytes()
+    if man.get("sha256") and hashlib.sha256(raw).hexdigest() != man["sha256"]:
+        raise ValueError(f"{sym}: CSV не совпадает с манифестом по sha256")
+    df = pd.read_csv(io.BytesIO(raw))
     df.index = pd.to_datetime(df.pop("bar_utc"), utc=True)
     df = df.sort_index()
     df = df[~df.index.duplicated(keep="last")]
+    if man.get("obs") and len(df) and df.index[-1] + pd.Timedelta(hours=1) > pd.Timestamp(man["obs"]):
+        raise ValueError(f"{sym}: в CSV есть бар, не закрытый к моменту выгрузки")
     full = pd.date_range(df.index[0], df.index[-1], freq="1h")
     return df.reindex(full)
 
@@ -143,12 +166,13 @@ def features(df: pd.DataFrame) -> pd.DataFrame:
         f[f"tak{k}p"] = pct_past(f[f"tak{k}"])
     book = df["bid_ask_delta"].astype(float)
     f["red6"] = (book < 0).astype(float).where(book.notna()).rolling(6, min_periods=6).sum()
-    f["bookp6"] = pct_past(book.rolling(6, min_periods=6).mean())
+    f["green6"] = (book > 0).astype(float).where(book.notna()).rolling(6, min_periods=6).sum()
+    f["book6"] = book.rolling(6, min_periods=6).mean()
+    f["bookp6"] = pct_past(f["book6"])
     f["vol6p"] = pct_past(df["volume_usd"].astype(float).rolling(6, min_periods=6).sum())
     for side, col in (("L", "liq_all_long"), ("S", "liq_all_short")):
-        # шорты в выгрузке со знаком минус (рисуются вниз); пусто при живом баре = ликвидаций не было
-        s = df[col].astype(float).abs().where(df["close"].notna())
-        s = s.fillna(0).where(df["close"].notna())
+        # шорты в выгрузке со знаком минус (рисуются вниз); пусто — НЕИЗВЕСТНО (atlas-2: не ноль, GPT a7d799b)
+        s = df[col].astype(float).abs()
         s6 = s.rolling(6, min_periods=6).sum()
         f[f"liq{side}6"] = s6
         f[f"liq{side}6p"] = pct_past(s6)
@@ -173,15 +197,15 @@ def tokens(f: pd.DataFrame) -> pd.DataFrame:
         t[f"цена ↑, {nm} ↓ (дивергенция 24ч)"] = up & (f[f"{key}_z24"] <= -1)
         t[f"цена ↓, {nm} ↑ (дивергенция 24ч)"] = dn & (f[f"{key}_z24"] >= 1)
     for k in (6, 24):
-        p = f[f"tak{k}p"]
-        t[f"тейкеры покупают сильно {k}ч"] = p >= 0.90
-        t[f"тейкеры продают сильно {k}ч"] = p <= 0.10
-    t["цена ↑, тейкеры продают 24ч"] = (f["r24"] >= 2) & (f["tak24p"] <= 0.25)
-    t["цена ↓, тейкеры покупают 24ч"] = (f["r24"] <= -2) & (f["tak24p"] >= 0.75)
+        p, x = f[f"tak{k}p"], f[f"tak{k}"]
+        t[f"тейкеры покупают сильно {k}ч"] = (x > 0) & (p >= 0.90)
+        t[f"тейкеры продают сильно {k}ч"] = (x < 0) & (p <= 0.10)
+    t["цена ↑, тейкеры продают 24ч"] = (f["r24"] >= 2) & (f["tak24"] < 0)
+    t["цена ↓, тейкеры покупают 24ч"] = (f["r24"] <= -2) & (f["tak24"] > 0)
     t["стакан красный 5+/6"] = f["red6"] >= 5
-    t["стакан зелёный 5+/6"] = f["red6"] <= 1
-    t["стакан сильно красный (6ч)"] = f["bookp6"] <= 0.10
-    t["стакан сильно зелёный (6ч)"] = f["bookp6"] >= 0.90
+    t["стакан зелёный 5+/6"] = f["green6"] >= 5
+    t["стакан сильно красный (6ч)"] = (f["book6"] < 0) & (f["bookp6"] <= 0.10)
+    t["стакан сильно зелёный (6ч)"] = (f["book6"] > 0) & (f["bookp6"] >= 0.90)
     t["объём высокий 6ч"] = f["vol6p"] >= 0.90
     t["объём низкий 6ч"] = f["vol6p"] <= 0.10
     t["всплеск ликвидаций лонгов 6ч"] = f["liqL_spike"].astype(bool)
@@ -196,8 +220,8 @@ def context(f: pd.DataFrame) -> pd.Series:
     ok = f[["r24p", "pos24", "er24"]].notna().all(axis=1)
     s = pd.Series("MIX", index=f.index, dtype=object)
     s[(f["er24"] <= 0.25) & (f["w24p"] <= 0.50)] = "FLAT"
-    s[(f["r24p"] <= 0.20) & (f["pos24"] <= 0.30)] = "DOWN"
-    s[(f["r24p"] >= 0.80) & (f["pos24"] >= 0.70)] = "UP"
+    s[(f["r24p"] <= 0.20) & (f["pos24"] <= 0.30) & (f["r24"] < 0)] = "DOWN"
+    s[(f["r24p"] >= 0.80) & (f["pos24"] >= 0.70) & (f["r24"] > 0)] = "UP"
     return s.where(ok)
 
 

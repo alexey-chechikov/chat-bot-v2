@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -54,6 +55,11 @@ STUDIES = (
 )
 SERIES = {"open": "open", "high": "high", "low": "low", "close": "close"}
 COLUMNS = ("open", "high", "low", "close", *(c for _, _, m in STUDIES for c in m.values()))
+# Обязательны в последнем закрытом баре (GPT a7d799b §6.6): живой журнал 27–28.10 — в 1 из 11–13 выгрузок тейкеры и
+# стакан последнего закрытого часа были пустыми и записывались как закрытые. Ликвидации и фандинг по OI бывают пустыми.
+FRESH = ("close", "oi_coins", "taker_buy", "taker_sell", "taker_delta", "bid_ask_delta", "ls_acc", "ls_top_pos", "wi2",
+         "fr_pct", "volume_usd")
+RETRY_WAIT_MS = 20_000
 
 SETUP_JS = """async ({studies, days}) => {
   const f = document.querySelector('iframe');
@@ -210,10 +216,32 @@ def append_changes(sym: str, rows: dict[int, dict], obs: datetime, *, base: Path
     return n
 
 
-def verdict(stable: bool, checks: list[dict]) -> tuple[str, str | None]:
-    """Статус выгрузки ДО записи: ok — данные перестали меняться и все бары сверки совпали с легендой."""
+def signature(rows: dict[int, dict], now: float) -> tuple:
+    """Подпись опроса: число баров, заполненность каждого столбца и хеш ЗНАЧЕНИЙ закрытых баров, кроме последнего
+    закрытого (его CoinGlass может досчитывать; он проверяется на свежесть отдельно). GPT a7d799b §3: подпись по одним
+    размерам признавала устойчивой выгрузку, где значения закрытых баров менялись каждый опрос."""
+    counts = tuple(sum(r.get(c) is not None for r in rows.values()) for c in COLUMNS)
+    old = sorted(t for t in rows if t + 7200 <= now)
+    h = hashlib.sha1(json.dumps([[t, *(rows[t].get(c) for c in COLUMNS)] for t in old]).encode()).hexdigest()
+    return len(rows), counts, h
+
+
+def fresh_missing(rows: dict[int, dict], now: float) -> list[str]:
+    """Обязательные столбцы, пустые в последнем закрытом баре (нет закрытого бара — все)."""
+    closed = [t for t in rows if t + 3600 <= now]
+    if not closed:
+        return list(FRESH)
+    last = rows[max(closed)]
+    return [c for c in FRESH if c in COLUMNS and last.get(c) is None]
+
+
+def verdict(stable: bool, checks: list[dict], missing: list[str] | None = None) -> tuple[str, str | None]:
+    """Статус выгрузки ДО записи: ok — значения закрытых баров перестали меняться, последний закрытый бар заполнен
+    и все бары сверки совпали с легендой."""
     if not stable:
         return "check", "данные не устоялись за 90 с"
+    if missing:
+        return "check", f"последний закрытый час не заполнен: {', '.join(missing)}"
     if not checks or not all(c.get("ok") for c in checks):
         bad = [c.get("why") or c.get("bar") for c in checks if not c.get("ok")]
         return "check", f"сверка с легендой не прошла: {bad}"[:200]
@@ -248,15 +276,20 @@ def export_symbol(br, sym: str, days: int = DAYS) -> dict:
             raise RuntimeError("график не готов")
         ids = setup["ids"]
         want = [v for v in ids.values() if v]
-        prev_sig, export, stable = None, None, 0
+        prev_sig, export, stable, polls = None, None, 0, []
         for _ in range(30):                                     # до ~90 с: данные индикаторов догружаются
             pg.wait_for_timeout(3_000)
             export = pg.evaluate(EXPORT_JS, want)
             rows = rows_of(export, ids)
-            sig = (len(rows), tuple(sum(r.get(c) is not None for r in rows.values()) for c in COLUMNS))
+            now = time.time()
+            sig = signature(rows, now)
+            miss = fresh_missing(rows, now)
             enough = len(rows) >= days * 24 * 0.9 and all(sig[1][COLUMNS.index(c)] > 0 for k, _r, m in STUDIES
                                                           if ids.get(k) for c in m.values() if not c.startswith("liq"))
-            stable = stable + 1 if sig == prev_sig and enough else 0
+            if prev_sig is not None and sig != prev_sig:        # что менялось между опросами — для разбора карантина
+                polls.append({"rows": sig[0] - prev_sig[0], "values": sig[2] != prev_sig[2],
+                              "cols": [c for c, a, b in zip(COLUMNS, sig[1], prev_sig[1]) if a != b][:6]})
+            stable = stable + 1 if sig == prev_sig and enough and not miss else 0
             prev_sig = sig
             if stable >= 2:
                 break
@@ -270,6 +303,7 @@ def export_symbol(br, sym: str, days: int = DAYS) -> dict:
             checks.append(check_legend(pg.evaluate(LEGEND_JS), rows, setup["names"]))
         pg.mouse.move(box["x"] + box["width"] * 0.98, box["y"] + 5)
         return {"sym": sym, "obs": obs, "rows": rows, "setup": setup, "checks": checks, "stable": stable >= 2,
+                "missing": fresh_missing(rows, obs.timestamp()), "polls": polls[-8:],
                 "seconds": round(time.time() - t0, 1),
                 "export_resolution": export.get("resolution"), "export_symbol": export.get("symbol")}
     finally:
@@ -287,7 +321,17 @@ def collect(symbols=SYMBOLS, days: int = DAYS) -> dict:
             for sym in symbols:
                 try:
                     r = export_symbol(br, sym, days)
-                    status, why = verdict(r["stable"], r["checks"])
+                    status, why = verdict(r["stable"], r["checks"], r.get("missing"))
+                    tries = 1
+                    if status != "ok":                          # один повтор только этого символа (GPT a7d799b §6.6)
+                        time.sleep(RETRY_WAIT_MS / 1000)
+                        r2 = export_symbol(br, sym, days)
+                        s2, w2 = verdict(r2["stable"], r2["checks"], r2.get("missing"))
+                        tries = 2
+                        if s2 == "ok":
+                            r, status, why = r2, s2, None
+                        else:
+                            why = f"{why}; повтор: {w2}"
                     if status == "ok":
                         written = append_changes(sym, r["rows"], r["obs"], base=DIR)
                     else:                                       # не сверено — в карантин, не в рабочие данные
@@ -300,7 +344,8 @@ def collect(symbols=SYMBOLS, days: int = DAYS) -> dict:
                         "last_bar": datetime.fromtimestamp(ts[-1], timezone.utc).isoformat() if ts else None,
                         "chart": {"symbol": r["export_symbol"], "resolution": r["export_resolution"]},
                         "studies": r["setup"]["names"], "inputs": r["setup"].get("inputs"),
-                        "stable": r["stable"], "legend_checks": r["checks"],
+                        "stable": r["stable"], "legend_checks": r["checks"], "tries": tries,
+                        "missing": r.get("missing"), "polls": r.get("polls"),
                         "coverage": coverage(r["rows"]), "seconds": r["seconds"]}
                 except Exception as exc:                        # noqa: BLE001
                     summary["symbols"][sym] = {"status": "fail", "error": f"{type(exc).__name__}: {exc}"[:300]}

@@ -867,6 +867,33 @@ COMP_SLOT = (6, 8)          # решение — первый прогон сб�
 COMP_N, COMP_H = 72, 24
 
 
+def binance_1m(sym: str, start, end, max_calls: int = 10) -> pd.DataFrame:
+    """Минуты Binance USDT-M [start, end): open/high/low/close по началу минуты; только закрытые минуты (незакрытая
+    последняя отбрасывается); пагинация по 1500 минут, не больше max_calls запросов."""
+    a, b = pd.Timestamp(start).floor("1min"), pd.Timestamp(end)
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000
+    rows = []
+    cur = int(a.timestamp() * 1000)
+    end_ms = int(b.timestamp() * 1000)
+    for _ in range(max_calls):
+        if cur >= end_ms:
+            break
+        kl = _get("/fapi/v1/klines", {"symbol": sym, "interval": "1m", "startTime": cur, "endTime": end_ms - 1,
+                                      "limit": 1500})
+        if not kl:
+            break
+        rows += [k for k in kl if int(k[6]) < now_ms]
+        cur = int(kl[-1][0]) + 60_000
+        if len(kl) < 1500:
+            break
+    if not rows:
+        return pd.DataFrame(columns=["open", "high", "low", "close"])
+    d = pd.DataFrame([[float(k[1]), float(k[2]), float(k[3]), float(k[4])] for k in rows],
+                     index=pd.to_datetime([int(k[0]) for k in rows], unit="ms", utc=True),
+                     columns=["open", "high", "low", "close"])
+    return d[~d.index.duplicated()].sort_index()
+
+
 def binance_open_at(sym: str, t) -> float | None:
     """Цена открытия минуты t (Binance USDT-M, 1m kline с началом ровно t) — известна только после t."""
     ms = int(pd.Timestamp(t).timestamp() * 1000)

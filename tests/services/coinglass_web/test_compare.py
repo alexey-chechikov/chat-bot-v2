@@ -258,7 +258,9 @@ def _no_live_journals(tmp_path, monkeypatch):
 def test_payload_keeps_payments_apart_and_caption_fits():
     p = _payload()
     assert p["scenario"] and p["scenario"]["source"].startswith("расчёт по графику")
-    assert compare_view.caption(p).splitlines()[1].startswith("🧭 Состояние:")
+    cap = compare_view.caption(p).splitlines()
+    assert cap[1].startswith("🧭 BTC · ") and "рабочая гипотеза на 2–6 ч" in cap[1]     # первым — вывод (GPT a7d799b §5)
+    assert any(x.startswith("Теневое (только журнал") for x in cap)
     assert "paid_pct" not in p["s"] and len(p["paid"]["t"]) == 2   # выплаты — точками, не линией ставки
     assert len(compare_view.caption(p)) <= compare_view.CAPTION_LIMIT
     cov = {r["key"]: r for r in p["coverage"]}

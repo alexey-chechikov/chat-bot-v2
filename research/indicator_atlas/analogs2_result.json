@@ -1,0 +1,3334 @@
+{
+ "script": "research/indicator_atlas/analogs2.py",
+ "script_sha256": "8fcb9849b5329091ef9469f8ce6478c77fa82ce50f17282675962ef8a25c94b9",
+ "atlas_version": "atlas-2",
+ "csv_sha256": {
+  "BTCUSDT": "dda2c9ba5d95163293814618758d619c2e7f47a787f2a0a3c8626b26f052ad1a",
+  "ETHUSDT": "400cc775009d50e4ddc7ea276929340f094ce40ef08165e8bb7025eb3a12a207",
+  "SOLUSDT": "354f334e6600a7db981e86366fb9e2a0526b1b768e020e52033e69e092ad192a",
+  "XRPUSDT": "e144e00679e3d3cc557bf89b5974ddd051278ffe32a1120e4ca7dbd0451dd2fd",
+  "BNBUSDT": "8da603b5847c9824e7a310e992737ddc708c572e18d8aae4a18ac979bad185c9",
+  "DOGEUSDT": "c19f4ac2804ca3679d114a2e498942fa73d190648306469202229d13809a63d4",
+  "ADAUSDT": "037c6c93a46cf1ce1964936a2d0e9a3cb719229e89454a8d64debae561b89b7f",
+  "LINKUSDT": "17d742370c9a204a46b5549f8b22e83e928fc7ef45b5ad19db9889b8ce6ebb97",
+  "AVAXUSDT": "1e2a60a2218ef84159365b45926f9f5f5ea22af82d53f47f0898ff6b1e7e79c3",
+  "LTCUSDT": "2041c50211730c28c9e774f8edcca4ccc5d2c22ff95afbcd14441ebf7995225e"
+ },
+ "vector": [
+  "r6",
+  "r24",
+  "r72",
+  "er24",
+  "pos24",
+  "pos72",
+  "w24p",
+  "r24p",
+  "oi_p",
+  "oi_z6",
+  "oi_z24",
+  "fr_p",
+  "fr_z6",
+  "fr_z24",
+  "frw_p",
+  "frw_z6",
+  "frw_z24",
+  "lsa_p",
+  "lsa_z6",
+  "lsa_z24",
+  "lst_p",
+  "lst_z6",
+  "lst_z24",
+  "wi_p",
+  "wi_z6",
+  "wi_z24",
+  "tak6p",
+  "tak24p",
+  "red6/6",
+  "green6/6",
+  "bookp6",
+  "vol6p",
+  "liqL6p",
+  "liqS6p",
+  "flow_unknown",
+  "book_unknown",
+  "liq_unknown"
+ ],
+ "data_first_bar": "2026-04-29 16:00:00+00:00",
+ "data_last_bar": "2026-10-28 14:00:00+00:00",
+ "eval_start": "2026-07-01 00:00:00+00:00",
+ "half_cut": "2026-09-01 00:00:00+00:00",
+ "K": 50,
+ "C": 0.1,
+ "boot": 1000,
+ "seed": 20261029,
+ "tasks_info": {
+  "first|UP": {
+   "pool_rows": 6493,
+   "eval_candidates": 2391,
+   "evaluated": 2391,
+   "skipped_pool_lt_K": 0,
+   "log_windows": 17,
+   "log_train_rows": {
+    "0": 1762,
+    "1": 2211,
+    "2": 2415,
+    "3": 2746,
+    "4": 3099,
+    "5": 3315,
+    "6": 3531,
+    "7": 3711,
+    "8": 4291,
+    "9": 4457,
+    "10": 4867,
+    "11": 4935,
+    "12": 5555,
+    "13": 5691,
+    "14": 5917,
+    "15": 6112,
+    "16": 6262
+   },
+   "log_skipped": 0
+  },
+  "first|DOWN": {
+   "pool_rows": 6946,
+   "eval_candidates": 2210,
+   "evaluated": 2210,
+   "skipped_pool_lt_K": 0,
+   "log_windows": 17,
+   "log_train_rows": {
+    "0": 2449,
+    "1": 2524,
+    "2": 2946,
+    "3": 3112,
+    "4": 3519,
+    "5": 3854,
+    "6": 4022,
+    "7": 4250,
+    "8": 4304,
+    "9": 4682,
+    "10": 4899,
+    "11": 5263,
+    "12": 5569,
+    "13": 5830,
+    "14": 5951,
+    "15": 6340,
+    "16": 6640
+   },
+   "log_skipped": 0
+  },
+  "first|FLAT": {
+   "pool_rows": 15706,
+   "eval_candidates": 5726,
+   "evaluated": 5726,
+   "skipped_pool_lt_K": 0,
+   "log_windows": 17,
+   "log_train_rows": {
+    "0": 4077,
+    "1": 4757,
+    "2": 5513,
+    "3": 6479,
+    "4": 7205,
+    "5": 7873,
+    "6": 8902,
+    "7": 9894,
+    "8": 10202,
+    "9": 10519,
+    "10": 10938,
+    "11": 11597,
+    "12": 11985,
+    "13": 12614,
+    "14": 13417,
+    "15": 14118,
+    "16": 14676
+   },
+   "log_skipped": 0
+  },
+  "top|UP": {
+   "pool_rows": 6504,
+   "eval_candidates": 2394,
+   "evaluated": 2394,
+   "skipped_pool_lt_K": 0,
+   "log_windows": 17,
+   "log_train_rows": {
+    "0": 1768,
+    "1": 2217,
+    "2": 2421,
+    "3": 2752,
+    "4": 3105,
+    "5": 3321,
+    "6": 3537,
+    "7": 3721,
+    "8": 4302,
+    "9": 4468,
+    "10": 4878,
+    "11": 4946,
+    "12": 5566,
+    "13": 5702,
+    "14": 5928,
+    "15": 6123,
+    "16": 6273
+   },
+   "log_skipped": 0
+  },
+  "bottom|DOWN": {
+   "pool_rows": 6963,
+   "eval_candidates": 2218,
+   "evaluated": 2218,
+   "skipped_pool_lt_K": 0,
+   "log_windows": 17,
+   "log_train_rows": {
+    "0": 2449,
+    "1": 2524,
+    "2": 2946,
+    "3": 3112,
+    "4": 3519,
+    "5": 3854,
+    "6": 4022,
+    "7": 4250,
+    "8": 4304,
+    "9": 4682,
+    "10": 4899,
+    "11": 5279,
+    "12": 5585,
+    "13": 5846,
+    "14": 5967,
+    "15": 6356,
+    "16": 6657
+   },
+   "log_skipped": 0
+  }
+ },
+ "eval_class_freq": {
+  "first|UP": {
+   "up": 0.531577,
+   "down": 0.375993,
+   "none": 0.09243,
+   "n": 2391
+  },
+  "first|DOWN": {
+   "up": 0.443439,
+   "down": 0.421719,
+   "none": 0.134842,
+   "n": 2210
+  },
+  "first|FLAT": {
+   "up": 0.445337,
+   "down": 0.461753,
+   "none": 0.09291,
+   "n": 5726
+  },
+  "top|UP": {
+   "нет": 0.858396,
+   "да": 0.141604,
+   "n": 2394
+  },
+  "bottom|DOWN": {
+   "нет": 0.782687,
+   "да": 0.217313,
+   "n": 2218
+  }
+ },
+ "verdict_main": {
+  "rule": "kNN K=50, first, все состояния: skill>0, ДИ разности без нуля, skill>0 в обеих половинах",
+  "works": false,
+  "overall_skill_gt0_ci_excl0": false,
+  "both_halves_gt0": false
+ },
+ "verdicts": {
+  "first|knn50|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|knn50|UP": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|knn50|DOWN": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|knn50|FLAT": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|log|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|log|UP": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|log|DOWN": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "first|log|FLAT": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "top|knn50|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "top|log|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "bottom|knn50|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": false
+  },
+  "bottom|log|всё": {
+   "works": false,
+   "overall_skill_gt0_ci_excl0": false,
+   "both_halves_gt0": true
+  }
+ },
+ "results": {
+  "first": {
+   "knn50": {
+    "всё": {
+     "n": 10327,
+     "days": 119,
+     "brier_model": 0.617754,
+     "brier_base": 0.5932,
+     "skill": -0.041392,
+     "diff_base_minus_model": -0.024554,
+     "diff_ci95": [
+      -0.031578,
+      -0.017272
+     ],
+     "skill_ci95": [
+      -0.053877,
+      -0.028996
+     ],
+     "logloss_model": 0.996247,
+     "logloss_base": 0.960584,
+     "logloss_diff_base_minus_model": -0.035663,
+     "logloss_diff_ci95": [
+      -0.046304,
+      -0.023894
+     ]
+    },
+    "июль–август": {
+     "n": 5583,
+     "days": 62,
+     "brier_model": 0.629325,
+     "brier_base": 0.606232,
+     "skill": -0.038094,
+     "diff_base_minus_model": -0.023094,
+     "diff_ci95": [
+      -0.033693,
+      -0.013203
+     ],
+     "skill_ci95": [
+      -0.055792,
+      -0.021673
+     ],
+     "logloss_model": 1.020048,
+     "logloss_base": 0.983777,
+     "logloss_diff_base_minus_model": -0.036271,
+     "logloss_diff_ci95": [
+      -0.051657,
+      -0.021589
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 4744,
+     "days": 57,
+     "brier_model": 0.604136,
+     "brier_base": 0.577864,
+     "skill": -0.045465,
+     "diff_base_minus_model": -0.026272,
+     "diff_ci95": [
+      -0.036677,
+      -0.01559
+     ],
+     "skill_ci95": [
+      -0.064656,
+      -0.026785
+     ],
+     "logloss_model": 0.968237,
+     "logloss_base": 0.933289,
+     "logloss_diff_base_minus_model": -0.034948,
+     "logloss_diff_ci95": [
+      -0.051933,
+      -0.017465
+     ]
+    },
+    "UP": {
+     "n": 2391,
+     "days": 97,
+     "brier_model": 0.619783,
+     "brier_base": 0.593487,
+     "skill": -0.044308,
+     "diff_base_minus_model": -0.026296,
+     "diff_ci95": [
+      -0.040407,
+      -0.011629
+     ],
+     "skill_ci95": [
+      -0.068964,
+      -0.019126
+     ],
+     "logloss_model": 0.993164,
+     "logloss_base": 0.956475,
+     "logloss_diff_base_minus_model": -0.036689,
+     "logloss_diff_ci95": [
+      -0.057791,
+      -0.016057
+     ]
+    },
+    "UP июль–август": {
+     "n": 1360,
+     "days": 53,
+     "brier_model": 0.630025,
+     "brier_base": 0.607198,
+     "skill": -0.037594,
+     "diff_base_minus_model": -0.022827,
+     "diff_ci95": [
+      -0.040111,
+      -0.006632
+     ],
+     "skill_ci95": [
+      -0.067268,
+      -0.010967
+     ],
+     "logloss_model": 1.008717,
+     "logloss_base": 0.978526,
+     "logloss_diff_base_minus_model": -0.030191,
+     "logloss_diff_ci95": [
+      -0.05679,
+      -0.006069
+     ]
+    },
+    "UP сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.606271,
+     "brier_base": 0.5754,
+     "skill": -0.053652,
+     "diff_base_minus_model": -0.030872,
+     "diff_ci95": [
+      -0.054925,
+      -0.00602
+     ],
+     "skill_ci95": [
+      -0.097473,
+      -0.010356
+     ],
+     "logloss_model": 0.972648,
+     "logloss_base": 0.927388,
+     "logloss_diff_base_minus_model": -0.04526,
+     "logloss_diff_ci95": [
+      -0.076231,
+      -0.0125
+     ]
+    },
+    "DOWN": {
+     "n": 2210,
+     "days": 95,
+     "brier_model": 0.634883,
+     "brier_base": 0.612235,
+     "skill": -0.036992,
+     "diff_base_minus_model": -0.022648,
+     "diff_ci95": [
+      -0.036948,
+      -0.006293
+     ],
+     "skill_ci95": [
+      -0.060976,
+      -0.010209
+     ],
+     "logloss_model": 1.039414,
+     "logloss_base": 1.004117,
+     "logloss_diff_base_minus_model": -0.035298,
+     "logloss_diff_ci95": [
+      -0.052785,
+      -0.014227
+     ]
+    },
+    "DOWN июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.650383,
+     "brier_base": 0.629127,
+     "skill": -0.033787,
+     "diff_base_minus_model": -0.021256,
+     "diff_ci95": [
+      -0.042912,
+      0.002936
+     ],
+     "skill_ci95": [
+      -0.071404,
+      0.004694
+     ],
+     "logloss_model": 1.080714,
+     "logloss_base": 1.040256,
+     "logloss_diff_base_minus_model": -0.040458,
+     "logloss_diff_ci95": [
+      -0.064976,
+      -0.013526
+     ]
+    },
+    "DOWN сентябрь–октябрь": {
+     "n": 1122,
+     "days": 49,
+     "brier_model": 0.619853,
+     "brier_base": 0.595856,
+     "skill": -0.040273,
+     "diff_base_minus_model": -0.023997,
+     "diff_ci95": [
+      -0.044963,
+      -0.003584
+     ],
+     "skill_ci95": [
+      -0.075231,
+      -0.006101
+     ],
+     "logloss_model": 0.999366,
+     "logloss_base": 0.969072,
+     "logloss_diff_base_minus_model": -0.030294,
+     "logloss_diff_ci95": [
+      -0.05784,
+      -0.002903
+     ]
+    },
+    "FLAT": {
+     "n": 5726,
+     "days": 115,
+     "brier_model": 0.610296,
+     "brier_base": 0.585734,
+     "skill": -0.041934,
+     "diff_base_minus_model": -0.024562,
+     "diff_ci95": [
+      -0.033891,
+      -0.014862
+     ],
+     "skill_ci95": [
+      -0.058471,
+      -0.024813
+     ],
+     "logloss_model": 0.980874,
+     "logloss_base": 0.945497,
+     "logloss_diff_base_minus_model": -0.035376,
+     "logloss_diff_ci95": [
+      -0.052083,
+      -0.017917
+     ]
+    },
+    "FLAT июль–август": {
+     "n": 3135,
+     "days": 58,
+     "brier_model": 0.621714,
+     "brier_base": 0.597867,
+     "skill": -0.039887,
+     "diff_base_minus_model": -0.023847,
+     "diff_ci95": [
+      -0.037382,
+      -0.010246
+     ],
+     "skill_ci95": [
+      -0.063631,
+      -0.017031
+     ],
+     "logloss_model": 1.003909,
+     "logloss_base": 0.966453,
+     "logloss_diff_base_minus_model": -0.037456,
+     "logloss_diff_ci95": [
+      -0.059748,
+      -0.015783
+     ]
+    },
+    "FLAT сентябрь–октябрь": {
+     "n": 2591,
+     "days": 57,
+     "brier_model": 0.596481,
+     "brier_base": 0.571053,
+     "skill": -0.044528,
+     "diff_base_minus_model": -0.025428,
+     "diff_ci95": [
+      -0.038324,
+      -0.012901
+     ],
+     "skill_ci95": [
+      -0.069979,
+      -0.021761
+     ],
+     "logloss_model": 0.953002,
+     "logloss_base": 0.920142,
+     "logloss_diff_base_minus_model": -0.03286,
+     "logloss_diff_ci95": [
+      -0.058025,
+      -0.006543
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 1039,
+      "days": 118,
+      "brier_model": 0.650499,
+      "brier_base": 0.613356,
+      "skill": -0.060556,
+      "diff_base_minus_model": -0.037142,
+      "diff_ci95": [
+       -0.058028,
+       -0.016456
+      ],
+      "skill_ci95": [
+       -0.094806,
+       -0.026444
+      ],
+      "logloss_model": 1.050496,
+      "logloss_base": 1.000184,
+      "logloss_diff_base_minus_model": -0.050312,
+      "logloss_diff_ci95": [
+       -0.08185,
+       -0.016111
+      ]
+     },
+     "ETHUSDT": {
+      "n": 1036,
+      "days": 119,
+      "brier_model": 0.63148,
+      "brier_base": 0.608412,
+      "skill": -0.037915,
+      "diff_base_minus_model": -0.023068,
+      "diff_ci95": [
+       -0.042257,
+       -0.002022
+      ],
+      "skill_ci95": [
+       -0.069624,
+       -0.00335
+      ],
+      "logloss_model": 1.018583,
+      "logloss_base": 0.987758,
+      "logloss_diff_base_minus_model": -0.030825,
+      "logloss_diff_ci95": [
+       -0.059087,
+       -0.000878
+      ]
+     },
+     "SOLUSDT": {
+      "n": 1052,
+      "days": 117,
+      "brier_model": 0.609513,
+      "brier_base": 0.60003,
+      "skill": -0.015804,
+      "diff_base_minus_model": -0.009483,
+      "diff_ci95": [
+       -0.031689,
+       0.011425
+      ],
+      "skill_ci95": [
+       -0.052861,
+       0.018802
+      ],
+      "logloss_model": 0.983726,
+      "logloss_base": 0.97651,
+      "logloss_diff_base_minus_model": -0.007216,
+      "logloss_diff_ci95": [
+       -0.037552,
+       0.021002
+      ]
+     },
+     "XRPUSDT": {
+      "n": 1050,
+      "days": 116,
+      "brier_model": 0.590412,
+      "brier_base": 0.578023,
+      "skill": -0.021435,
+      "diff_base_minus_model": -0.01239,
+      "diff_ci95": [
+       -0.031272,
+       0.008195
+      ],
+      "skill_ci95": [
+       -0.053578,
+       0.014078
+      ],
+      "logloss_model": 0.953601,
+      "logloss_base": 0.930155,
+      "logloss_diff_base_minus_model": -0.023446,
+      "logloss_diff_ci95": [
+       -0.053476,
+       0.009066
+      ]
+     },
+     "BNBUSDT": {
+      "n": 1025,
+      "days": 118,
+      "brier_model": 0.578391,
+      "brier_base": 0.551251,
+      "skill": -0.049233,
+      "diff_base_minus_model": -0.02714,
+      "diff_ci95": [
+       -0.045836,
+       -0.008905
+      ],
+      "skill_ci95": [
+       -0.08311,
+       -0.016277
+      ],
+      "logloss_model": 0.907171,
+      "logloss_base": 0.871194,
+      "logloss_diff_base_minus_model": -0.035977,
+      "logloss_diff_ci95": [
+       -0.06024,
+       -0.012608
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 1004,
+      "days": 117,
+      "brier_model": 0.617433,
+      "brier_base": 0.597136,
+      "skill": -0.033989,
+      "diff_base_minus_model": -0.020296,
+      "diff_ci95": [
+       -0.043631,
+       -0.000907
+      ],
+      "skill_ci95": [
+       -0.072721,
+       -0.001519
+      ],
+      "logloss_model": 0.997571,
+      "logloss_base": 0.974052,
+      "logloss_diff_base_minus_model": -0.023519,
+      "logloss_diff_ci95": [
+       -0.056398,
+       0.006456
+      ]
+     },
+     "ADAUSDT": {
+      "n": 1022,
+      "days": 117,
+      "brier_model": 0.621066,
+      "brier_base": 0.585303,
+      "skill": -0.061103,
+      "diff_base_minus_model": -0.035764,
+      "diff_ci95": [
+       -0.05511,
+       -0.017743
+      ],
+      "skill_ci95": [
+       -0.094403,
+       -0.030118
+      ],
+      "logloss_model": 0.995291,
+      "logloss_base": 0.94769,
+      "logloss_diff_base_minus_model": -0.047601,
+      "logloss_diff_ci95": [
+       -0.074958,
+       -0.020387
+      ]
+     },
+     "LINKUSDT": {
+      "n": 1035,
+      "days": 118,
+      "brier_model": 0.630152,
+      "brier_base": 0.590506,
+      "skill": -0.067139,
+      "diff_base_minus_model": -0.039646,
+      "diff_ci95": [
+       -0.058667,
+       -0.02011
+      ],
+      "skill_ci95": [
+       -0.100197,
+       -0.034051
+      ],
+      "logloss_model": 1.017368,
+      "logloss_base": 0.953002,
+      "logloss_diff_base_minus_model": -0.064367,
+      "logloss_diff_ci95": [
+       -0.092042,
+       -0.03582
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 1036,
+      "days": 117,
+      "brier_model": 0.610834,
+      "brier_base": 0.596001,
+      "skill": -0.024889,
+      "diff_base_minus_model": -0.014834,
+      "diff_ci95": [
+       -0.031426,
+       0.002972
+      ],
+      "skill_ci95": [
+       -0.052316,
+       0.005111
+      ],
+      "logloss_model": 0.994263,
+      "logloss_base": 0.967984,
+      "logloss_diff_base_minus_model": -0.026279,
+      "logloss_diff_ci95": [
+       -0.053501,
+       0.001173
+      ]
+     },
+     "LTCUSDT": {
+      "n": 1028,
+      "days": 114,
+      "brier_model": 0.637947,
+      "brier_base": 0.611734,
+      "skill": -0.04285,
+      "diff_base_minus_model": -0.026213,
+      "diff_ci95": [
+       -0.044304,
+       -0.008702
+      ],
+      "skill_ci95": [
+       -0.072487,
+       -0.014109
+      ],
+      "logloss_model": 1.044489,
+      "logloss_base": 0.996926,
+      "logloss_diff_base_minus_model": -0.047563,
+      "logloss_diff_ci95": [
+       -0.077888,
+       -0.018666
+      ]
+     }
+    }
+   },
+   "log": {
+    "всё": {
+     "n": 10327,
+     "days": 119,
+     "brier_model": 0.619427,
+     "brier_base": 0.5932,
+     "skill": -0.044213,
+     "diff_base_minus_model": -0.026227,
+     "diff_ci95": [
+      -0.04165,
+      -0.010863
+     ],
+     "skill_ci95": [
+      -0.070502,
+      -0.018057
+     ],
+     "logloss_model": 0.993211,
+     "logloss_base": 0.960584,
+     "logloss_diff_base_minus_model": -0.032627,
+     "logloss_diff_ci95": [
+      -0.055971,
+      -0.010577
+     ]
+    },
+    "июль–август": {
+     "n": 5583,
+     "days": 62,
+     "brier_model": 0.648192,
+     "brier_base": 0.606232,
+     "skill": -0.069216,
+     "diff_base_minus_model": -0.041961,
+     "diff_ci95": [
+      -0.070408,
+      -0.0179
+     ],
+     "skill_ci95": [
+      -0.116418,
+      -0.028659
+     ],
+     "logloss_model": 1.04243,
+     "logloss_base": 0.983777,
+     "logloss_diff_base_minus_model": -0.058653,
+     "logloss_diff_ci95": [
+      -0.102129,
+      -0.02423
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 4744,
+     "days": 57,
+     "brier_model": 0.585575,
+     "brier_base": 0.577864,
+     "skill": -0.013345,
+     "diff_base_minus_model": -0.007711,
+     "diff_ci95": [
+      -0.019167,
+      0.003362
+     ],
+     "skill_ci95": [
+      -0.034078,
+      0.005717
+     ],
+     "logloss_model": 0.935287,
+     "logloss_base": 0.933289,
+     "logloss_diff_base_minus_model": -0.001998,
+     "logloss_diff_ci95": [
+      -0.018122,
+      0.014449
+     ]
+    },
+    "UP": {
+     "n": 2391,
+     "days": 97,
+     "brier_model": 0.672868,
+     "brier_base": 0.593487,
+     "skill": -0.133755,
+     "diff_base_minus_model": -0.079382,
+     "diff_ci95": [
+      -0.129042,
+      -0.032148
+     ],
+     "skill_ci95": [
+      -0.21909,
+      -0.054275
+     ],
+     "logloss_model": 1.079417,
+     "logloss_base": 0.956475,
+     "logloss_diff_base_minus_model": -0.122942,
+     "logloss_diff_ci95": [
+      -0.1983,
+      -0.051368
+     ]
+    },
+    "UP июль–август": {
+     "n": 1360,
+     "days": 53,
+     "brier_model": 0.733584,
+     "brier_base": 0.607198,
+     "skill": -0.208147,
+     "diff_base_minus_model": -0.126386,
+     "diff_ci95": [
+      -0.197519,
+      -0.055168
+     ],
+     "skill_ci95": [
+      -0.329678,
+      -0.090922
+     ],
+     "logloss_model": 1.172276,
+     "logloss_base": 0.978526,
+     "logloss_diff_base_minus_model": -0.19375,
+     "logloss_diff_ci95": [
+      -0.308222,
+      -0.078448
+     ]
+    },
+    "UP сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.592777,
+     "brier_base": 0.5754,
+     "skill": -0.030201,
+     "diff_base_minus_model": -0.017378,
+     "diff_ci95": [
+      -0.035918,
+      0.003451
+     ],
+     "skill_ci95": [
+      -0.064428,
+      0.006097
+     ],
+     "logloss_model": 0.956926,
+     "logloss_base": 0.927388,
+     "logloss_diff_base_minus_model": -0.029538,
+     "logloss_diff_ci95": [
+      -0.053954,
+      -0.000127
+     ]
+    },
+    "DOWN": {
+     "n": 2210,
+     "days": 95,
+     "brier_model": 0.62126,
+     "brier_base": 0.612235,
+     "skill": -0.01474,
+     "diff_base_minus_model": -0.009025,
+     "diff_ci95": [
+      -0.031457,
+      0.016031
+     ],
+     "skill_ci95": [
+      -0.052191,
+      0.025057
+     ],
+     "logloss_model": 1.0045,
+     "logloss_base": 1.004117,
+     "logloss_diff_base_minus_model": -0.000384,
+     "logloss_diff_ci95": [
+      -0.029915,
+      0.030412
+     ]
+    },
+    "DOWN июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.631389,
+     "brier_base": 0.629127,
+     "skill": -0.003595,
+     "diff_base_minus_model": -0.002262,
+     "diff_ci95": [
+      -0.043097,
+      0.041178
+     ],
+     "skill_ci95": [
+      -0.069612,
+      0.064092
+     ],
+     "logloss_model": 1.032033,
+     "logloss_base": 1.040256,
+     "logloss_diff_base_minus_model": 0.008223,
+     "logloss_diff_ci95": [
+      -0.041908,
+      0.064738
+     ]
+    },
+    "DOWN сентябрь–октябрь": {
+     "n": 1122,
+     "days": 49,
+     "brier_model": 0.611438,
+     "brier_base": 0.595856,
+     "skill": -0.026151,
+     "diff_base_minus_model": -0.015582,
+     "diff_ci95": [
+      -0.039484,
+      0.009206
+     ],
+     "skill_ci95": [
+      -0.066779,
+      0.015768
+     ],
+     "logloss_model": 0.977802,
+     "logloss_base": 0.969072,
+     "logloss_diff_base_minus_model": -0.008729,
+     "logloss_diff_ci95": [
+      -0.042266,
+      0.026299
+     ]
+    },
+    "FLAT": {
+     "n": 5726,
+     "days": 115,
+     "brier_model": 0.596405,
+     "brier_base": 0.585734,
+     "skill": -0.018219,
+     "diff_base_minus_model": -0.010671,
+     "diff_ci95": [
+      -0.022398,
+      0.000682
+     ],
+     "skill_ci95": [
+      -0.038765,
+      0.001154
+     ],
+     "logloss_model": 0.952857,
+     "logloss_base": 0.945497,
+     "logloss_diff_base_minus_model": -0.007359,
+     "logloss_diff_ci95": [
+      -0.022792,
+      0.008504
+     ]
+    },
+    "FLAT июль–август": {
+     "n": 3135,
+     "days": 58,
+     "brier_model": 0.61698,
+     "brier_base": 0.597867,
+     "skill": -0.031969,
+     "diff_base_minus_model": -0.019113,
+     "diff_ci95": [
+      -0.03284,
+      -0.00389
+     ],
+     "skill_ci95": [
+      -0.054739,
+      -0.006435
+     ],
+     "logloss_model": 0.989709,
+     "logloss_base": 0.966453,
+     "logloss_diff_base_minus_model": -0.023256,
+     "logloss_diff_ci95": [
+      -0.042287,
+      -0.004088
+     ]
+    },
+    "FLAT сентябрь–октябрь": {
+     "n": 2591,
+     "days": 57,
+     "brier_model": 0.57151,
+     "brier_base": 0.571053,
+     "skill": -0.0008,
+     "diff_base_minus_model": -0.000457,
+     "diff_ci95": [
+      -0.01703,
+      0.015426
+     ],
+     "skill_ci95": [
+      -0.030924,
+      0.026192
+     ],
+     "logloss_model": 0.908267,
+     "logloss_base": 0.920142,
+     "logloss_diff_base_minus_model": 0.011875,
+     "logloss_diff_ci95": [
+      -0.010964,
+      0.036649
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 1039,
+      "days": 118,
+      "brier_model": 0.62846,
+      "brier_base": 0.613356,
+      "skill": -0.024624,
+      "diff_base_minus_model": -0.015104,
+      "diff_ci95": [
+       -0.043068,
+       0.009633
+      ],
+      "skill_ci95": [
+       -0.070833,
+       0.015975
+      ],
+      "logloss_model": 1.025876,
+      "logloss_base": 1.000184,
+      "logloss_diff_base_minus_model": -0.025692,
+      "logloss_diff_ci95": [
+       -0.070684,
+       0.016619
+      ]
+     },
+     "ETHUSDT": {
+      "n": 1036,
+      "days": 119,
+      "brier_model": 0.614414,
+      "brier_base": 0.608412,
+      "skill": -0.009865,
+      "diff_base_minus_model": -0.006002,
+      "diff_ci95": [
+       -0.032194,
+       0.021833
+      ],
+      "skill_ci95": [
+       -0.05314,
+       0.035559
+      ],
+      "logloss_model": 1.002572,
+      "logloss_base": 0.987758,
+      "logloss_diff_base_minus_model": -0.014813,
+      "logloss_diff_ci95": [
+       -0.05836,
+       0.024473
+      ]
+     },
+     "SOLUSDT": {
+      "n": 1052,
+      "days": 117,
+      "brier_model": 0.613845,
+      "brier_base": 0.60003,
+      "skill": -0.023024,
+      "diff_base_minus_model": -0.013815,
+      "diff_ci95": [
+       -0.035416,
+       0.006518
+      ],
+      "skill_ci95": [
+       -0.059163,
+       0.01073
+      ],
+      "logloss_model": 0.990237,
+      "logloss_base": 0.97651,
+      "logloss_diff_base_minus_model": -0.013727,
+      "logloss_diff_ci95": [
+       -0.051782,
+       0.021925
+      ]
+     },
+     "XRPUSDT": {
+      "n": 1050,
+      "days": 116,
+      "brier_model": 0.60535,
+      "brier_base": 0.578023,
+      "skill": -0.047278,
+      "diff_base_minus_model": -0.027328,
+      "diff_ci95": [
+       -0.052197,
+       -0.002361
+      ],
+      "skill_ci95": [
+       -0.091345,
+       -0.004012
+      ],
+      "logloss_model": 0.961262,
+      "logloss_base": 0.930155,
+      "logloss_diff_base_minus_model": -0.031107,
+      "logloss_diff_ci95": [
+       -0.067103,
+       0.006319
+      ]
+     },
+     "BNBUSDT": {
+      "n": 1025,
+      "days": 118,
+      "brier_model": 0.591118,
+      "brier_base": 0.551251,
+      "skill": -0.07232,
+      "diff_base_minus_model": -0.039867,
+      "diff_ci95": [
+       -0.066712,
+       -0.012273
+      ],
+      "skill_ci95": [
+       -0.12133,
+       -0.02213
+      ],
+      "logloss_model": 0.919,
+      "logloss_base": 0.871194,
+      "logloss_diff_base_minus_model": -0.047805,
+      "logloss_diff_ci95": [
+       -0.088693,
+       -0.008818
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 1004,
+      "days": 117,
+      "brier_model": 0.617443,
+      "brier_base": 0.597136,
+      "skill": -0.034006,
+      "diff_base_minus_model": -0.020306,
+      "diff_ci95": [
+       -0.041328,
+       -8.6e-05
+      ],
+      "skill_ci95": [
+       -0.069587,
+       -0.000139
+      ],
+      "logloss_model": 0.99366,
+      "logloss_base": 0.974052,
+      "logloss_diff_base_minus_model": -0.019608,
+      "logloss_diff_ci95": [
+       -0.051333,
+       0.010039
+      ]
+     },
+     "ADAUSDT": {
+      "n": 1022,
+      "days": 117,
+      "brier_model": 0.625776,
+      "brier_base": 0.585303,
+      "skill": -0.069148,
+      "diff_base_minus_model": -0.040473,
+      "diff_ci95": [
+       -0.06728,
+       -0.016484
+      ],
+      "skill_ci95": [
+       -0.115536,
+       -0.027955
+      ],
+      "logloss_model": 0.994376,
+      "logloss_base": 0.94769,
+      "logloss_diff_base_minus_model": -0.046686,
+      "logloss_diff_ci95": [
+       -0.090779,
+       -0.008299
+      ]
+     },
+     "LINKUSDT": {
+      "n": 1035,
+      "days": 118,
+      "brier_model": 0.625661,
+      "brier_base": 0.590506,
+      "skill": -0.059533,
+      "diff_base_minus_model": -0.035155,
+      "diff_ci95": [
+       -0.060462,
+       -0.012699
+      ],
+      "skill_ci95": [
+       -0.101357,
+       -0.021329
+      ],
+      "logloss_model": 1.001644,
+      "logloss_base": 0.953002,
+      "logloss_diff_base_minus_model": -0.048643,
+      "logloss_diff_ci95": [
+       -0.08233,
+       -0.018631
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 1036,
+      "days": 117,
+      "brier_model": 0.625653,
+      "brier_base": 0.596001,
+      "skill": -0.049751,
+      "diff_base_minus_model": -0.029652,
+      "diff_ci95": [
+       -0.049766,
+       -0.009886
+      ],
+      "skill_ci95": [
+       -0.084194,
+       -0.016571
+      ],
+      "logloss_model": 0.999736,
+      "logloss_base": 0.967984,
+      "logloss_diff_base_minus_model": -0.031752,
+      "logloss_diff_ci95": [
+       -0.061017,
+       -0.002411
+      ]
+     },
+     "LTCUSDT": {
+      "n": 1028,
+      "days": 114,
+      "brier_model": 0.646747,
+      "brier_base": 0.611734,
+      "skill": -0.057235,
+      "diff_base_minus_model": -0.035013,
+      "diff_ci95": [
+       -0.060148,
+       -0.01256
+      ],
+      "skill_ci95": [
+       -0.098308,
+       -0.02064
+      ],
+      "logloss_model": 1.043769,
+      "logloss_base": 0.996926,
+      "logloss_diff_base_minus_model": -0.046843,
+      "logloss_diff_ci95": [
+       -0.08081,
+       -0.016616
+      ]
+     }
+    }
+   }
+  },
+  "top": {
+   "knn50": {
+    "всё": {
+     "n": 2394,
+     "days": 97,
+     "brier_model": 0.258262,
+     "brier_base": 0.2465,
+     "skill": -0.047715,
+     "diff_base_minus_model": -0.011762,
+     "diff_ci95": [
+      -0.019606,
+      -0.00401
+     ],
+     "skill_ci95": [
+      -0.088064,
+      -0.015484
+     ],
+     "logloss_model": 0.431961,
+     "logloss_base": 0.413933,
+     "logloss_diff_base_minus_model": -0.018028,
+     "logloss_diff_ci95": [
+      -0.029676,
+      -0.006538
+     ]
+    },
+    "июль–август": {
+     "n": 1363,
+     "days": 53,
+     "brier_model": 0.238745,
+     "brier_base": 0.227153,
+     "skill": -0.051035,
+     "diff_base_minus_model": -0.011593,
+     "diff_ci95": [
+      -0.024339,
+      0.000545
+     ],
+     "skill_ci95": [
+      -0.129166,
+      0.002246
+     ],
+     "logloss_model": 0.40618,
+     "logloss_base": 0.391143,
+     "logloss_diff_base_minus_model": -0.015037,
+     "logloss_diff_ci95": [
+      -0.033608,
+      0.003686
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.284062,
+     "brier_base": 0.272077,
+     "skill": -0.04405,
+     "diff_base_minus_model": -0.011985,
+     "diff_ci95": [
+      -0.018857,
+      -0.003458
+     ],
+     "skill_ci95": [
+      -0.0744,
+      -0.011348
+     ],
+     "logloss_model": 0.466045,
+     "logloss_base": 0.444061,
+     "logloss_diff_base_minus_model": -0.021983,
+     "logloss_diff_ci95": [
+      -0.033695,
+      -0.008711
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 244,
+      "days": 61,
+      "brier_model": 0.259058,
+      "brier_base": 0.256364,
+      "skill": -0.010509,
+      "diff_base_minus_model": -0.002694,
+      "diff_ci95": [
+       -0.037282,
+       0.028748
+      ],
+      "skill_ci95": [
+       -0.185841,
+       0.092706
+      ],
+      "logloss_model": 0.420269,
+      "logloss_base": 0.42699,
+      "logloss_diff_base_minus_model": 0.006721,
+      "logloss_diff_ci95": [
+       -0.040268,
+       0.05159
+      ]
+     },
+     "ETHUSDT": {
+      "n": 258,
+      "days": 59,
+      "brier_model": 0.232464,
+      "brier_base": 0.223515,
+      "skill": -0.040037,
+      "diff_base_minus_model": -0.008949,
+      "diff_ci95": [
+       -0.026507,
+       0.008938
+      ],
+      "skill_ci95": [
+       -0.141743,
+       0.032624
+      ],
+      "logloss_model": 0.3882,
+      "logloss_base": 0.386329,
+      "logloss_diff_base_minus_model": -0.00187,
+      "logloss_diff_ci95": [
+       -0.027969,
+       0.024252
+      ]
+     },
+     "SOLUSDT": {
+      "n": 224,
+      "days": 54,
+      "brier_model": 0.258823,
+      "brier_base": 0.248949,
+      "skill": -0.039664,
+      "diff_base_minus_model": -0.009874,
+      "diff_ci95": [
+       -0.027724,
+       0.01019
+      ],
+      "skill_ci95": [
+       -0.120096,
+       0.041478
+      ],
+      "logloss_model": 0.431848,
+      "logloss_base": 0.417476,
+      "logloss_diff_base_minus_model": -0.014373,
+      "logloss_diff_ci95": [
+       -0.044249,
+       0.018795
+      ]
+     },
+     "XRPUSDT": {
+      "n": 244,
+      "days": 54,
+      "brier_model": 0.284888,
+      "brier_base": 0.265701,
+      "skill": -0.072211,
+      "diff_base_minus_model": -0.019186,
+      "diff_ci95": [
+       -0.032472,
+       -0.007495
+      ],
+      "skill_ci95": [
+       -0.130685,
+       -0.025956
+      ],
+      "logloss_model": 0.478264,
+      "logloss_base": 0.437341,
+      "logloss_diff_base_minus_model": -0.040923,
+      "logloss_diff_ci95": [
+       -0.076737,
+       -0.012315
+      ]
+     },
+     "BNBUSDT": {
+      "n": 254,
+      "days": 54,
+      "brier_model": 0.267504,
+      "brier_base": 0.246288,
+      "skill": -0.086142,
+      "diff_base_minus_model": -0.021216,
+      "diff_ci95": [
+       -0.033852,
+       -0.005464
+      ],
+      "skill_ci95": [
+       -0.158705,
+       -0.020847
+      ],
+      "logloss_model": 0.450759,
+      "logloss_base": 0.413475,
+      "logloss_diff_base_minus_model": -0.037284,
+      "logloss_diff_ci95": [
+       -0.063118,
+       -0.009499
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 230,
+      "days": 57,
+      "brier_model": 0.264693,
+      "brier_base": 0.260771,
+      "skill": -0.015042,
+      "diff_base_minus_model": -0.003922,
+      "diff_ci95": [
+       -0.02081,
+       0.014765
+      ],
+      "skill_ci95": [
+       -0.090986,
+       0.051724
+      ],
+      "logloss_model": 0.441765,
+      "logloss_base": 0.43125,
+      "logloss_diff_base_minus_model": -0.010515,
+      "logloss_diff_ci95": [
+       -0.042195,
+       0.021083
+      ]
+     },
+     "ADAUSDT": {
+      "n": 223,
+      "days": 51,
+      "brier_model": 0.222743,
+      "brier_base": 0.207833,
+      "skill": -0.071739,
+      "diff_base_minus_model": -0.01491,
+      "diff_ci95": [
+       -0.031882,
+       0.005927
+      ],
+      "skill_ci95": [
+       -0.191126,
+       0.02654
+      ],
+      "logloss_model": 0.391943,
+      "logloss_base": 0.367389,
+      "logloss_diff_base_minus_model": -0.024554,
+      "logloss_diff_ci95": [
+       -0.050612,
+       0.008778
+      ]
+     },
+     "LINKUSDT": {
+      "n": 258,
+      "days": 53,
+      "brier_model": 0.248635,
+      "brier_base": 0.230877,
+      "skill": -0.076917,
+      "diff_base_minus_model": -0.017758,
+      "diff_ci95": [
+       -0.041515,
+       0.008803
+      ],
+      "skill_ci95": [
+       -0.208334,
+       0.030349
+      ],
+      "logloss_model": 0.420469,
+      "logloss_base": 0.393591,
+      "logloss_diff_base_minus_model": -0.026877,
+      "logloss_diff_ci95": [
+       -0.062313,
+       0.009968
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 221,
+      "days": 48,
+      "brier_model": 0.315788,
+      "brier_base": 0.304747,
+      "skill": -0.036231,
+      "diff_base_minus_model": -0.011041,
+      "diff_ci95": [
+       -0.033278,
+       0.015493
+      ],
+      "skill_ci95": [
+       -0.137279,
+       0.039699
+      ],
+      "logloss_model": 0.503232,
+      "logloss_base": 0.484094,
+      "logloss_diff_base_minus_model": -0.019139,
+      "logloss_diff_ci95": [
+       -0.057049,
+       0.021221
+      ]
+     },
+     "LTCUSDT": {
+      "n": 238,
+      "days": 55,
+      "brier_model": 0.231804,
+      "brier_base": 0.224828,
+      "skill": -0.031027,
+      "diff_base_minus_model": -0.006976,
+      "diff_ci95": [
+       -0.020296,
+       0.006167
+      ],
+      "skill_ci95": [
+       -0.095667,
+       0.027951
+      ],
+      "logloss_model": 0.398264,
+      "logloss_base": 0.387403,
+      "logloss_diff_base_minus_model": -0.010861,
+      "logloss_diff_ci95": [
+       -0.038248,
+       0.01381
+      ]
+     }
+    }
+   },
+   "log": {
+    "всё": {
+     "n": 2394,
+     "days": 97,
+     "brier_model": 0.293818,
+     "brier_base": 0.2465,
+     "skill": -0.19196,
+     "diff_base_minus_model": -0.047318,
+     "diff_ci95": [
+      -0.103756,
+      -0.000563
+     ],
+     "skill_ci95": [
+      -0.45223,
+      -0.002211
+     ],
+     "logloss_model": 0.463668,
+     "logloss_base": 0.413933,
+     "logloss_diff_base_minus_model": -0.049735,
+     "logloss_diff_ci95": [
+      -0.115942,
+      0.004163
+     ]
+    },
+    "июль–август": {
+     "n": 1363,
+     "days": 53,
+     "brier_model": 0.313118,
+     "brier_base": 0.227153,
+     "skill": -0.378447,
+     "diff_base_minus_model": -0.085965,
+     "diff_ci95": [
+      -0.169556,
+      -0.007403
+     ],
+     "skill_ci95": [
+      -0.889177,
+      -0.027958
+     ],
+     "logloss_model": 0.483032,
+     "logloss_base": 0.391143,
+     "logloss_diff_base_minus_model": -0.091889,
+     "logloss_diff_ci95": [
+      -0.188803,
+      -0.00074
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.268304,
+     "brier_base": 0.272077,
+     "skill": 0.013871,
+     "diff_base_minus_model": 0.003774,
+     "diff_ci95": [
+      -0.005162,
+      0.014748
+     ],
+     "skill_ci95": [
+      -0.019513,
+      0.049383
+     ],
+     "logloss_model": 0.438068,
+     "logloss_base": 0.444061,
+     "logloss_diff_base_minus_model": 0.005994,
+     "logloss_diff_ci95": [
+      -0.009864,
+      0.024956
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 244,
+      "days": 61,
+      "brier_model": 0.322927,
+      "brier_base": 0.256364,
+      "skill": -0.259643,
+      "diff_base_minus_model": -0.066563,
+      "diff_ci95": [
+       -0.162999,
+       0.013521
+      ],
+      "skill_ci95": [
+       -0.763248,
+       0.048195
+      ],
+      "logloss_model": 0.488175,
+      "logloss_base": 0.42699,
+      "logloss_diff_base_minus_model": -0.061185,
+      "logloss_diff_ci95": [
+       -0.174076,
+       0.032169
+      ]
+     },
+     "ETHUSDT": {
+      "n": 258,
+      "days": 59,
+      "brier_model": 0.293676,
+      "brier_base": 0.223515,
+      "skill": -0.313901,
+      "diff_base_minus_model": -0.070161,
+      "diff_ci95": [
+       -0.170118,
+       0.013191
+      ],
+      "skill_ci95": [
+       -0.856651,
+       0.054315
+      ],
+      "logloss_model": 0.452443,
+      "logloss_base": 0.386329,
+      "logloss_diff_base_minus_model": -0.066113,
+      "logloss_diff_ci95": [
+       -0.183603,
+       0.032132
+      ]
+     },
+     "SOLUSDT": {
+      "n": 224,
+      "days": 54,
+      "brier_model": 0.312665,
+      "brier_base": 0.248949,
+      "skill": -0.255941,
+      "diff_base_minus_model": -0.063716,
+      "diff_ci95": [
+       -0.153264,
+       0.005075
+      ],
+      "skill_ci95": [
+       -0.732425,
+       0.015556
+      ],
+      "logloss_model": 0.485218,
+      "logloss_base": 0.417476,
+      "logloss_diff_base_minus_model": -0.067742,
+      "logloss_diff_ci95": [
+       -0.170388,
+       0.012938
+      ]
+     },
+     "XRPUSDT": {
+      "n": 244,
+      "days": 54,
+      "brier_model": 0.309433,
+      "brier_base": 0.265701,
+      "skill": -0.164589,
+      "diff_base_minus_model": -0.043732,
+      "diff_ci95": [
+       -0.088284,
+       -0.006827
+      ],
+      "skill_ci95": [
+       -0.385657,
+       -0.022376
+      ],
+      "logloss_model": 0.493976,
+      "logloss_base": 0.437341,
+      "logloss_diff_base_minus_model": -0.056636,
+      "logloss_diff_ci95": [
+       -0.109885,
+       -0.008755
+      ]
+     },
+     "BNBUSDT": {
+      "n": 254,
+      "days": 54,
+      "brier_model": 0.296285,
+      "brier_base": 0.246288,
+      "skill": -0.203001,
+      "diff_base_minus_model": -0.049997,
+      "diff_ci95": [
+       -0.101425,
+       -0.004423
+      ],
+      "skill_ci95": [
+       -0.532134,
+       -0.015297
+      ],
+      "logloss_model": 0.468745,
+      "logloss_base": 0.413475,
+      "logloss_diff_base_minus_model": -0.05527,
+      "logloss_diff_ci95": [
+       -0.115871,
+       0.001049
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 230,
+      "days": 57,
+      "brier_model": 0.294322,
+      "brier_base": 0.260771,
+      "skill": -0.128661,
+      "diff_base_minus_model": -0.033551,
+      "diff_ci95": [
+       -0.079253,
+       0.007907
+      ],
+      "skill_ci95": [
+       -0.355753,
+       0.027408
+      ],
+      "logloss_model": 0.467757,
+      "logloss_base": 0.43125,
+      "logloss_diff_base_minus_model": -0.036507,
+      "logloss_diff_ci95": [
+       -0.093771,
+       0.015704
+      ]
+     },
+     "ADAUSDT": {
+      "n": 223,
+      "days": 51,
+      "brier_model": 0.251921,
+      "brier_base": 0.207833,
+      "skill": -0.212131,
+      "diff_base_minus_model": -0.044088,
+      "diff_ci95": [
+       -0.11905,
+       0.007184
+      ],
+      "skill_ci95": [
+       -0.695185,
+       0.028907
+      ],
+      "logloss_model": 0.41657,
+      "logloss_base": 0.367389,
+      "logloss_diff_base_minus_model": -0.049181,
+      "logloss_diff_ci95": [
+       -0.135861,
+       0.014597
+      ]
+     },
+     "LINKUSDT": {
+      "n": 258,
+      "days": 53,
+      "brier_model": 0.254078,
+      "brier_base": 0.230877,
+      "skill": -0.100489,
+      "diff_base_minus_model": -0.023201,
+      "diff_ci95": [
+       -0.074489,
+       0.024903
+      ],
+      "skill_ci95": [
+       -0.381894,
+       0.082769
+      ],
+      "logloss_model": 0.411113,
+      "logloss_base": 0.393591,
+      "logloss_diff_base_minus_model": -0.017521,
+      "logloss_diff_ci95": [
+       -0.07921,
+       0.041607
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 221,
+      "days": 48,
+      "brier_model": 0.350963,
+      "brier_base": 0.304747,
+      "skill": -0.151654,
+      "diff_base_minus_model": -0.046216,
+      "diff_ci95": [
+       -0.113198,
+       0.010597
+      ],
+      "skill_ci95": [
+       -0.452427,
+       0.031673
+      ],
+      "logloss_model": 0.535801,
+      "logloss_base": 0.484094,
+      "logloss_diff_base_minus_model": -0.051707,
+      "logloss_diff_ci95": [
+       -0.132706,
+       0.018199
+      ]
+     },
+     "LTCUSDT": {
+      "n": 238,
+      "days": 55,
+      "brier_model": 0.256538,
+      "brier_base": 0.224828,
+      "skill": -0.141037,
+      "diff_base_minus_model": -0.031709,
+      "diff_ci95": [
+       -0.068495,
+       -0.003763
+      ],
+      "skill_ci95": [
+       -0.359846,
+       -0.013164
+      ],
+      "logloss_model": 0.424105,
+      "logloss_base": 0.387403,
+      "logloss_diff_base_minus_model": -0.036702,
+      "logloss_diff_ci95": [
+       -0.086229,
+       0.001721
+      ]
+     }
+    }
+   }
+  },
+  "bottom": {
+   "knn50": {
+    "всё": {
+     "n": 2218,
+     "days": 95,
+     "brier_model": 0.350542,
+     "brier_base": 0.344343,
+     "skill": -0.018004,
+     "diff_base_minus_model": -0.006199,
+     "diff_ci95": [
+      -0.015148,
+      0.002741
+     ],
+     "skill_ci95": [
+      -0.044431,
+      0.00809
+     ],
+     "logloss_model": 0.545779,
+     "logloss_base": 0.530362,
+     "logloss_diff_base_minus_model": -0.015418,
+     "logloss_diff_ci95": [
+      -0.032594,
+      -6.7e-05
+     ]
+    },
+    "июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.370088,
+     "brier_base": 0.369475,
+     "skill": -0.001659,
+     "diff_base_minus_model": -0.000613,
+     "diff_ci95": [
+      -0.011082,
+      0.011274
+     ],
+     "skill_ci95": [
+      -0.0323,
+      0.027577
+     ],
+     "logloss_model": 0.571055,
+     "logloss_base": 0.560743,
+     "logloss_diff_base_minus_model": -0.010312,
+     "logloss_diff_ci95": [
+      -0.030641,
+      0.01005
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1130,
+     "days": 49,
+     "brier_model": 0.331724,
+     "brier_base": 0.320145,
+     "skill": -0.036167,
+     "diff_base_minus_model": -0.011579,
+     "diff_ci95": [
+      -0.026922,
+      0.003212
+     ],
+     "skill_ci95": [
+      -0.079392,
+      0.009389
+     ],
+     "logloss_model": 0.521443,
+     "logloss_base": 0.501109,
+     "logloss_diff_base_minus_model": -0.020334,
+     "logloss_diff_ci95": [
+      -0.0509,
+      0.005053
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 217,
+      "days": 56,
+      "brier_model": 0.369189,
+      "brier_base": 0.356309,
+      "skill": -0.036146,
+      "diff_base_minus_model": -0.012879,
+      "diff_ci95": [
+       -0.030404,
+       0.003449
+      ],
+      "skill_ci95": [
+       -0.08588,
+       0.00926
+      ],
+      "logloss_model": 0.572442,
+      "logloss_base": 0.545098,
+      "logloss_diff_base_minus_model": -0.027344,
+      "logloss_diff_ci95": [
+       -0.060098,
+       0.001377
+      ]
+     },
+     "ETHUSDT": {
+      "n": 214,
+      "days": 57,
+      "brier_model": 0.402007,
+      "brier_base": 0.399147,
+      "skill": -0.007167,
+      "diff_base_minus_model": -0.002861,
+      "diff_ci95": [
+       -0.027845,
+       0.021306
+      ],
+      "skill_ci95": [
+       -0.064834,
+       0.057902
+      ],
+      "logloss_model": 0.612985,
+      "logloss_base": 0.594382,
+      "logloss_diff_base_minus_model": -0.018603,
+      "logloss_diff_ci95": [
+       -0.070647,
+       0.026382
+      ]
+     },
+     "SOLUSDT": {
+      "n": 229,
+      "days": 57,
+      "brier_model": 0.303813,
+      "brier_base": 0.300573,
+      "skill": -0.010779,
+      "diff_base_minus_model": -0.00324,
+      "diff_ci95": [
+       -0.021885,
+       0.015512
+      ],
+      "skill_ci95": [
+       -0.068572,
+       0.058688
+      ],
+      "logloss_model": 0.487638,
+      "logloss_base": 0.478155,
+      "logloss_diff_base_minus_model": -0.009483,
+      "logloss_diff_ci95": [
+       -0.048969,
+       0.027976
+      ]
+     },
+     "XRPUSDT": {
+      "n": 238,
+      "days": 57,
+      "brier_model": 0.324828,
+      "brier_base": 0.312787,
+      "skill": -0.038496,
+      "diff_base_minus_model": -0.012041,
+      "diff_ci95": [
+       -0.025811,
+       0.002739
+      ],
+      "skill_ci95": [
+       -0.091003,
+       0.007921
+      ],
+      "logloss_model": 0.50828,
+      "logloss_base": 0.492456,
+      "logloss_diff_base_minus_model": -0.015824,
+      "logloss_diff_ci95": [
+       -0.0381,
+       0.007225
+      ]
+     },
+     "BNBUSDT": {
+      "n": 201,
+      "days": 57,
+      "brier_model": 0.44761,
+      "brier_base": 0.448199,
+      "skill": 0.001312,
+      "diff_base_minus_model": 0.000588,
+      "diff_ci95": [
+       -0.029554,
+       0.028134
+      ],
+      "skill_ci95": [
+       -0.065595,
+       0.060118
+      ],
+      "logloss_model": 0.66659,
+      "logloss_base": 0.653704,
+      "logloss_diff_base_minus_model": -0.012886,
+      "logloss_diff_ci95": [
+       -0.075921,
+       0.035075
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 188,
+      "days": 53,
+      "brier_model": 0.405502,
+      "brier_base": 0.418221,
+      "skill": 0.030411,
+      "diff_base_minus_model": 0.012719,
+      "diff_ci95": [
+       -0.012175,
+       0.040032
+      ],
+      "skill_ci95": [
+       -0.031475,
+       0.094987
+      ],
+      "logloss_model": 0.601611,
+      "logloss_base": 0.617054,
+      "logloss_diff_base_minus_model": 0.015443,
+      "logloss_diff_ci95": [
+       -0.024961,
+       0.057195
+      ]
+     },
+     "ADAUSDT": {
+      "n": 238,
+      "days": 62,
+      "brier_model": 0.297403,
+      "brier_base": 0.299395,
+      "skill": 0.006656,
+      "diff_base_minus_model": 0.001993,
+      "diff_ci95": [
+       -0.017871,
+       0.025092
+      ],
+      "skill_ci95": [
+       -0.066084,
+       0.073227
+      ],
+      "logloss_model": 0.477202,
+      "logloss_base": 0.475224,
+      "logloss_diff_base_minus_model": -0.001978,
+      "logloss_diff_ci95": [
+       -0.036801,
+       0.033688
+      ]
+     },
+     "LINKUSDT": {
+      "n": 227,
+      "days": 58,
+      "brier_model": 0.378887,
+      "brier_base": 0.33914,
+      "skill": -0.1172,
+      "diff_base_minus_model": -0.039747,
+      "diff_ci95": [
+       -0.061727,
+       -0.016576
+      ],
+      "skill_ci95": [
+       -0.185163,
+       -0.044711
+      ],
+      "logloss_model": 0.595543,
+      "logloss_base": 0.525291,
+      "logloss_diff_base_minus_model": -0.070252,
+      "logloss_diff_ci95": [
+       -0.114114,
+       -0.026811
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 215,
+      "days": 56,
+      "brier_model": 0.362485,
+      "brier_base": 0.362872,
+      "skill": 0.001069,
+      "diff_base_minus_model": 0.000388,
+      "diff_ci95": [
+       -0.023594,
+       0.025377
+      ],
+      "skill_ci95": [
+       -0.074683,
+       0.063994
+      ],
+      "logloss_model": 0.554686,
+      "logloss_base": 0.55493,
+      "logloss_diff_base_minus_model": 0.000244,
+      "logloss_diff_ci95": [
+       -0.036411,
+       0.03672
+      ]
+     },
+     "LTCUSDT": {
+      "n": 251,
+      "days": 53,
+      "brier_model": 0.253185,
+      "brier_base": 0.250077,
+      "skill": -0.012429,
+      "diff_base_minus_model": -0.003108,
+      "diff_ci95": [
+       -0.016568,
+       0.01146
+      ],
+      "skill_ci95": [
+       -0.067217,
+       0.043593
+      ],
+      "logloss_model": 0.42786,
+      "logloss_base": 0.418729,
+      "logloss_diff_base_minus_model": -0.009132,
+      "logloss_diff_ci95": [
+       -0.037686,
+       0.018055
+      ]
+     }
+    }
+   },
+   "log": {
+    "всё": {
+     "n": 2218,
+     "days": 95,
+     "brier_model": 0.336529,
+     "brier_base": 0.344343,
+     "skill": 0.022694,
+     "diff_base_minus_model": 0.007814,
+     "diff_ci95": [
+      -0.001692,
+      0.018168
+     ],
+     "skill_ci95": [
+      -0.005013,
+      0.049717
+     ],
+     "logloss_model": 0.519602,
+     "logloss_base": 0.530362,
+     "logloss_diff_base_minus_model": 0.010759,
+     "logloss_diff_ci95": [
+      -0.004453,
+      0.026301
+     ]
+    },
+    "июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.365127,
+     "brier_base": 0.369475,
+     "skill": 0.011766,
+     "diff_base_minus_model": 0.004347,
+     "diff_ci95": [
+      -0.007643,
+      0.017646
+     ],
+     "skill_ci95": [
+      -0.021633,
+      0.041987
+     ],
+     "logloss_model": 0.557275,
+     "logloss_base": 0.560743,
+     "logloss_diff_base_minus_model": 0.003468,
+     "logloss_diff_ci95": [
+      -0.017951,
+      0.024239
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1130,
+     "days": 49,
+     "brier_model": 0.308993,
+     "brier_base": 0.320145,
+     "skill": 0.034836,
+     "diff_base_minus_model": 0.011152,
+     "diff_ci95": [
+      -0.003769,
+      0.0276
+     ],
+     "skill_ci95": [
+      -0.011796,
+      0.081602
+     ],
+     "logloss_model": 0.48333,
+     "logloss_base": 0.501109,
+     "logloss_diff_base_minus_model": 0.017779,
+     "logloss_diff_ci95": [
+      -0.004745,
+      0.041208
+     ]
+    },
+    "монеты": {
+     "BTCUSDT": {
+      "n": 217,
+      "days": 56,
+      "brier_model": 0.36251,
+      "brier_base": 0.356309,
+      "skill": -0.017403,
+      "diff_base_minus_model": -0.006201,
+      "diff_ci95": [
+       -0.024733,
+       0.012857
+      ],
+      "skill_ci95": [
+       -0.065308,
+       0.037191
+      ],
+      "logloss_model": 0.560103,
+      "logloss_base": 0.545098,
+      "logloss_diff_base_minus_model": -0.015005,
+      "logloss_diff_ci95": [
+       -0.047478,
+       0.01755
+      ]
+     },
+     "ETHUSDT": {
+      "n": 214,
+      "days": 57,
+      "brier_model": 0.385046,
+      "brier_base": 0.399147,
+      "skill": 0.035328,
+      "diff_base_minus_model": 0.014101,
+      "diff_ci95": [
+       -0.005794,
+       0.038887
+      ],
+      "skill_ci95": [
+       -0.015757,
+       0.092789
+      ],
+      "logloss_model": 0.575101,
+      "logloss_base": 0.594382,
+      "logloss_diff_base_minus_model": 0.019281,
+      "logloss_diff_ci95": [
+       -0.011289,
+       0.054974
+      ]
+     },
+     "SOLUSDT": {
+      "n": 229,
+      "days": 57,
+      "brier_model": 0.286643,
+      "brier_base": 0.300573,
+      "skill": 0.046344,
+      "diff_base_minus_model": 0.01393,
+      "diff_ci95": [
+       -0.005515,
+       0.03582
+      ],
+      "skill_ci95": [
+       -0.017806,
+       0.115519
+      ],
+      "logloss_model": 0.457642,
+      "logloss_base": 0.478155,
+      "logloss_diff_base_minus_model": 0.020513,
+      "logloss_diff_ci95": [
+       -0.010154,
+       0.052408
+      ]
+     },
+     "XRPUSDT": {
+      "n": 238,
+      "days": 57,
+      "brier_model": 0.305322,
+      "brier_base": 0.312787,
+      "skill": 0.023868,
+      "diff_base_minus_model": 0.007465,
+      "diff_ci95": [
+       -0.006202,
+       0.021884
+      ],
+      "skill_ci95": [
+       -0.021264,
+       0.06483
+      ],
+      "logloss_model": 0.478016,
+      "logloss_base": 0.492456,
+      "logloss_diff_base_minus_model": 0.01444,
+      "logloss_diff_ci95": [
+       -0.006317,
+       0.036368
+      ]
+     },
+     "BNBUSDT": {
+      "n": 201,
+      "days": 57,
+      "brier_model": 0.445122,
+      "brier_base": 0.448199,
+      "skill": 0.006865,
+      "diff_base_minus_model": 0.003077,
+      "diff_ci95": [
+       -0.023334,
+       0.033661
+      ],
+      "skill_ci95": [
+       -0.051988,
+       0.071692
+      ],
+      "logloss_model": 0.653893,
+      "logloss_base": 0.653704,
+      "logloss_diff_base_minus_model": -0.000189,
+      "logloss_diff_ci95": [
+       -0.039608,
+       0.042811
+      ]
+     },
+     "DOGEUSDT": {
+      "n": 188,
+      "days": 53,
+      "brier_model": 0.396243,
+      "brier_base": 0.418221,
+      "skill": 0.05255,
+      "diff_base_minus_model": 0.021978,
+      "diff_ci95": [
+       0.001986,
+       0.042203
+      ],
+      "skill_ci95": [
+       0.004382,
+       0.105884
+      ],
+      "logloss_model": 0.589277,
+      "logloss_base": 0.617054,
+      "logloss_diff_base_minus_model": 0.027777,
+      "logloss_diff_ci95": [
+       -0.005318,
+       0.058794
+      ]
+     },
+     "ADAUSDT": {
+      "n": 238,
+      "days": 62,
+      "brier_model": 0.279502,
+      "brier_base": 0.299395,
+      "skill": 0.066445,
+      "diff_base_minus_model": 0.019893,
+      "diff_ci95": [
+       0.002306,
+       0.039441
+      ],
+      "skill_ci95": [
+       0.008566,
+       0.119562
+      ],
+      "logloss_model": 0.445899,
+      "logloss_base": 0.475224,
+      "logloss_diff_base_minus_model": 0.029326,
+      "logloss_diff_ci95": [
+       0.003191,
+       0.057906
+      ]
+     },
+     "LINKUSDT": {
+      "n": 227,
+      "days": 58,
+      "brier_model": 0.347721,
+      "brier_base": 0.33914,
+      "skill": -0.025303,
+      "diff_base_minus_model": -0.008581,
+      "diff_ci95": [
+       -0.04119,
+       0.023381
+      ],
+      "skill_ci95": [
+       -0.135389,
+       0.063206
+      ],
+      "logloss_model": 0.533762,
+      "logloss_base": 0.525291,
+      "logloss_diff_base_minus_model": -0.008471,
+      "logloss_diff_ci95": [
+       -0.053002,
+       0.035005
+      ]
+     },
+     "AVAXUSDT": {
+      "n": 215,
+      "days": 56,
+      "brier_model": 0.352412,
+      "brier_base": 0.362872,
+      "skill": 0.028826,
+      "diff_base_minus_model": 0.01046,
+      "diff_ci95": [
+       -0.008903,
+       0.033258
+      ],
+      "skill_ci95": [
+       -0.028301,
+       0.078809
+      ],
+      "logloss_model": 0.536386,
+      "logloss_base": 0.55493,
+      "logloss_diff_base_minus_model": 0.018544,
+      "logloss_diff_ci95": [
+       -0.010776,
+       0.05159
+      ]
+     },
+     "LTCUSDT": {
+      "n": 251,
+      "days": 53,
+      "brier_model": 0.246461,
+      "brier_base": 0.250077,
+      "skill": 0.014459,
+      "diff_base_minus_model": 0.003616,
+      "diff_ci95": [
+       -0.014239,
+       0.024196
+      ],
+      "skill_ci95": [
+       -0.058991,
+       0.090658
+      ],
+      "logloss_model": 0.416208,
+      "logloss_base": 0.418729,
+      "logloss_diff_base_minus_model": 0.00252,
+      "logloss_diff_ci95": [
+       -0.030552,
+       0.035953
+      ]
+     }
+    }
+   }
+  }
+ },
+ "sensitivity_K": {
+  "first": {
+   "knn20": {
+    "всё": {
+     "n": 10327,
+     "days": 119,
+     "brier_model": 0.641972,
+     "brier_base": 0.5932,
+     "skill": -0.082218,
+     "diff_base_minus_model": -0.048772,
+     "diff_ci95": [
+      -0.057241,
+      -0.040074
+     ],
+     "skill_ci95": [
+      -0.097764,
+      -0.066703
+     ],
+     "logloss_model": 1.037003,
+     "logloss_base": 0.960584,
+     "logloss_diff_base_minus_model": -0.076419,
+     "logloss_diff_ci95": [
+      -0.089497,
+      -0.063459
+     ]
+    },
+    "июль–август": {
+     "n": 5583,
+     "days": 62,
+     "brier_model": 0.651409,
+     "brier_base": 0.606232,
+     "skill": -0.074521,
+     "diff_base_minus_model": -0.045177,
+     "diff_ci95": [
+      -0.057141,
+      -0.032959
+     ],
+     "skill_ci95": [
+      -0.096178,
+      -0.054493
+     ],
+     "logloss_model": 1.055213,
+     "logloss_base": 0.983777,
+     "logloss_diff_base_minus_model": -0.071437,
+     "logloss_diff_ci95": [
+      -0.088949,
+      -0.05397
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 4744,
+     "days": 57,
+     "brier_model": 0.630866,
+     "brier_base": 0.577864,
+     "skill": -0.091721,
+     "diff_base_minus_model": -0.053002,
+     "diff_ci95": [
+      -0.065731,
+      -0.03929
+     ],
+     "skill_ci95": [
+      -0.115348,
+      -0.065923
+     ],
+     "logloss_model": 1.015571,
+     "logloss_base": 0.933289,
+     "logloss_diff_base_minus_model": -0.082282,
+     "logloss_diff_ci95": [
+      -0.10376,
+      -0.058866
+     ]
+    }
+   },
+   "knn100": {
+    "всё": {
+     "n": 10327,
+     "days": 119,
+     "brier_model": 0.607539,
+     "brier_base": 0.5932,
+     "skill": -0.024173,
+     "diff_base_minus_model": -0.014339,
+     "diff_ci95": [
+      -0.020406,
+      -0.007638
+     ],
+     "skill_ci95": [
+      -0.034689,
+      -0.012896
+     ],
+     "logloss_model": 0.978216,
+     "logloss_base": 0.960584,
+     "logloss_diff_base_minus_model": -0.017632,
+     "logloss_diff_ci95": [
+      -0.027369,
+      -0.006903
+     ]
+    },
+    "июль–август": {
+     "n": 5583,
+     "days": 62,
+     "brier_model": 0.617497,
+     "brier_base": 0.606232,
+     "skill": -0.018583,
+     "diff_base_minus_model": -0.011265,
+     "diff_ci95": [
+      -0.020036,
+      -0.002596
+     ],
+     "skill_ci95": [
+      -0.033223,
+      -0.004223
+     ],
+     "logloss_model": 1.000157,
+     "logloss_base": 0.983777,
+     "logloss_diff_base_minus_model": -0.016381,
+     "logloss_diff_ci95": [
+      -0.030552,
+      -0.001799
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 4744,
+     "days": 57,
+     "brier_model": 0.59582,
+     "brier_base": 0.577864,
+     "skill": -0.031074,
+     "diff_base_minus_model": -0.017957,
+     "diff_ci95": [
+      -0.027738,
+      -0.008521
+     ],
+     "skill_ci95": [
+      -0.048443,
+      -0.014431
+     ],
+     "logloss_model": 0.952395,
+     "logloss_base": 0.933289,
+     "logloss_diff_base_minus_model": -0.019106,
+     "logloss_diff_ci95": [
+      -0.034204,
+      -0.003885
+     ]
+    }
+   }
+  },
+  "top": {
+   "knn20": {
+    "всё": {
+     "n": 2394,
+     "days": 97,
+     "brier_model": 0.277862,
+     "brier_base": 0.2465,
+     "skill": -0.127231,
+     "diff_base_minus_model": -0.031362,
+     "diff_ci95": [
+      -0.042704,
+      -0.0198
+     ],
+     "skill_ci95": [
+      -0.194661,
+      -0.070451
+     ],
+     "logloss_model": 0.456699,
+     "logloss_base": 0.413933,
+     "logloss_diff_base_minus_model": -0.042766,
+     "logloss_diff_ci95": [
+      -0.057582,
+      -0.02835
+     ]
+    },
+    "июль–август": {
+     "n": 1363,
+     "days": 53,
+     "brier_model": 0.265124,
+     "brier_base": 0.227153,
+     "skill": -0.167161,
+     "diff_base_minus_model": -0.037971,
+     "diff_ci95": [
+      -0.057433,
+      -0.021543
+     ],
+     "skill_ci95": [
+      -0.299352,
+      -0.079334
+     ],
+     "logloss_model": 0.440299,
+     "logloss_base": 0.391143,
+     "logloss_diff_base_minus_model": -0.049156,
+     "logloss_diff_ci95": [
+      -0.073289,
+      -0.027547
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.294703,
+     "brier_base": 0.272077,
+     "skill": -0.083159,
+     "diff_base_minus_model": -0.022626,
+     "diff_ci95": [
+      -0.032345,
+      -0.010669
+     ],
+     "skill_ci95": [
+      -0.133517,
+      -0.03584
+     ],
+     "logloss_model": 0.478379,
+     "logloss_base": 0.444061,
+     "logloss_diff_base_minus_model": -0.034317,
+     "logloss_diff_ci95": [
+      -0.049417,
+      -0.018254
+     ]
+    }
+   },
+   "knn100": {
+    "всё": {
+     "n": 2394,
+     "days": 97,
+     "brier_model": 0.252096,
+     "brier_base": 0.2465,
+     "skill": -0.022702,
+     "diff_base_minus_model": -0.005596,
+     "diff_ci95": [
+      -0.011574,
+      0.000207
+     ],
+     "skill_ci95": [
+      -0.05099,
+      0.000827
+     ],
+     "logloss_model": 0.422344,
+     "logloss_base": 0.413933,
+     "logloss_diff_base_minus_model": -0.008411,
+     "logloss_diff_ci95": [
+      -0.017455,
+      0.000481
+     ]
+    },
+    "июль–август": {
+     "n": 1363,
+     "days": 53,
+     "brier_model": 0.232287,
+     "brier_base": 0.227153,
+     "skill": -0.022602,
+     "diff_base_minus_model": -0.005134,
+     "diff_ci95": [
+      -0.015002,
+      0.003606
+     ],
+     "skill_ci95": [
+      -0.078827,
+      0.013556
+     ],
+     "logloss_model": 0.396165,
+     "logloss_base": 0.391143,
+     "logloss_diff_base_minus_model": -0.005022,
+     "logloss_diff_ci95": [
+      -0.019209,
+      0.008112
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1031,
+     "days": 44,
+     "brier_model": 0.278284,
+     "brier_base": 0.272077,
+     "skill": -0.022813,
+     "diff_base_minus_model": -0.006207,
+     "diff_ci95": [
+      -0.011879,
+      0.001551
+     ],
+     "skill_ci95": [
+      -0.049384,
+      0.005336
+     ],
+     "logloss_model": 0.456953,
+     "logloss_base": 0.444061,
+     "logloss_diff_base_minus_model": -0.012892,
+     "logloss_diff_ci95": [
+      -0.023722,
+      -0.000122
+     ]
+    }
+   }
+  },
+  "bottom": {
+   "knn20": {
+    "всё": {
+     "n": 2218,
+     "days": 95,
+     "brier_model": 0.354815,
+     "brier_base": 0.344343,
+     "skill": -0.030411,
+     "diff_base_minus_model": -0.010472,
+     "diff_ci95": [
+      -0.022434,
+      0.001631
+     ],
+     "skill_ci95": [
+      -0.070457,
+      0.00464
+     ],
+     "logloss_model": 0.552203,
+     "logloss_base": 0.530362,
+     "logloss_diff_base_minus_model": -0.021841,
+     "logloss_diff_ci95": [
+      -0.038561,
+      -0.005038
+     ]
+    },
+    "июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.371943,
+     "brier_base": 0.369475,
+     "skill": -0.006679,
+     "diff_base_minus_model": -0.002468,
+     "diff_ci95": [
+      -0.017928,
+      0.017089
+     ],
+     "skill_ci95": [
+      -0.057055,
+      0.03849
+     ],
+     "logloss_model": 0.575965,
+     "logloss_base": 0.560743,
+     "logloss_diff_base_minus_model": -0.015222,
+     "logloss_diff_ci95": [
+      -0.040237,
+      0.011731
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1130,
+     "days": 49,
+     "brier_model": 0.338324,
+     "brier_base": 0.320145,
+     "skill": -0.056783,
+     "diff_base_minus_model": -0.018179,
+     "diff_ci95": [
+      -0.034074,
+      -0.001674
+     ],
+     "skill_ci95": [
+      -0.119415,
+      -0.004473
+     ],
+     "logloss_model": 0.529324,
+     "logloss_base": 0.501109,
+     "logloss_diff_base_minus_model": -0.028215,
+     "logloss_diff_ci95": [
+      -0.051763,
+      -0.004688
+     ]
+    }
+   },
+   "knn100": {
+    "всё": {
+     "n": 2218,
+     "days": 95,
+     "brier_model": 0.34751,
+     "brier_base": 0.344343,
+     "skill": -0.009197,
+     "diff_base_minus_model": -0.003167,
+     "diff_ci95": [
+      -0.012222,
+      0.005226
+     ],
+     "skill_ci95": [
+      -0.034764,
+      0.015027
+     ],
+     "logloss_model": 0.540173,
+     "logloss_base": 0.530362,
+     "logloss_diff_base_minus_model": -0.009811,
+     "logloss_diff_ci95": [
+      -0.028035,
+      0.00568
+     ]
+    },
+    "июль–август": {
+     "n": 1088,
+     "days": 46,
+     "brier_model": 0.367413,
+     "brier_base": 0.369475,
+     "skill": 0.00558,
+     "diff_base_minus_model": 0.002062,
+     "diff_ci95": [
+      -0.006493,
+      0.011014
+     ],
+     "skill_ci95": [
+      -0.017829,
+      0.027943
+     ],
+     "logloss_model": 0.562671,
+     "logloss_base": 0.560743,
+     "logloss_diff_base_minus_model": -0.001928,
+     "logloss_diff_ci95": [
+      -0.018292,
+      0.013766
+     ]
+    },
+    "сентябрь–октябрь": {
+     "n": 1130,
+     "days": 49,
+     "brier_model": 0.328346,
+     "brier_base": 0.320145,
+     "skill": -0.025616,
+     "diff_base_minus_model": -0.008201,
+     "diff_ci95": [
+      -0.025904,
+      0.005679
+     ],
+     "skill_ci95": [
+      -0.07101,
+      0.019599
+     ],
+     "logloss_model": 0.518511,
+     "logloss_base": 0.501109,
+     "logloss_diff_base_minus_model": -0.017402,
+     "logloss_diff_ci95": [
+      -0.053575,
+      0.009207
+     ]
+    }
+   }
+  }
+ },
+ "today": {
+  "BTCUSDT": {
+   "bar_utc": "2026-10-28 14:00:00+00:00",
+   "state": "FLAT",
+   "describe": "OI ↑ 6ч; толпа L/S ↓ 24ч; топы L/S ↓ 24ч",
+   "close": 80572.1,
+   "first": {
+    "pool": 15696,
+    "knn50": {
+     "up": 0.377358,
+     "down": 0.54717,
+     "none": 0.075472
+    },
+    "logistic": {
+     "up": 0.457137,
+     "down": 0.444682,
+     "none": 0.098181
+    },
+    "base": {
+     "up": 0.429964,
+     "down": 0.478948,
+     "none": 0.091089
+    },
+    "analogs10": [
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-22 14:00:00+00:00",
+      "dist": 1.418536,
+      "labels6": [
+       "топы L/S ↓ 24ч",
+       "фандинг по OI высоко",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 1,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -5.640589
+     },
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-07-30 00:00:00+00:00",
+      "dist": 1.504171,
+      "labels6": [
+       "OI ↑↑ 6ч",
+       "OI ↑ 24ч",
+       "топы L/S ↑ 6ч"
+      ],
+      "shared_labels": 0,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 1.0,
+      "f24_atr": 2.009243
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-22 15:00:00+00:00",
+      "dist": 1.512756,
+      "labels6": [
+       "фандинг по OI высоко",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -5.97961
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-10-23 20:00:00+00:00",
+      "dist": 1.54941,
+      "labels6": [
+       "WI2 низко",
+       "WI2 ↑ 24ч",
+       "тейкеры покупают сильно 24ч",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -3.680336
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-08-18 01:00:00+00:00",
+      "dist": 1.578573,
+      "labels6": [
+       "толпа L/S ↓ 24ч",
+       "WI2 ↑ 24ч"
+      ],
+      "shared_labels": 1,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": 1.422909
+     },
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-07-27 15:00:00+00:00",
+      "dist": 1.583213,
+      "labels6": [
+       "топы L/S высоко"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.770639
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-08-14 03:00:00+00:00",
+      "dist": 1.588267,
+      "labels6": [
+       "топы L/S ↓ 24ч",
+       "фандинг ↓ 24ч"
+      ],
+      "shared_labels": 1,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -0.035861
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-07-09 13:00:00+00:00",
+      "dist": 1.590837,
+      "labels6": [
+       "топы L/S ↓ 24ч",
+       "фандинг ↓ 24ч",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 1,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": 4.461659
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-07-01 09:00:00+00:00",
+      "dist": 1.608019,
+      "labels6": [],
+      "shared_labels": 0,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": 4.654691
+     },
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-07-29 23:00:00+00:00",
+      "dist": 1.622607,
+      "labels6": [
+       "OI ↑ 6ч",
+       "топы L/S ↓ 24ч",
+       "топы L/S ↑ 6ч",
+       "объём высокий 6ч"
+      ],
+      "shared_labels": 2,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 1.0,
+      "f24_atr": 1.598412
+     }
+    ],
+    "analogs10_first_counts": {
+     "up": 5,
+     "down": 5,
+     "none": 0
+    }
+   }
+  },
+  "ETHUSDT": {
+   "bar_utc": "2026-10-28 14:00:00+00:00",
+   "state": "FLAT",
+   "describe": "OI высоко; толпа L/S ↑ 6ч; топы L/S высоко; топы L/S ↑ 6ч; WI2 ↑ 24ч; тейкеры продают сильно 6ч",
+   "close": 2332.42,
+   "first": {
+    "pool": 15696,
+    "knn50": {
+     "up": 0.283019,
+     "down": 0.641509,
+     "none": 0.075472
+    },
+    "logistic": {
+     "up": 0.424658,
+     "down": 0.475442,
+     "none": 0.0999
+    },
+    "base": {
+     "up": 0.429964,
+     "down": 0.478948,
+     "none": 0.091089
+    },
+    "analogs10": [
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-06-28 00:00:00+00:00",
+      "dist": 1.187437,
+      "labels6": [
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.668507
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-07-01 10:00:00+00:00",
+      "dist": 1.288285,
+      "labels6": [],
+      "shared_labels": 0,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": 5.439833
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-21 09:00:00+00:00",
+      "dist": 1.301728,
+      "labels6": [
+       "топы L/S высоко",
+       "фандинг по OI высоко",
+       "стакан зелёный 5+/6",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 1,
+      "first": "down",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": -0.358778
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-21 10:00:00+00:00",
+      "dist": 1.354931,
+      "labels6": [
+       "толпа L/S ↑ 6ч",
+       "топы L/S высоко",
+       "фандинг по OI высоко",
+       "WI2 ↓ 6ч",
+       "стакан зелёный 5+/6",
+       "стакан сильно зелёный (6ч)"
+      ],
+      "shared_labels": 2,
+      "first": "up",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": 0.696541
+     },
+     {
+      "sym": "SOLUSDT",
+      "bar_utc": "2026-07-31 09:00:00+00:00",
+      "dist": 1.362168,
+      "labels6": [
+       "толпа L/S ↑ 6ч",
+       "топы L/S высоко",
+       "топы L/S ↑ 6ч",
+       "OI низко",
+       "OI ↓ 24ч",
+       "WI2 ↓ 6ч"
+      ],
+      "shared_labels": 3,
+      "first": "none",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.355522
+     },
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-06-28 02:00:00+00:00",
+      "dist": 1.392761,
+      "labels6": [
+       "WI2 ↓ 6ч",
+       "стакан зелёный 5+/6",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.283361
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-22 15:00:00+00:00",
+      "dist": 1.397824,
+      "labels6": [
+       "фандинг по OI высоко",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -5.97961
+     },
+     {
+      "sym": "SOLUSDT",
+      "bar_utc": "2026-07-31 07:00:00+00:00",
+      "dist": 1.398515,
+      "labels6": [
+       "топы L/S высоко",
+       "топы L/S ↑ 6ч",
+       "OI низко",
+       "WI2 ↓ 6ч",
+       "стакан зелёный 5+/6"
+      ],
+      "shared_labels": 2,
+      "first": "down",
+      "top_here": 1.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.453216
+     },
+     {
+      "sym": "BTCUSDT",
+      "bar_utc": "2026-06-27 23:00:00+00:00",
+      "dist": 1.400357,
+      "labels6": [
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 0,
+      "first": "down",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.565915
+     },
+     {
+      "sym": "ETHUSDT",
+      "bar_utc": "2026-05-21 08:00:00+00:00",
+      "dist": 1.402561,
+      "labels6": [
+       "толпа L/S ↑ 6ч",
+       "топы L/S высоко",
+       "топы L/S ↑ 6ч",
+       "WI2 ↓ 6ч",
+       "стакан зелёный 5+/6",
+       "диапазон 24ч узкий"
+      ],
+      "shared_labels": 3,
+      "first": "down",
+      "top_here": 0.0,
+      "bottom_here": 0.0,
+      "f24_atr": -1.328941
+     }
+    ],
+    "analogs10_first_counts": {
+     "up": 2,
+     "down": 7,
+     "none": 1
+    }
+   }
+  }
+ },
+ "runtime_s": 12.1
+}

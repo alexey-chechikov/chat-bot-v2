@@ -105,6 +105,13 @@ def test_actions_split_entries_residual_and_start():
     assert scenarios.actions(unknown, "flow", 1)["residual"] == "держать"   # потеря данных ничего не закрывает
 
 
+def _mins(df: pd.DataFrame) -> pd.DataFrame:
+    """Минуты из часовых закрытий (ступенькой) — для исхода от исполнения в тестах без сети."""
+    idx = pd.date_range(df.index[0], df.index[-1] + pd.Timedelta(hours=3), freq="1min")
+    px = df["px_close"].reindex(idx, method="ffill")
+    return pd.DataFrame({"open": px, "high": px, "low": px, "close": px}, index=idx)
+
+
 def test_update_writes_one_decision_per_bar_and_outcome_later(tmp_path):
     j, s = tmp_path / "shadow.jsonl", tmp_path / "state.json"
     df = _df(FLAT + [100.0] * 10)
@@ -120,10 +127,13 @@ def test_update_writes_one_decision_per_bar_and_outcome_later(tmp_path):
     assert set(dec[0]["actions"]) == {"price", "flow"} and set(dec[0]["actions"]["price"]) == {"long", "short"}
     df2 = _df(FLAT + [100.0] * 17)
     later = (df2.index[-1] + pd.Timedelta(hours=1, minutes=5)).to_pydatetime()
-    scenarios.update("BTCUSDT", df2, later, journal=j, state_path=s)
+    mins = _mins(df2)
+    scenarios.update("BTCUSDT", df2, later, journal=j, state_path=s,
+                     minute_px=lambda sym, a, b: mins[(mins.index >= a) & (mins.index < b)])
     recs = [json.loads(x) for x in j.read_text().splitlines()]
     outs = [r for r in recs if r["kind"] == "outcome"]
     assert len(outs) == 1 and outs[0]["ref"] == dec[0]["id"] and outs[0]["h"] == "6h"
+    assert outs[0]["outcome_v"] == scenarios.OUTCOME_V and outs[0]["execution_at"] == dec[0]["execution_at"]
     assert not [r for r in recs if r["kind"] == "event" and not r["warmup"] and r["e"] == "RANGE_SET"]
 
 

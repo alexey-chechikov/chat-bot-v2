@@ -1,0 +1,88 @@
+{
+ "BTCUSDT": {
+  "bars": {
+   "fresh": 10,
+   "old": 530
+  },
+  "differs": {
+   "fresh": {
+    "close": 3,
+    "volume_usd": 8,
+    "taker_buy": 6,
+    "taker_sell": 7,
+    "taker_delta": 7,
+    "liq_all_long": 1
+   },
+   "old": {}
+  },
+  "absent_in_first_record": {
+   "fresh": {
+    "bid_ask_delta": 1,
+    "taker_buy": 1,
+    "taker_sell": 1,
+    "taker_delta": 1
+   },
+   "old": {
+    "bid_ask_delta": 523,
+    "taker_buy": 523,
+    "taker_sell": 523,
+    "taker_delta": 523
+   }
+  },
+  "median_rel_diff": {
+   "fresh": {
+    "close": 1.2364852166547235e-06,
+    "volume_usd": 0.005770332408305973,
+    "taker_buy": 0.007104356608523116,
+    "taker_sell": 0.002289574847375434,
+    "taker_delta": 0.030752824057722117,
+    "liq_all_long": 3.1443772247155212e-06
+   },
+   "old": {}
+  }
+ },
+ "ETHUSDT": {
+  "bars": {
+   "fresh": 12,
+   "old": 507
+  },
+  "differs": {
+   "fresh": {
+    "close": 4,
+    "volume_usd": 9,
+    "liq_all_long": 1,
+    "taker_sell": 8,
+    "taker_delta": 9,
+    "taker_buy": 8,
+    "liq_all_short": 1
+   },
+   "old": {}
+  },
+  "absent_in_first_record": {
+   "fresh": {
+    "bid_ask_delta": 1,
+    "taker_buy": 1,
+    "taker_sell": 1,
+    "taker_delta": 1
+   },
+   "old": {
+    "bid_ask_delta": 502,
+    "taker_buy": 502,
+    "taker_sell": 502,
+    "taker_delta": 502
+   }
+  },
+  "median_rel_diff": {
+   "fresh": {
+    "close": 4.239875444887013e-06,
+    "volume_usd": 0.008675290662542728,
+    "liq_all_long": 1.385060734943459e-06,
+    "taker_sell": 0.010183908034910382,
+    "taker_delta": 0.014503632722056918,
+    "taker_buy": 0.0066990249067891165,
+    "liq_all_short": 1.0774596518532067e-06
+   },
+   "old": {}
+  }
+ }
+}

@@ -38,7 +38,11 @@ UP_CONFIRMED, DOWN_CONFIRMED, STALL_WARNING, STRUCTURE_BROKEN, COOLDOWN.
 - decision — по последнему закрытому часу на момент прогона; forward, если принято в течение часа после закрытия
   бара (ночные часы, обработанные утром, — retro, в счёт вперёд не идут);
 - event — переходы (с часом бара и временем обнаружения);
-- outcome — через 6/24 ч после решения, по сохранённым в решении цене и ATR.
+- outcome — через 6/24 ч ПОСЛЕ ИСПОЛНЕНИЯ: вход — открытие первой полной минуты после decision_at (execution_at,
+  Binance USDT-M 1m), выход — открытие минуты execution_at + горизонт, экстремумы — по минутам между ними. Нет
+  минутных цен — исход не пишется (ждёт следующего прогона), часовой свечой не угадывается. «Ход от закрытия бара»
+  (bar_close_ret_pct) — отдельное описательное поле, не результат решения. Исходы без outcome_v (до исправления
+  28.10 — по часам от закрытия бара, разбор GPT a7d799b §3) в счёт не идут и пересчитываются заново.
 Рабочее состояние машины — state/coinglass/scenario_state.json.
 """
 from __future__ import annotations
@@ -57,6 +61,7 @@ ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "state" / "coinglass" / "scenario_shadow.jsonl"
 STATE = ROOT / "state" / "coinglass" / "scenario_state.json"
 VERSION = "sc-1"
+OUTCOME_V = 2                         # исход от исполнения после решения (GPT a7d799b); 1 — от закрытия бара, не в счёт
 P = {"er_n": 24, "er_flat": 0.25, "atr_n": 14, "d6_n": 6, "d6_pct": 0.80, "base_h": 168, "base_min": 84,
      "weak_atr": 0.5, "cooldown_h": 2, "stall_noprog_h": 12, "pause_after_h": 24, "horizons_h": (6, 24),
      "range_min_width_pct": 1.2}       # ширина коробки, где помещаются 2 шага живой сетки 0.6% — исследовательская
@@ -349,22 +354,39 @@ def _save_state(path: Path, st: dict) -> None:
     os.replace(tmp, path)
 
 
-def _outcome(f: pd.DataFrame, t0: pd.Timestamp, ref: float, atr: float | None, hrs: int) -> dict | None:
-    """Ход цены после решения по закрытым часам t0+1 … t0+hrs: доходность, максимум вверх и вниз (% и ATR)."""
-    idx = pd.date_range(t0 + H1, t0 + hrs * H1, freq="1h")
-    w = f.reindex(idx)
-    if w["close"].isna().any():
+M1 = pd.Timedelta(minutes=1)
+
+
+def execution_at(rec: dict) -> pd.Timestamp:
+    """Первая полная минута после решения: только по её открытию решение можно было исполнить."""
+    if rec.get("execution_at"):
+        return pd.Timestamp(rec["execution_at"])
+    return pd.Timestamp(rec["decision_at"]).floor("1min") + M1
+
+
+def _outcome(mins: pd.DataFrame | None, t_exec: pd.Timestamp, hrs: int, atr: float | None,
+             bar_close: float | None) -> dict | None:
+    """Ход после исполнения по минутам [t_exec, t_exec + hrs): вход — open t_exec, выход — open t_exec + hrs,
+    экстремумы — high/low минут между ними. Неполные минуты → None (исход ждёт)."""
+    if mins is None or mins.empty:
         return None
-    up = (w["high"].max() / ref - 1) * 100
-    dn = (1 - w["low"].min() / ref) * 100
-    out = {"ret_pct": (float(w["close"].iloc[-1]) / ref - 1) * 100, "max_up_pct": float(up), "max_down_pct": float(dn)}
+    end = t_exec + hrs * H1
+    w = mins[(mins.index >= t_exec) & (mins.index < end)]
+    if len(w) != hrs * 60 or t_exec not in mins.index or end not in mins.index:
+        return None
+    entry, exit_ = float(mins.loc[t_exec, "open"]), float(mins.loc[end, "open"])
+    hi, lo = float(w["high"].max()), float(w["low"].min())
+    out = {"outcome_v": OUTCOME_V, "execution_at": t_exec.isoformat(), "exec_price": entry, "exit_price": exit_,
+           "ret_pct": (exit_ / entry - 1) * 100, "max_up_pct": (hi / entry - 1) * 100,
+           "max_down_pct": (1 - lo / entry) * 100,
+           "bar_close_ret_pct": (exit_ / bar_close - 1) * 100 if bar_close else None}
     if atr:
-        out.update(max_up_atr=float((w["high"].max() - ref) / atr), max_down_atr=float((ref - w["low"].min()) / atr))
+        out.update(max_up_atr=(hi - entry) / atr, max_down_atr=(entry - lo) / atr)
     return out
 
 
 def update(sym: str, df: pd.DataFrame, now: datetime, *, available_at: str | None = None, journal: Path = JOURNAL,
-           state_path: Path = STATE) -> dict:
+           state_path: Path = STATE, minute_px=None) -> dict:
     """Обработать новые закрытые часы символа, записать решение по последнему, события и созревшие исходы.
     Первый запуск — прогрев по всей таблице (события помечены warmup и в счёт вперёд не идут)."""
     T = pd.Timestamp(now)
@@ -394,31 +416,43 @@ def update(sym: str, df: pd.DataFrame, now: datetime, *, available_at: str | Non
         if did not in seen and t + H1 == closed:
             rows.append({"kind": "decision", "v": VERSION, "id": did, "sym": sym, "bar": rec["bar"],
                          "feature_cutoff": _ts(t + H1), "decision_at": T.isoformat(timespec="seconds"),
+                         "execution_at": (T.floor("1min") + M1).isoformat(),
                          "available_at": available_at, "lag_min": lag_min, "forward": lag_min < 60,
                          "warmup": warm, "struct": rec["struct"], "state": rec["state"], "tags": rec["tags"],
                          "events": [e["e"] for e in rec["events"]], "box": rec["box"], "pend": rec["pend"],
                          "move": rec["move"], "cool_until": rec["cool_until"], "f": rec["f"],
                          "actions": {v: {"long": actions(rec, v, 1), "short": actions(rec, v, -1)}
                                      for v in ("price", "flow")}})
-    done = {(r["ref"], r["h"]) for r in have if r.get("kind") == "outcome" and r.get("sym") == sym}
+    done = {(r["ref"], r["h"]) for r in have if r.get("kind") == "outcome" and r.get("sym") == sym
+            and r.get("outcome_v") == OUTCOME_V}
     breaks = [pd.Timestamp(x["bar"]) for x in have + rows if x.get("kind") == "event" and x.get("sym") == sym
               and x.get("v") == VERSION and x.get("e") == "STRUCTURE_BROKEN"]
-    n_out = 0
+    todo = []
     for r in have:                                              # исходы — только решений, записанных раньше
-        if r.get("kind") != "decision" or r.get("sym") != sym or r.get("v") != VERSION:
+        if r.get("kind") != "decision" or r.get("sym") != sym or r.get("v") != VERSION or not r.get("decision_at"):
             continue
-        t0 = pd.Timestamp(r["bar"])
+        te = execution_at(r)
         for hrs in P["horizons_h"]:
-            if (r["id"], f"{hrs}h") in done or t0 + (hrs + 1) * H1 > closed:
-                continue
-            o = _outcome(f, t0, r["f"]["close"], r["f"].get("atr"), hrs)
-            if o is None:
-                continue
-            br = sorted(b for b in breaks if t0 < b <= t0 + hrs * H1)
-            rows.append({"kind": "outcome", "v": VERSION, "sym": sym, "ref": r["id"], "h": f"{hrs}h",
-                         "checked_at": T.isoformat(timespec="seconds"), "forward": r.get("forward"),
-                         "state": r["state"], "structure_broken_at": br[0].isoformat() if br else None, **o})
-            n_out += 1
+            if (r["id"], f"{hrs}h") not in done and te + hrs * H1 + M1 <= T:   # минута выхода уже закрыта
+                todo.append((r, te, hrs))
+    mins = None
+    if todo:
+        a = min(te for _r, te, _h in todo)
+        b = max(te + h * H1 for _r, te, h in todo) + M1
+        try:
+            mins = (minute_px or compare.binance_1m)(sym, a, b)
+        except Exception:                                       # noqa: BLE001 — нет минут: исходы ждут
+            mins = None
+    n_out = 0
+    for r, te, hrs in todo:
+        o = _outcome(mins, te, hrs, r["f"].get("atr"), r["f"].get("close"))
+        if o is None:
+            continue
+        br = sorted(b for b in breaks if te < b + H1 <= te + hrs * H1)
+        rows.append({"kind": "outcome", "v": VERSION, "sym": sym, "ref": r["id"], "h": f"{hrs}h",
+                     "checked_at": T.isoformat(timespec="seconds"), "forward": r.get("forward"),
+                     "state": r["state"], "structure_broken_at": br[0].isoformat() if br else None, **o})
+        n_out += 1
     compare._write(journal, rows)
     if last is not None:
         st[sym] = {"last_bar": _ts(last), "m": m, "v": VERSION}
@@ -428,10 +462,15 @@ def update(sym: str, df: pd.DataFrame, now: datetime, *, available_at: str | Non
 
 
 def latest_decision(sym: str, journal: Path | None = None, before=None) -> dict | None:
-    """Последнее решение символа (до момента before, если задан)."""
+    """Последнее решение символа, известное к моменту before (если задан): записано не позже before — по decision_at,
+    а не по концу бара признаков (GPT a7d799b §3: карточка «на 11:10» читала решение, записанное в 11:45)."""
     for r in reversed(compare._read_jsonl(journal or JOURNAL)):
         if r.get("kind") == "decision" and r.get("sym") == sym and r.get("v") == VERSION:
-            if before is None or pd.Timestamp(r["bar"]) + H1 <= pd.Timestamp(before):
+            if before is None:
+                return r
+            b = pd.Timestamp(before)
+            known = pd.Timestamp(r["decision_at"]) if r.get("decision_at") else pd.Timestamp(r["bar"]) + H1
+            if pd.Timestamp(r["bar"]) + H1 <= b and known <= b:
                 return r
     return None
 

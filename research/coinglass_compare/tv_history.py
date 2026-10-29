@@ -35,7 +35,7 @@ def main() -> None:
                 except Exception as exc:                        # noqa: BLE001
                     print(sym, "сбой", f"{type(exc).__name__}: {exc}"[:200])
                     continue
-                status, why = tv_export.verdict(r["stable"], r["checks"])
+                status, why = tv_export.verdict(r["stable"], r["checks"], r.get("missing"))
                 obs = r["obs"].timestamp()
                 rows = {t: v for t, v in r["rows"].items() if t + 3600 <= obs}     # незакрытый бар не пишем
                 path = OUT / f"{sym}_1h.csv"

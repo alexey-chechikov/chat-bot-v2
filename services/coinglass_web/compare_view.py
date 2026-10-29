@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from services.coinglass_web import compare, scenarios, tv_export
+from services.coinglass_web import compare, hypothesis, scenarios, tv_export
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "state" / "coinglass" / "compare"
@@ -144,7 +144,8 @@ def payload(sym: str, now: datetime | None = None, *, data=None) -> dict:
     sc = scenarios.card(rec, sym, now) if rec else None
     if sc:
         sc["source"] = src
-    p = {"sym": sym, "coin": coin, "built": now.isoformat(timespec="seconds"), "scenario": sc,
+    hy = hypothesis.build(rec, sym, df, now, hypothesis.last_shown(sym, before=now))
+    p = {"sym": sym, "coin": coin, "built": now.isoformat(timespec="seconds"), "scenario": sc, "hypothesis": hy,
          "export": export_status(sym),
          "t": [t.strftime("%Y-%m-%d %H:%M") for t in view.index],
          "warsaw": [t.tz_convert(compare.WARSAW).strftime("%d.%m %H:%M") for t in view.index],
@@ -365,12 +366,20 @@ function epCards(p) { const box = document.getElementById('eps'), btns = documen
     Plotly.relayout('chart', {'xaxis.range': [new Date(s - 18 * 3600e3).toISOString().slice(0, 16).replace('T', ' '),
       new Date(f + 30 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')]});
     document.getElementById('card-' + e.id).scrollIntoView({behavior: 'smooth', block: 'nearest'}); }); }
+function hyp(p) { const h = p.hypothesis; if (!h) return '';
+  const li = a => a && a.length ? a.map(x => `<li>${x}</li>`).join('') : '<li class="muted">—</li>';
+  return `<div class="st">${h.header}</div><div style="margin:6px 0 8px"><b>${h.conclusion}</b></div>
+    <div class="cols"><div><div class="lbl">Почему</div><ul>${li(h.why)}</ul></div>
+    <div><div class="lbl">Что против</div><ul>${li(h.against)}</ul></div></div>
+    <div class="lbl">Подтвердит</div><div>${h.confirm || '—'}</div><div class="lbl">Отменит</div><div>${h.cancel || '—'}</div>
+    ${h.change ? `<div class="lbl">С прошлого показа</div><div>${h.change}</div>` : ''}
+    <div class="sub">Гипотеза ${h.v} не откалибрована — вероятность не пишу. Подробности состояния ниже.</div><hr>`; }
 function scn(p) { const el = document.getElementById('scn'), c = p.scenario;
-  if (!c) { el.innerHTML = '<div class="muted">Состояние не определено: данных не хватает.</div>'; return; }
+  if (!c) { el.innerHTML = hyp(p) + '<div class="muted">Состояние не определено: данных не хватает.</div>'; return; }
   const li = a => a.length ? a.map(x => `<li>${x}</li>`).join('') : '<li class="muted">—</li>';
   const act = (name, a) => `<div class="act"><b>${name}</b>: новые входы — ${a.entries}; продолжать — ${a.continue}; остаток — ${a.residual}; запуск — ${a.start}<div class="sub">${a.why}</div></div>`;
   const b = c.box ? `${c.box.kind === 'flat' ? 'флет' : 'опорная коробка'} ${px(c.box.L)}–${px(c.box.H)} (${(c.box.width_pct ?? 0).toFixed(2)}%, с ${c.box.set_bar.slice(5, 16).replace('T', ' ')} UTC)` : (c.move ? `движение ${c.move.dir > 0 ? 'вверх' : 'вниз'}: экстремум ${px(c.move.extreme)}, опора ${px(c.move.support)}` : '—');
-  el.innerHTML = `<div class="st">${p.sym}: ${c.state_ru} <span class="sub">(${c.state}, вариант ${c.variant === 'flow' ? 'цена + поток' : 'только цена'})</span></div>
+  el.innerHTML = hyp(p) + `<div class="st">${p.sym}: ${c.state_ru} <span class="sub">(${c.state}, вариант ${c.variant === 'flow' ? 'цена + поток' : 'только цена'})</span></div>
     <div class="sub">по часам до ${c.observed_warsaw} Варшава · давность ${c.age_min} мин · источник: ${c.source}</div>
     <div class="cols"><div><div class="lbl">Поддерживает</div><ul>${li(c.support)}</ul></div>
     <div><div class="lbl">Противоречит</div><ul>${li(c.contra)}</ul></div></div>
@@ -509,11 +518,12 @@ def render_png(p: dict) -> bytes:
 def caption(p: dict) -> str:
     """Подпись к картинке: «что сейчас» и эпизоды одной строкой каждый; режется по 1024."""
     lines = [f"🔭 {p['sym']}: метрики вместе за 14 дней (полный разбор с курсором — файл HTML)"]
-    sc = p.get("scenario")
+    sc, hy = p.get("scenario"), p.get("hypothesis")
+    if hy:
+        lines += hypothesis.lines(hy)
     if sc:
         a = sc["actions"]
-        lines.append(f"🧭 Состояние: {sc['state_ru']} (по часам до {sc['observed_warsaw']}). {sc['next']}")
-        lines.append(f"Теневое (только журнал): лонг-сетки — {a['long']['entries']}"
+        lines.append(f"Теневое (только журнал, не торговый сигнал): лонг-сетки — {a['long']['entries']}"
                      + (f", {a['long']['residual']}" if a["long"]["residual"] != "держать" else "")
                      + f"; шорт-сетки — {a['short']['entries']}"
                      + (f", {a['short']['residual']}" if a["short"]["residual"] != "держать" else ""))
@@ -546,16 +556,24 @@ def build_all(now: datetime | None = None, symbols=compare.SYMBOLS) -> dict:
     if not pays:
         raise RuntimeError("сравнительная аналитика не собралась ни по одному символу")
     html = render_html(pays).encode("utf-8")
-    return {"photos": photos, "html": html, "filename": f"metrics_{now.astimezone(compare.WARSAW):%Y%m%d_%H%M}.html"}
+    return {"photos": photos, "html": html, "filename": f"metrics_{now.astimezone(compare.WARSAW):%Y%m%d_%H%M}.html",
+            "hypotheses": [p["hypothesis"] for p in pays.values() if p.get("hypothesis")], "built": now}
 
 
 def deliver(photo_fn, doc_fn=None, now: datetime | None = None, symbols=compare.SYMBOLS) -> dict:
-    """Картинки (photo_fn(png, caption)) и один HTML на все символы (doc_fn(data, filename, caption))."""
+    """Картинки (photo_fn(png, caption)) и один HTML на все символы (doc_fn(data, filename, caption)); показанные
+    гипотезы — в журнал (для «что изменилось с прошлого показа» и будущей сверки условий)."""
+    import logging
     res = build_all(now, symbols)
     for png, cap in res["photos"]:
         photo_fn(png, cap)
     if doc_fn is not None:
         doc_fn(res["html"], res["filename"], DOC_CAPTION)
+    for h in res.get("hypotheses") or []:
+        try:
+            hypothesis.log_shown(h, res.get("built") or now or datetime.now(timezone.utc))
+        except Exception:                                       # noqa: BLE001 — журнал не мешает доставке
+            logging.getLogger(__name__).exception("compare_view.hypothesis_log_failed %s", h.get("sym"))
     return res
 
 

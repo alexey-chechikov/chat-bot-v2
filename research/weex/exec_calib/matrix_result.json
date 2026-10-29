@@ -1,0 +1,4528 @@
+{
+ "rules_doc": "см. docstring matrix.py (записан до прогона)",
+ "created_utc": "2026-10-29T10:14:34.899506+00:00",
+ "git_head": "a7d799bf6a03b91c6f7dd239a63aab6a6626b831",
+ "inputs": {
+  "matrix.py": "400d673a3320f8e984b5473ba5087e336816dd7648b76cc26528c74f819242f9",
+  "week_reconcile.py": "2fcf1c5eb86638bff373e3669cb26d4e980c839a2d2531ec9bd2d65eacfc91eb",
+  "calib_result.json": "6aa332a3ae9ca2ed541382188146f0e5e76bb8e5459cd3a35bf9a1585b870b59"
+ },
+ "one_second": {
+  "M1": 0.3274,
+  "S1": 0.3281,
+  "S1L40": 0.4513,
+  "run_1s": false,
+  "decision": "S1 и S1L40 не ближе к бирже, чем M1 — 1s не прогоняется (правило 6)"
+ },
+ "data": {
+  "BTCUSDT": {
+   "file": "/private/tmp/claude-501/-Users-alexeychechikov/1447ae84-81fe-465b-ad50-d8cc845df051/scratchpad/wk1028/BTCUSDT_1m_2y.csv",
+   "sha256": "01f966495135fbd691041b141fff115b358ac598aad4b03c4ff5a5570d217962",
+   "rows": 1291120,
+   "first_bar": "2024-05-15 00:00",
+   "last_bar": "2026-10-28 14:39",
+   "missing_minutes": 0,
+   "window_after_warmup": [
+    "2024-08-23 00:00",
+    "2026-10-28 14:39"
+   ],
+   "minutes": 1147120,
+   "cut_half": "2025-09-25 07:20",
+   "weeks": 114,
+   "long_share": 0.5255,
+   "regime_exits": 5,
+   "regime_entries": 6,
+   "funding_settlements": 2379,
+   "funding_sha256": "3d2fbf644e59ec29c8c3df569436cc26c1b0aa0e3e924e7c9a04f53256c640bc",
+   "funding_last": "2026-10-24 16:00",
+   "days_without_funding_at_end": 3.94,
+   "funding_mean_rate_pct": 0.0046
+  },
+  "ETHUSDT": {
+   "file": "/private/tmp/claude-501/-Users-alexeychechikov/1447ae84-81fe-465b-ad50-d8cc845df051/scratchpad/wk1028/ETHUSDT_1m_2y.csv",
+   "sha256": "3803ed6d4791aab9c39d778944c8ca07d60a86cf3fbda2d0b831ac3065bd5e3b",
+   "rows": 1291120,
+   "first_bar": "2024-05-15 00:00",
+   "last_bar": "2026-10-28 14:39",
+   "missing_minutes": 0,
+   "window_after_warmup": [
+    "2024-08-23 00:00",
+    "2026-10-28 14:39"
+   ],
+   "minutes": 1147120,
+   "cut_half": "2025-09-25 07:20",
+   "weeks": 114,
+   "long_share": 0.4351,
+   "regime_exits": 4,
+   "regime_entries": 5,
+   "funding_settlements": 2379,
+   "funding_sha256": "bfe33ccc30356891f32812c53839ee5205d6bd398080bc4d8dc8d9d5413659a1",
+   "funding_last": "2026-10-24 16:00",
+   "days_without_funding_at_end": 3.94,
+   "funding_mean_rate_pct": 0.00445
+  }
+ },
+ "checks": {
+  "sim": [
+   {
+    "sym": "BTCUSDT",
+    "cell": "0.1/0.34",
+    "ok": true,
+    "max_abs_diff": 2.4101609596982598e-11,
+    "sim": {
+     "ent": 9918,
+     "tk": 9822,
+     "lots": 96
+    },
+    "engine": {
+     "ent": 9918,
+     "tk": 9822,
+     "lots": 96
+    }
+   },
+   {
+    "sym": "BTCUSDT",
+    "cell": "0.6/1.4",
+    "ok": true,
+    "max_abs_diff": 1.0800249583553523e-12,
+    "sim": {
+     "ent": 557,
+     "tk": 534,
+     "lots": 23
+    },
+    "engine": {
+     "ent": 557,
+     "tk": 534,
+     "lots": 23
+    }
+   },
+   {
+    "sym": "ETHUSDT",
+    "cell": "0.2/0.89",
+    "ok": true,
+    "max_abs_diff": 3.979039320256561e-13,
+    "sim": {
+     "ent": 1627,
+     "tk": 1596,
+     "lots": 31
+    },
+    "engine": {
+     "ent": 1627,
+     "tk": 1596,
+     "lots": 31
+    }
+   }
+  ],
+  "synthetic": {
+   "ok": true,
+   "max_abs_diff": 3.6637359812630166e-15
+  }
+ },
+ "cells": {
+  "BTCUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "total": 334.1143,
+     "real": 495.0434,
+     "fee": 92.2657,
+     "fund": 41.4199,
+     "bag": -27.2434,
+     "lots_end": 82,
+     "qty_end": 0.0082,
+     "dd": -283.1779,
+     "ent": 25379,
+     "tk": 24679,
+     "vol": 556107.9062,
+     "turnover": 562958.8839,
+     "regime_closes": 5,
+     "regime_close_pnl": -435.3574,
+     "hours_at_cap": 0.0,
+     "max_orders": 189,
+     "density_eff": 110.9483,
+     "eq_mid": 376.1604,
+     "total_over_dd": 1.18,
+     "half1": 376.16,
+     "half2_continuous": -42.05,
+     "half2_from_zero": -27.93,
+     "half2_from_zero_dd": -175.74
+    },
+    "0.1/0.49": {
+     "total": 382.3752,
+     "real": 517.7308,
+     "fee": 66.6058,
+     "fund": 41.5064,
+     "bag": -27.2434,
+     "lots_end": 82,
+     "qty_end": 0.0082,
+     "dd": -275.6737,
+     "ent": 18160,
+     "tk": 17461,
+     "vol": 395767.4583,
+     "turnover": 402607.0609,
+     "regime_closes": 5,
+     "regime_close_pnl": -430.1887,
+     "hours_at_cap": 0.0,
+     "max_orders": 189,
+     "density_eff": 110.8967,
+     "eq_mid": 410.9418,
+     "total_over_dd": 1.387,
+     "half1": 410.94,
+     "half2_continuous": -28.57,
+     "half2_from_zero": -13.84,
+     "half2_from_zero_dd": -172.0
+    },
+    "0.1/0.89": {
+     "total": 430.466,
+     "real": 539.2607,
+     "fee": 39.1236,
+     "fund": 42.4389,
+     "bag": -27.2321,
+     "lots_end": 83,
+     "qty_end": 0.0083,
+     "dd": -274.6261,
+     "ent": 10413,
+     "tk": 9711,
+     "vol": 223851.2142,
+     "turnover": 230741.5983,
+     "regime_closes": 5,
+     "regime_close_pnl": -417.0709,
+     "hours_at_cap": 0.0,
+     "max_orders": 189,
+     "density_eff": 110.8701,
+     "eq_mid": 440.2771,
+     "total_over_dd": 1.567,
+     "half1": 440.28,
+     "half2_continuous": -9.81,
+     "half2_from_zero": 4.92,
+     "half2_from_zero_dd": -168.26
+    },
+    "0.1/1.4": {
+     "total": 464.9505,
+     "real": 553.0496,
+     "fee": 26.3475,
+     "fund": 41.3033,
+     "bag": -20.4483,
+     "lots_end": 72,
+     "qty_end": 0.0072,
+     "dd": -261.9164,
+     "ent": 6808,
+     "tk": 6123,
+     "vol": 144242.156,
+     "turnover": 151052.1664,
+     "regime_closes": 5,
+     "regime_close_pnl": -395.405,
+     "hours_at_cap": 0.0,
+     "max_orders": 179,
+     "density_eff": 110.972,
+     "eq_mid": 477.911,
+     "total_over_dd": 1.775,
+     "half1": 477.91,
+     "half2_continuous": -12.96,
+     "half2_from_zero": 0.62,
+     "half2_from_zero_dd": -169.82
+    },
+    "0.2/0.34": {
+     "total": 521.301,
+     "real": 731.8623,
+     "fee": 119.2047,
+     "fund": 50.9848,
+     "bag": -40.3719,
+     "lots_end": 41,
+     "qty_end": 0.0123,
+     "dd": -284.8439,
+     "ent": 13049,
+     "tk": 12700,
+     "vol": 722617.7874,
+     "turnover": 730088.2454,
+     "regime_closes": 5,
+     "regime_close_pnl": -479.4611,
+     "hours_at_cap": 0.0,
+     "max_orders": 97,
+     "density_eff": 139.9317,
+     "eq_mid": 562.2858,
+     "total_over_dd": 1.83,
+     "half1": 562.29,
+     "half2_continuous": -40.98,
+     "half2_from_zero": -26.78,
+     "half2_from_zero_dd": -179.32
+    },
+    "0.2/0.49": {
+     "total": 581.8194,
+     "real": 759.7851,
+     "fee": 86.1704,
+     "fund": 51.4234,
+     "bag": -40.3719,
+     "lots_end": 41,
+     "qty_end": 0.0123,
+     "dd": -281.9481,
+     "ent": 9373,
+     "tk": 9022,
+     "vol": 515982.1566,
+     "turnover": 523509.8682,
+     "regime_closes": 5,
+     "regime_close_pnl": -479.332,
+     "hours_at_cap": 0.0,
+     "max_orders": 95,
+     "density_eff": 139.7048,
+     "eq_mid": 609.9862,
+     "total_over_dd": 2.064,
+     "half1": 609.99,
+     "half2_continuous": -28.17,
+     "half2_from_zero": -13.3,
+     "half2_from_zero_dd": -179.08
+    },
+    "0.2/0.89": {
+     "total": 637.0907,
+     "real": 774.5084,
+     "fee": 50.2705,
+     "fund": 52.3763,
+     "bag": -34.7708,
+     "lots_end": 38,
+     "qty_end": 0.0114,
+     "dd": -285.6742,
+     "ent": 5356,
+     "tk": 5004,
+     "vol": 291265.0042,
+     "turnover": 298906.9763,
+     "regime_closes": 5,
+     "regime_close_pnl": -475.7694,
+     "hours_at_cap": 0.0,
+     "max_orders": 94,
+     "density_eff": 139.603,
+     "eq_mid": 655.1635,
+     "total_over_dd": 2.23,
+     "half1": 655.16,
+     "half2_continuous": -18.07,
+     "half2_from_zero": -4.16,
+     "half2_from_zero_dd": -183.04
+    },
+    "0.2/1.4": {
+     "total": 661.7408,
+     "real": 788.0987,
+     "fee": 33.9078,
+     "fund": 52.0782,
+     "bag": -40.3719,
+     "lots_end": 41,
+     "qty_end": 0.0123,
+     "dd": -292.8802,
+     "ent": 3522,
+     "tk": 3167,
+     "vol": 188883.7248,
+     "turnover": 196563.6966,
+     "regime_closes": 5,
+     "regime_close_pnl": -461.1884,
+     "hours_at_cap": 0.0,
+     "max_orders": 91,
+     "density_eff": 139.698,
+     "eq_mid": 685.2353,
+     "total_over_dd": 2.259,
+     "half1": 685.24,
+     "half2_continuous": -23.49,
+     "half2_from_zero": -10.67,
+     "half2_from_zero_dd": -187.17
+    },
+    "0.3/0.34": {
+     "total": 525.0257,
+     "real": 746.7114,
+     "fee": 125.1429,
+     "fund": 52.2615,
+     "bag": -44.2813,
+     "lots_end": 27,
+     "qty_end": 0.0135,
+     "dd": -337.6974,
+     "ent": 8814,
+     "tk": 8583,
+     "vol": 757288.1748,
+     "turnover": 765573.141,
+     "regime_closes": 5,
+     "regime_close_pnl": -521.8341,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 144.8374,
+     "eq_mid": 569.0708,
+     "total_over_dd": 1.555,
+     "half1": 569.07,
+     "half2_continuous": -44.05,
+     "half2_from_zero": -24.36,
+     "half2_from_zero_dd": -213.86
+    },
+    "0.3/0.49": {
+     "total": 592.1379,
+     "real": 780.2581,
+     "fee": 90.8444,
+     "fund": 52.9945,
+     "bag": -44.2813,
+     "lots_end": 27,
+     "qty_end": 0.0135,
+     "dd": -335.2105,
+     "ent": 6342,
+     "tk": 6109,
+     "vol": 542663.8075,
+     "turnover": 551034.9527,
+     "regime_closes": 5,
+     "regime_close_pnl": -521.6616,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 144.9034,
+     "eq_mid": 623.0898,
+     "total_over_dd": 1.766,
+     "half1": 623.09,
+     "half2_continuous": -30.95,
+     "half2_from_zero": -12.35,
+     "half2_from_zero_dd": -213.92
+    },
+    "0.3/0.89": {
+     "total": 649.0353,
+     "real": 801.0153,
+     "fee": 53.2516,
+     "fund": 54.4471,
+     "bag": -44.2813,
+     "lots_end": 27,
+     "qty_end": 0.0135,
+     "dd": -332.721,
+     "ent": 3636,
+     "tk": 3400,
+     "vol": 307265.0503,
+     "turnover": 315784.2016,
+     "regime_closes": 5,
+     "regime_close_pnl": -515.2999,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 144.9004,
+     "eq_mid": 669.5216,
+     "total_over_dd": 1.951,
+     "half1": 669.52,
+     "half2_continuous": -20.49,
+     "half2_from_zero": -0.71,
+     "half2_from_zero_dd": -209.07
+    },
+    "0.3/1.4": {
+     "total": 670.071,
+     "real": 804.1784,
+     "fee": 35.7482,
+     "fund": 54.0779,
+     "bag": -44.2813,
+     "lots_end": 27,
+     "qty_end": 0.0135,
+     "dd": -328.697,
+     "ent": 2374,
+     "tk": 2138,
+     "vol": 197725.8618,
+     "turnover": 206292.5807,
+     "regime_closes": 5,
+     "regime_close_pnl": -499.4481,
+     "hours_at_cap": 0.0,
+     "max_orders": 63,
+     "density_eff": 145.0575,
+     "eq_mid": 697.7585,
+     "total_over_dd": 2.039,
+     "half1": 697.76,
+     "half2_continuous": -27.69,
+     "half2_from_zero": -7.91,
+     "half2_from_zero_dd": -212.55
+    },
+    "0.6/0.34": {
+     "total": 562.9646,
+     "real": 786.6044,
+     "fee": 129.3759,
+     "fund": 52.7944,
+     "bag": -41.4694,
+     "lots_end": 12,
+     "qty_end": 0.0132,
+     "dd": -362.1241,
+     "ent": 4322,
+     "tk": 4211,
+     "vol": 783278.5332,
+     "turnover": 791718.8761,
+     "regime_closes": 5,
+     "regime_close_pnl": -525.832,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 152.7142,
+     "eq_mid": 606.0321,
+     "total_over_dd": 1.555,
+     "half1": 606.03,
+     "half2_continuous": -43.07,
+     "half2_from_zero": -23.95,
+     "half2_from_zero_dd": -233.61
+    },
+    "0.6/0.49": {
+     "total": 628.4307,
+     "real": 825.0819,
+     "fee": 94.9769,
+     "fund": 54.863,
+     "bag": -46.8112,
+     "lots_end": 13,
+     "qty_end": 0.0143,
+     "dd": -356.5926,
+     "ent": 3147,
+     "tk": 3032,
+     "vol": 567489.8628,
+     "turnover": 576195.1934,
+     "regime_closes": 5,
+     "regime_close_pnl": -536.5148,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 152.6768,
+     "eq_mid": 651.3989,
+     "total_over_dd": 1.762,
+     "half1": 651.4,
+     "half2_continuous": -22.97,
+     "half2_from_zero": -4.25,
+     "half2_from_zero_dd": -232.97
+    },
+    "0.6/0.89": {
+     "total": 711.3635,
+     "real": 872.4281,
+     "fee": 56.9279,
+     "fund": 57.3254,
+     "bag": -46.8112,
+     "lots_end": 13,
+     "qty_end": 0.0143,
+     "dd": -359.5774,
+     "ent": 1847,
+     "tk": 1730,
+     "vol": 329136.4286,
+     "turnover": 338024.0964,
+     "regime_closes": 5,
+     "regime_close_pnl": -538.7542,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 152.6575,
+     "eq_mid": 731.2595,
+     "total_over_dd": 1.978,
+     "half1": 731.26,
+     "half2_continuous": -19.9,
+     "half2_from_zero": -0.04,
+     "half2_from_zero_dd": -233.57
+    },
+    "0.6/1.4": {
+     "total": 769.9477,
+     "real": 914.4595,
+     "fee": 39.1469,
+     "fund": 58.5536,
+     "bag": -46.8112,
+     "lots_end": 13,
+     "qty_end": 0.0143,
+     "dd": -350.2794,
+     "ent": 1240,
+     "tk": 1123,
+     "vol": 217954.4168,
+     "turnover": 226858.9947,
+     "regime_closes": 5,
+     "regime_close_pnl": -526.7827,
+     "hours_at_cap": 0.0,
+     "max_orders": 32,
+     "density_eff": 152.6499,
+     "eq_mid": 773.2263,
+     "total_over_dd": 2.198,
+     "half1": 773.23,
+     "half2_continuous": -3.28,
+     "half2_from_zero": 13.8,
+     "half2_from_zero_dd": -226.11
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "total": 1780.2376,
+     "real": 3264.3232,
+     "fee": 747.7517,
+     "fund": 409.4128,
+     "bag": -326.9211,
+     "lots_end": 82,
+     "qty_end": 0.0984,
+     "dd": -2872.7376,
+     "ent": 20808,
+     "tk": 20258,
+     "vol": 4510791.1379,
+     "turnover": 4565010.1472,
+     "regime_closes": 5,
+     "regime_close_pnl": -4278.9308,
+     "hours_at_cap": 1268.2667,
+     "max_orders": 129,
+     "density_eff": 1098.1348,
+     "eq_mid": 2556.108,
+     "total_over_dd": 0.62,
+     "half1": 2556.11,
+     "half2_continuous": -775.87,
+     "half2_from_zero": -606.49,
+     "half2_from_zero_dd": -1621.51
+    },
+    "0.1/0.49": {
+     "total": 2174.5743,
+     "real": 3450.0074,
+     "fee": 539.1555,
+     "fund": 409.3565,
+     "bag": -326.9211,
+     "lots_end": 82,
+     "qty_end": 0.0984,
+     "dd": -2808.9111,
+     "ent": 14857,
+     "tk": 14309,
+     "vol": 3207849.7304,
+     "turnover": 3261807.2053,
+     "regime_closes": 5,
+     "regime_close_pnl": -4228.4763,
+     "hours_at_cap": 1282.6167,
+     "max_orders": 129,
+     "density_eff": 1099.3502,
+     "eq_mid": 2853.0682,
+     "total_over_dd": 0.774,
+     "half1": 2853.07,
+     "half2_continuous": -678.49,
+     "half2_from_zero": -501.75,
+     "half2_from_zero_dd": -1598.73
+    },
+    "0.1/0.89": {
+     "total": 2494.4541,
+     "real": 3550.849,
+     "fee": 313.2741,
+     "fund": 416.3351,
+     "bag": -326.7858,
+     "lots_end": 83,
+     "qty_end": 0.0996,
+     "dd": -2829.6843,
+     "ent": 8452,
+     "tk": 7901,
+     "vol": 1795427.7504,
+     "turnover": 1849606.2011,
+     "regime_closes": 5,
+     "regime_close_pnl": -4108.6827,
+     "hours_at_cap": 1322.4667,
+     "max_orders": 130,
+     "density_eff": 1097.0206,
+     "eq_mid": 3039.4405,
+     "total_over_dd": 0.882,
+     "half1": 3039.44,
+     "half2_continuous": -544.99,
+     "half2_from_zero": -368.23,
+     "half2_from_zero_dd": -1587.85
+    },
+    "0.1/1.4": {
+     "total": 2880.554,
+     "real": 3752.414,
+     "fee": 213.6395,
+     "fund": 412.8414,
+     "bag": -245.3791,
+     "lots_end": 72,
+     "qty_end": 0.0864,
+     "dd": -2704.8362,
+     "ent": 5610,
+     "tk": 5072,
+     "vol": 1173411.1262,
+     "turnover": 1227356.4117,
+     "regime_closes": 5,
+     "regime_close_pnl": -3952.1295,
+     "hours_at_cap": 1253.2167,
+     "max_orders": 129,
+     "density_eff": 1096.9767,
+     "eq_mid": 3466.4593,
+     "total_over_dd": 1.065,
+     "half1": 3466.46,
+     "half2_continuous": -585.91,
+     "half2_from_zero": -422.92,
+     "half2_from_zero_dd": -1597.39
+    },
+    "0.2/0.34": {
+     "total": 1623.5555,
+     "real": 2480.5004,
+     "fee": 476.0492,
+     "fund": 219.4081,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1709.0637,
+     "ent": 13049,
+     "tk": 12700,
+     "vol": 2867143.9175,
+     "turnover": 2903198.5123,
+     "regime_closes": 5,
+     "regime_close_pnl": -2314.0172,
+     "hours_at_cap": 0.0,
+     "max_orders": 97,
+     "density_eff": 556.5258,
+     "eq_mid": 1977.1979,
+     "total_over_dd": 0.95,
+     "half1": 1977.2,
+     "half2_continuous": -353.64,
+     "half2_from_zero": -268.41,
+     "half2_from_zero_dd": -1075.91
+    },
+    "0.2/0.49": {
+     "total": 1867.5245,
+     "real": 2595.7946,
+     "fee": 345.5933,
+     "fund": 221.1894,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1691.6886,
+     "ent": 9373,
+     "tk": 9022,
+     "vol": 2051192.8927,
+     "turnover": 2087447.9442,
+     "regime_closes": 5,
+     "regime_close_pnl": -2313.5403,
+     "hours_at_cap": 0.0,
+     "max_orders": 95,
+     "density_eff": 557.1792,
+     "eq_mid": 2167.9758,
+     "total_over_dd": 1.104,
+     "half1": 2167.98,
+     "half2_continuous": -300.45,
+     "half2_from_zero": -211.22,
+     "half2_from_zero_dd": -1074.46
+    },
+    "0.2/0.89": {
+     "total": 2066.3935,
+     "real": 2632.3225,
+     "fee": 202.3258,
+     "fund": 224.5199,
+     "bag": -139.0833,
+     "lots_end": 38,
+     "qty_end": 0.0456,
+     "dd": -1714.0454,
+     "ent": 5356,
+     "tk": 5004,
+     "vol": 1154572.9061,
+     "turnover": 1191227.3902,
+     "regime_closes": 5,
+     "regime_close_pnl": -2293.6176,
+     "hours_at_cap": 0.0,
+     "max_orders": 94,
+     "density_eff": 556.5752,
+     "eq_mid": 2326.7579,
+     "total_over_dd": 1.206,
+     "half1": 2326.76,
+     "half2_continuous": -260.36,
+     "half2_from_zero": -176.86,
+     "half2_from_zero_dd": -1098.24
+    },
+    "0.2/1.4": {
+     "total": 2149.1611,
+     "real": 2667.8597,
+     "fee": 136.6722,
+     "fund": 220.5389,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1757.2815,
+     "ent": 3522,
+     "tk": 3167,
+     "vol": 744327.4393,
+     "turnover": 780952.0735,
+     "regime_closes": 5,
+     "regime_close_pnl": -2207.8015,
+     "hours_at_cap": 0.0,
+     "max_orders": 91,
+     "density_eff": 555.3721,
+     "eq_mid": 2432.8701,
+     "total_over_dd": 1.223,
+     "half1": 2432.87,
+     "half2_continuous": -283.71,
+     "half2_from_zero": -206.75,
+     "half2_from_zero_dd": -1122.99
+    },
+    "0.3/0.34": {
+     "total": 1131.7115,
+     "real": 1704.616,
+     "fee": 321.2955,
+     "fund": 145.3338,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1141.9941,
+     "ent": 8814,
+     "tk": 8583,
+     "vol": 1936500.7728,
+     "turnover": 1960366.1701,
+     "regime_closes": 5,
+     "regime_close_pnl": -1534.6466,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 370.8829,
+     "eq_mid": 1341.9017,
+     "total_over_dd": 0.991,
+     "half1": 1341.9,
+     "half2_continuous": -210.19,
+     "half2_from_zero": -151.14,
+     "half2_from_zero_dd": -727.4
+    },
+    "0.3/0.49": {
+     "total": 1300.5792,
+     "real": 1787.6023,
+     "fee": 233.5337,
+     "fund": 147.2142,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1134.7976,
+     "ent": 6342,
+     "tk": 6109,
+     "vol": 1387342.4728,
+     "turnover": 1411423.5704,
+     "regime_closes": 5,
+     "regime_close_pnl": -1534.191,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 371.1636,
+     "eq_mid": 1480.1112,
+     "total_over_dd": 1.146,
+     "half1": 1480.11,
+     "half2_continuous": -179.53,
+     "half2_from_zero": -123.73,
+     "half2_from_zero_dd": -728.09
+    },
+    "0.3/0.89": {
+     "total": 1445.3595,
+     "real": 1839.5344,
+     "fee": 137.2937,
+     "fund": 150.606,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1119.8885,
+     "ent": 3636,
+     "tk": 3400,
+     "vol": 784912.2425,
+     "turnover": 809303.3045,
+     "regime_closes": 5,
+     "regime_close_pnl": -1511.2659,
+     "hours_at_cap": 0.0,
+     "max_orders": 65,
+     "density_eff": 371.3694,
+     "eq_mid": 1590.7866,
+     "total_over_dd": 1.291,
+     "half1": 1590.79,
+     "half2_continuous": -145.43,
+     "half2_from_zero": -86.09,
+     "half2_from_zero_dd": -707.84
+    },
+    "0.3/1.4": {
+     "total": 1506.5895,
+     "real": 1854.623,
+     "fee": 92.2219,
+     "fund": 149.5364,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1092.1405,
+     "ent": 2374,
+     "tk": 2138,
+     "vol": 503390.4078,
+     "turnover": 527722.6131,
+     "regime_closes": 5,
+     "regime_close_pnl": -1446.6722,
+     "hours_at_cap": 0.0,
+     "max_orders": 63,
+     "density_eff": 371.0922,
+     "eq_mid": 1669.5715,
+     "total_over_dd": 1.379,
+     "half1": 1669.57,
+     "half2_continuous": -162.98,
+     "half2_from_zero": -103.65,
+     "half2_from_zero_dd": -720.77
+    },
+    "0.6/0.34": {
+     "total": 595.0527,
+     "real": 866.595,
+     "fee": 157.8557,
+     "fund": 68.4472,
+     "bag": -45.2394,
+     "lots_end": 12,
+     "qty_end": 0.0144,
+     "dd": -574.6654,
+     "ent": 4322,
+     "tk": 4211,
+     "vol": 951820.3369,
+     "turnover": 963412.9814,
+     "regime_closes": 5,
+     "regime_close_pnl": -726.0558,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.8228,
+     "eq_mid": 687.5504,
+     "total_over_dd": 1.035,
+     "half1": 687.55,
+     "half2_continuous": -92.5,
+     "half2_from_zero": -63.82,
+     "half2_from_zero_dd": -371.11
+    },
+    "0.6/0.49": {
+     "total": 669.2872,
+     "real": 907.3492,
+     "fee": 115.9244,
+     "fund": 71.0708,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -566.1208,
+     "ent": 3147,
+     "tk": 3032,
+     "vol": 688804.0571,
+     "turnover": 700711.9413,
+     "regime_closes": 5,
+     "regime_close_pnl": -742.1727,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.6562,
+     "eq_mid": 737.3259,
+     "total_over_dd": 1.182,
+     "half1": 737.33,
+     "half2_continuous": -68.04,
+     "half2_from_zero": -39.97,
+     "half2_from_zero_dd": -370.18
+    },
+    "0.6/0.89": {
+     "total": 764.4924,
+     "real": 959.376,
+     "fee": 69.6645,
+     "fund": 74.1522,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -570.3238,
+     "ent": 1847,
+     "tk": 1730,
+     "vol": 398945.1746,
+     "turnover": 411097.8689,
+     "regime_closes": 5,
+     "regime_close_pnl": -745.231,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.637,
+     "eq_mid": 828.3731,
+     "total_over_dd": 1.34,
+     "half1": 828.37,
+     "half2_continuous": -63.88,
+     "half2_from_zero": -34.09,
+     "half2_from_zero_dd": -371.26
+    },
+    "0.6/1.4": {
+     "total": 831.5631,
+     "real": 1005.8116,
+     "fee": 47.9352,
+     "fund": 75.2465,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -554.8008,
+     "ent": 1240,
+     "tk": 1123,
+     "vol": 263272.3418,
+     "turnover": 275379.9424,
+     "regime_closes": 5,
+     "regime_close_pnl": -726.0522,
+     "hours_at_cap": 0.0,
+     "max_orders": 32,
+     "density_eff": 185.2699,
+     "eq_mid": 873.6651,
+     "total_over_dd": 1.499,
+     "half1": 873.67,
+     "half2_continuous": -42.1,
+     "half2_from_zero": -16.48,
+     "half2_from_zero_dd": -358.51
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "total": 942.629,
+     "real": 2028.8712,
+     "fee": 491.9068,
+     "fund": 314.6538,
+     "bag": -279.6817,
+     "lots_end": 50,
+     "qty_end": 0.06,
+     "dd": -2056.6243,
+     "ent": 13670,
+     "tk": 13370,
+     "vol": 2984934.5092,
+     "turnover": 3014762.1636,
+     "regime_closes": 5,
+     "regime_close_pnl": -2973.3586,
+     "hours_at_cap": 4199.1833,
+     "max_orders": 51,
+     "density_eff": 1103.8205,
+     "eq_mid": 1500.7391,
+     "total_over_dd": 0.458,
+     "half1": 1500.74,
+     "half2_continuous": -558.11
+    },
+    "0.1/0.49": {
+     "total": 1227.7391,
+     "real": 2177.1611,
+     "fee": 355.4313,
+     "fund": 314.3091,
+     "bag": -279.6817,
+     "lots_end": 50,
+     "qty_end": 0.06,
+     "dd": -2010.0828,
+     "ent": 9805,
+     "tk": 9505,
+     "vol": 2131962.3634,
+     "turnover": 2161790.0178,
+     "regime_closes": 5,
+     "regime_close_pnl": -2941.3686,
+     "hours_at_cap": 4188.55,
+     "max_orders": 51,
+     "density_eff": 1103.8882,
+     "eq_mid": 1704.9367,
+     "total_over_dd": 0.611,
+     "half1": 1704.94,
+     "half2_continuous": -477.2
+    },
+    "0.1/0.89": {
+     "total": 1378.5741,
+     "real": 2180.199,
+     "fee": 203.1183,
+     "fund": 318.8249,
+     "bag": -279.6817,
+     "lots_end": 50,
+     "qty_end": 0.06,
+     "dd": -2012.8904,
+     "ent": 5506,
+     "tk": 5206,
+     "vol": 1180006.6202,
+     "turnover": 1209834.2747,
+     "regime_closes": 5,
+     "regime_close_pnl": -2880.3393,
+     "hours_at_cap": 4352.6,
+     "max_orders": 51,
+     "density_eff": 1101.3131,
+     "eq_mid": 1790.6623,
+     "total_over_dd": 0.685,
+     "half1": 1790.66,
+     "half2_continuous": -412.09
+    },
+    "0.1/1.4": {
+     "total": 1734.3887,
+     "real": 2416.0788,
+     "fee": 139.6018,
+     "fund": 316.8567,
+     "bag": -225.2317,
+     "lots_end": 50,
+     "qty_end": 0.06,
+     "dd": -1918.9516,
+     "ent": 3723,
+     "tk": 3423,
+     "vol": 783028.0112,
+     "turnover": 812855.6657,
+     "regime_closes": 5,
+     "regime_close_pnl": -2765.4998,
+     "hours_at_cap": 4247.85,
+     "max_orders": 51,
+     "density_eff": 1095.215,
+     "eq_mid": 2069.2449,
+     "total_over_dd": 0.904,
+     "half1": 2069.24,
+     "half2_continuous": -334.86
+    },
+    "0.2/0.34": {
+     "total": 1005.2217,
+     "real": 1763.6765,
+     "fee": 391.069,
+     "fund": 205.8983,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1572.9131,
+     "ent": 10813,
+     "tk": 10532,
+     "vol": 2358621.555,
+     "turnover": 2387141.5372,
+     "regime_closes": 5,
+     "regime_close_pnl": -2180.7003,
+     "hours_at_cap": 1221.0333,
+     "max_orders": 51,
+     "density_eff": 552.4604,
+     "eq_mid": 1376.6585,
+     "total_over_dd": 0.639,
+     "half1": 1376.66,
+     "half2_continuous": -371.44
+    },
+    "0.2/0.49": {
+     "total": 1190.3372,
+     "real": 1842.4625,
+     "fee": 282.6134,
+     "fund": 208.0244,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1559.8422,
+     "ent": 7737,
+     "tk": 7456,
+     "vol": 1680773.5904,
+     "turnover": 1709293.5726,
+     "regime_closes": 5,
+     "regime_close_pnl": -2180.7003,
+     "hours_at_cap": 1209.65,
+     "max_orders": 51,
+     "density_eff": 553.0487,
+     "eq_mid": 1525.5315,
+     "total_over_dd": 0.763,
+     "half1": 1525.53,
+     "half2_continuous": -335.19
+    },
+    "0.2/0.89": {
+     "total": 1344.4621,
+     "real": 1859.093,
+     "fee": 164.3305,
+     "fund": 211.2171,
+     "bag": -139.0833,
+     "lots_end": 38,
+     "qty_end": 0.0456,
+     "dd": -1576.903,
+     "ent": 4403,
+     "tk": 4127,
+     "vol": 942290.3074,
+     "turnover": 970548.7551,
+     "regime_closes": 5,
+     "regime_close_pnl": -2164.097,
+     "hours_at_cap": 1220.2333,
+     "max_orders": 51,
+     "density_eff": 552.1811,
+     "eq_mid": 1655.0602,
+     "total_over_dd": 0.853,
+     "half1": 1655.06,
+     "half2_continuous": -310.6
+    },
+    "0.2/1.4": {
+     "total": 1469.9337,
+     "real": 1951.973,
+     "fee": 112.1913,
+     "fund": 208.3605,
+     "bag": -161.4875,
+     "lots_end": 41,
+     "qty_end": 0.0492,
+     "dd": -1587.1342,
+     "ent": 2933,
+     "tk": 2655,
+     "vol": 616812.3256,
+     "turnover": 644940.0061,
+     "regime_closes": 5,
+     "regime_close_pnl": -2097.0905,
+     "hours_at_cap": 1206.25,
+     "max_orders": 51,
+     "density_eff": 551.5786,
+     "eq_mid": 1802.3141,
+     "total_over_dd": 0.926,
+     "half1": 1802.31,
+     "half2_continuous": -332.38
+    },
+    "0.3/0.34": {
+     "total": 1062.0584,
+     "real": 1627.5887,
+     "fee": 314.0348,
+     "fund": 145.2204,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1141.9941,
+     "ent": 8612,
+     "tk": 8381,
+     "vol": 1891121.0438,
+     "turnover": 1914986.4411,
+     "regime_closes": 5,
+     "regime_close_pnl": -1534.6466,
+     "hours_at_cap": 63.9667,
+     "max_orders": 51,
+     "density_eff": 370.8149,
+     "eq_mid": 1281.5093,
+     "total_over_dd": 0.93,
+     "half1": 1281.51,
+     "half2_continuous": -219.45
+    },
+    "0.3/0.49": {
+     "total": 1224.4658,
+     "real": 1706.0315,
+     "fee": 228.1942,
+     "fund": 147.0963,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1134.7976,
+     "ent": 6194,
+     "tk": 5961,
+     "vol": 1353970.1642,
+     "turnover": 1378051.2619,
+     "regime_closes": 5,
+     "regime_close_pnl": -1534.191,
+     "hours_at_cap": 67.25,
+     "max_orders": 51,
+     "density_eff": 371.0744,
+     "eq_mid": 1417.7639,
+     "total_over_dd": 1.079,
+     "half1": 1417.76,
+     "half2_continuous": -193.3
+    },
+    "0.3/0.89": {
+     "total": 1344.5333,
+     "real": 1734.7213,
+     "fee": 133.4675,
+     "fund": 150.4453,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1119.8885,
+     "ent": 3531,
+     "tk": 3296,
+     "vol": 761255.9782,
+     "turnover": 785561.3666,
+     "regime_closes": 5,
+     "regime_close_pnl": -1511.6466,
+     "hours_at_cap": 84.0833,
+     "max_orders": 51,
+     "density_eff": 371.2557,
+     "eq_mid": 1510.1179,
+     "total_over_dd": 1.201,
+     "half1": 1510.12,
+     "half2_continuous": -165.58
+    },
+    "0.3/1.4": {
+     "total": 1409.18,
+     "real": 1754.6695,
+     "fee": 89.8353,
+     "fund": 149.3791,
+     "bag": -106.2752,
+     "lots_end": 27,
+     "qty_end": 0.0324,
+     "dd": -1092.1405,
+     "ent": 2310,
+     "tk": 2076,
+     "vol": 488988.0972,
+     "turnover": 513148.9554,
+     "regime_closes": 5,
+     "regime_close_pnl": -1447.6895,
+     "hours_at_cap": 69.3833,
+     "max_orders": 51,
+     "density_eff": 370.9307,
+     "eq_mid": 1594.1332,
+     "total_over_dd": 1.29,
+     "half1": 1594.13,
+     "half2_continuous": -184.95
+    },
+    "0.6/0.34": {
+     "total": 595.0527,
+     "real": 866.595,
+     "fee": 157.8557,
+     "fund": 68.4472,
+     "bag": -45.2394,
+     "lots_end": 12,
+     "qty_end": 0.0144,
+     "dd": -574.6654,
+     "ent": 4322,
+     "tk": 4211,
+     "vol": 951820.3369,
+     "turnover": 963412.9814,
+     "regime_closes": 5,
+     "regime_close_pnl": -726.0558,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.8228,
+     "eq_mid": 687.5504,
+     "total_over_dd": 1.035,
+     "half1": 687.55,
+     "half2_continuous": -92.5
+    },
+    "0.6/0.49": {
+     "total": 669.2872,
+     "real": 907.3492,
+     "fee": 115.9244,
+     "fund": 71.0708,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -566.1208,
+     "ent": 3147,
+     "tk": 3032,
+     "vol": 688804.0571,
+     "turnover": 700711.9413,
+     "regime_closes": 5,
+     "regime_close_pnl": -742.1727,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.6562,
+     "eq_mid": 737.3259,
+     "total_over_dd": 1.182,
+     "half1": 737.33,
+     "half2_continuous": -68.04
+    },
+    "0.6/0.89": {
+     "total": 764.4924,
+     "real": 959.376,
+     "fee": 69.6645,
+     "fund": 74.1522,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -570.3238,
+     "ent": 1847,
+     "tk": 1730,
+     "vol": 398945.1746,
+     "turnover": 411097.8689,
+     "regime_closes": 5,
+     "regime_close_pnl": -745.231,
+     "hours_at_cap": 0.0,
+     "max_orders": 33,
+     "density_eff": 185.637,
+     "eq_mid": 828.3731,
+     "total_over_dd": 1.34,
+     "half1": 828.37,
+     "half2_continuous": -63.88
+    },
+    "0.6/1.4": {
+     "total": 831.5631,
+     "real": 1005.8116,
+     "fee": 47.9352,
+     "fund": 75.2465,
+     "bag": -51.0668,
+     "lots_end": 13,
+     "qty_end": 0.0156,
+     "dd": -554.8008,
+     "ent": 1240,
+     "tk": 1123,
+     "vol": 263272.3418,
+     "turnover": 275379.9424,
+     "regime_closes": 5,
+     "regime_close_pnl": -726.0522,
+     "hours_at_cap": 0.0,
+     "max_orders": 32,
+     "density_eff": 185.2699,
+     "eq_mid": 873.6651,
+     "total_over_dd": 1.499,
+     "half1": 873.67,
+     "half2_continuous": -42.1
+    }
+   }
+  },
+  "ETHUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "total": 645.6332,
+     "real": 1168.0453,
+     "fee": 215.6484,
+     "fund": 71.1008,
+     "bag": -235.6628,
+     "lots_end": 187,
+     "qty_end": 1.071,
+     "dd": -689.2526,
+     "ent": 46465,
+     "tk": 45529,
+     "vol": 1319461.0726,
+     "turnover": 1328908.2744,
+     "regime_closes": 4,
+     "regime_close_pnl": -1049.8654,
+     "hours_at_cap": 0.0,
+     "max_orders": 323,
+     "density_eff": 143.1692,
+     "eq_mid": 765.0606,
+     "total_over_dd": 0.937,
+     "half1": 765.06,
+     "half2_continuous": -119.43,
+     "half2_from_zero": -273.6,
+     "half2_from_zero_dd": -531.73
+    },
+    "0.1/0.49": {
+     "total": 781.4588,
+     "real": 1237.2655,
+     "fee": 156.156,
+     "fund": 70.7697,
+     "bag": -228.881,
+     "lots_end": 184,
+     "qty_end": 1.056,
+     "dd": -697.032,
+     "ent": 33477,
+     "tk": 32542,
+     "vol": 947497.5705,
+     "turnover": 956990.049,
+     "regime_closes": 4,
+     "regime_close_pnl": -1046.8678,
+     "hours_at_cap": 0.0,
+     "max_orders": 320,
+     "density_eff": 143.1493,
+     "eq_mid": 864.2208,
+     "total_over_dd": 1.121,
+     "half1": 864.22,
+     "half2_continuous": -82.76,
+     "half2_from_zero": -238.68,
+     "half2_from_zero_dd": -532.35
+    },
+    "0.1/0.89": {
+     "total": 945.0705,
+     "real": 1336.4969,
+     "fee": 92.1132,
+     "fund": 70.4322,
+     "bag": -228.881,
+     "lots_end": 184,
+     "qty_end": 1.056,
+     "dd": -678.2057,
+     "ent": 19488,
+     "tk": 18549,
+     "vol": 546965.2507,
+     "turnover": 556545.975,
+     "regime_closes": 4,
+     "regime_close_pnl": -1028.2387,
+     "hours_at_cap": 0.0,
+     "max_orders": 320,
+     "density_eff": 143.139,
+     "eq_mid": 999.2339,
+     "total_over_dd": 1.393,
+     "half1": 999.23,
+     "half2_continuous": -54.16,
+     "half2_from_zero": -199.49,
+     "half2_from_zero_dd": -513.32
+    },
+    "0.1/1.4": {
+     "total": 1037.1252,
+     "real": 1400.4408,
+     "fee": 62.273,
+     "fund": 72.1616,
+     "bag": -228.881,
+     "lots_end": 184,
+     "qty_end": 1.056,
+     "dd": -667.2527,
+     "ent": 12970,
+     "tk": 12028,
+     "vol": 360258.5798,
+     "turnover": 369907.8422,
+     "regime_closes": 4,
+     "regime_close_pnl": -1011.3251,
+     "hours_at_cap": 0.0,
+     "max_orders": 320,
+     "density_eff": 143.0981,
+     "eq_mid": 1070.2491,
+     "total_over_dd": 1.554,
+     "half1": 1070.25,
+     "half2_continuous": -33.12,
+     "half2_from_zero": -192.67,
+     "half2_from_zero_dd": -530.65
+    },
+    "0.2/0.34": {
+     "total": 783.5803,
+     "real": 1344.4782,
+     "fee": 239.4901,
+     "fund": 74.6972,
+     "bag": -246.7106,
+     "lots_end": 93,
+     "qty_end": 1.119,
+     "dd": -768.3805,
+     "ent": 24353,
+     "tk": 23884,
+     "vol": 1466262.421,
+     "turnover": 1476445.977,
+     "regime_closes": 4,
+     "regime_close_pnl": -1121.0788,
+     "hours_at_cap": 0.0,
+     "max_orders": 165,
+     "density_eff": 151.7221,
+     "eq_mid": 884.7818,
+     "total_over_dd": 1.02,
+     "half1": 884.78,
+     "half2_continuous": -101.2,
+     "half2_from_zero": -275.94,
+     "half2_from_zero_dd": -610.79
+    },
+    "0.2/0.49": {
+     "total": 927.9321,
+     "real": 1423.1591,
+     "fee": 173.421,
+     "fund": 75.0953,
+     "bag": -246.7106,
+     "lots_end": 93,
+     "qty_end": 1.119,
+     "dd": -768.4982,
+     "ent": 17550,
+     "tk": 17080,
+     "vol": 1053222.7782,
+     "turnover": 1063442.3435,
+     "regime_closes": 4,
+     "regime_close_pnl": -1117.1057,
+     "hours_at_cap": 0.0,
+     "max_orders": 165,
+     "density_eff": 151.6913,
+     "eq_mid": 991.0323,
+     "total_over_dd": 1.207,
+     "half1": 991.03,
+     "half2_continuous": -63.1,
+     "half2_from_zero": -235.99,
+     "half2_from_zero_dd": -607.35
+    },
+    "0.2/0.89": {
+     "total": 1100.6627,
+     "real": 1517.7274,
+     "fee": 101.826,
+     "fund": 76.2747,
+     "bag": -238.964,
+     "lots_end": 92,
+     "qty_end": 1.108,
+     "dd": -763.9001,
+     "ent": 10174,
+     "tk": 9705,
+     "vol": 605691.7777,
+     "turnover": 615932.0814,
+     "regime_closes": 4,
+     "regime_close_pnl": -1103.3981,
+     "hours_at_cap": 0.0,
+     "max_orders": 165,
+     "density_eff": 151.6696,
+     "eq_mid": 1120.5175,
+     "total_over_dd": 1.441,
+     "half1": 1120.52,
+     "half2_continuous": -19.85,
+     "half2_from_zero": -200.63,
+     "half2_from_zero_dd": -613.07
+    },
+    "0.2/1.4": {
+     "total": 1197.6608,
+     "real": 1580.5713,
+     "fee": 68.2582,
+     "fund": 75.6883,
+     "bag": -238.964,
+     "lots_end": 92,
+     "qty_end": 1.108,
+     "dd": -739.5616,
+     "ent": 6712,
+     "tk": 6242,
+     "vol": 395657.5675,
+     "turnover": 405976.3341,
+     "regime_closes": 4,
+     "regime_close_pnl": -1071.2948,
+     "hours_at_cap": 0.0,
+     "max_orders": 164,
+     "density_eff": 151.6747,
+     "eq_mid": 1196.2754,
+     "total_over_dd": 1.619,
+     "half1": 1196.28,
+     "half2_continuous": 1.39,
+     "half2_from_zero": -177.57,
+     "half2_from_zero_dd": -603.08
+    },
+    "0.3/0.34": {
+     "total": 859.618,
+     "real": 1436.0225,
+     "fee": 250.373,
+     "fund": 76.0646,
+     "bag": -249.9668,
+     "lots_end": 62,
+     "qty_end": 1.136,
+     "dd": -796.0465,
+     "ent": 16637,
+     "tk": 16325,
+     "vol": 1533656.8518,
+     "turnover": 1544048.365,
+     "regime_closes": 4,
+     "regime_close_pnl": -1143.5381,
+     "hours_at_cap": 0.0,
+     "max_orders": 114,
+     "density_eff": 154.8265,
+     "eq_mid": 946.0658,
+     "total_over_dd": 1.08,
+     "half1": 946.07,
+     "half2_continuous": -86.45,
+     "half2_from_zero": -265.07,
+     "half2_from_zero_dd": -632.16
+    },
+    "0.3/0.49": {
+     "total": 1013.4961,
+     "real": 1521.7584,
+     "fee": 181.4968,
+     "fund": 76.7987,
+     "bag": -249.9668,
+     "lots_end": 62,
+     "qty_end": 1.136,
+     "dd": -795.3165,
+     "ent": 12002,
+     "tk": 11689,
+     "vol": 1103018.6747,
+     "turnover": 1113464.1112,
+     "regime_closes": 4,
+     "regime_close_pnl": -1139.5009,
+     "hours_at_cap": 0.0,
+     "max_orders": 114,
+     "density_eff": 154.8129,
+     "eq_mid": 1054.8639,
+     "total_over_dd": 1.274,
+     "half1": 1054.86,
+     "half2_continuous": -41.37,
+     "half2_from_zero": -217.88,
+     "half2_from_zero_dd": -628.3
+    },
+    "0.3/0.89": {
+     "total": 1209.8201,
+     "real": 1635.1111,
+     "fee": 106.4079,
+     "fund": 77.0294,
+     "bag": -241.8537,
+     "lots_end": 61,
+     "qty_end": 1.119,
+     "dd": -782.0084,
+     "ent": 6947,
+     "tk": 6635,
+     "vol": 633606.3358,
+     "turnover": 644087.4022,
+     "regime_closes": 4,
+     "regime_close_pnl": -1108.487,
+     "hours_at_cap": 0.0,
+     "max_orders": 113,
+     "density_eff": 154.8153,
+     "eq_mid": 1206.22,
+     "total_over_dd": 1.547,
+     "half1": 1206.22,
+     "half2_continuous": 3.6,
+     "half2_from_zero": -171.53,
+     "half2_from_zero_dd": -616.32
+    },
+    "0.3/1.4": {
+     "total": 1256.1576,
+     "real": 1655.7969,
+     "fee": 71.4444,
+     "fund": 78.2281,
+     "bag": -249.9668,
+     "lots_end": 62,
+     "qty_end": 1.136,
+     "dd": -797.7068,
+     "ent": 4592,
+     "tk": 4276,
+     "vol": 414714.5369,
+     "turnover": 425318.8729,
+     "regime_closes": 4,
+     "regime_close_pnl": -1125.6585,
+     "hours_at_cap": 0.0,
+     "max_orders": 113,
+     "density_eff": 154.8199,
+     "eq_mid": 1242.7117,
+     "total_over_dd": 1.575,
+     "half1": 1242.71,
+     "half2_continuous": 13.45,
+     "half2_from_zero": -153.25,
+     "half2_from_zero_dd": -610.14
+    },
+    "0.6/0.34": {
+     "total": 901.8885,
+     "real": 1480.8891,
+     "fee": 254.479,
+     "fund": 75.4117,
+     "bag": -249.1099,
+     "lots_end": 31,
+     "qty_end": 1.153,
+     "dd": -806.6592,
+     "ent": 8322,
+     "tk": 8170,
+     "vol": 1559766.5377,
+     "turnover": 1570008.9747,
+     "regime_closes": 4,
+     "regime_close_pnl": -1143.1824,
+     "hours_at_cap": 0.0,
+     "max_orders": 60,
+     "density_eff": 157.3604,
+     "eq_mid": 954.039,
+     "total_over_dd": 1.118,
+     "half1": 954.04,
+     "half2_continuous": -52.15,
+     "half2_from_zero": -236.62,
+     "half2_from_zero_dd": -638.61
+    },
+    "0.6/0.49": {
+     "total": 1074.8285,
+     "real": 1587.3025,
+     "fee": 186.601,
+     "fund": 76.7631,
+     "bag": -249.1099,
+     "lots_end": 31,
+     "qty_end": 1.153,
+     "dd": -806.1804,
+     "ent": 6072,
+     "tk": 5916,
+     "vol": 1134401.9633,
+     "turnover": 1145020.028,
+     "regime_closes": 4,
+     "regime_close_pnl": -1150.1678,
+     "hours_at_cap": 0.0,
+     "max_orders": 60,
+     "density_eff": 157.3298,
+     "eq_mid": 1091.0473,
+     "total_over_dd": 1.333,
+     "half1": 1091.05,
+     "half2_continuous": -16.22,
+     "half2_from_zero": -202.03,
+     "half2_from_zero_dd": -639.68
+    },
+    "0.6/0.89": {
+     "total": 1247.4081,
+     "real": 1685.186,
+     "fee": 109.8719,
+     "fund": 78.796,
+     "bag": -249.1099,
+     "lots_end": 31,
+     "qty_end": 1.153,
+     "dd": -808.083,
+     "ent": 3530,
+     "tk": 3373,
+     "vol": 654558.2823,
+     "turnover": 665271.9825,
+     "regime_closes": 4,
+     "regime_close_pnl": -1149.6701,
+     "hours_at_cap": 0.0,
+     "max_orders": 60,
+     "density_eff": 157.3471,
+     "eq_mid": 1218.6272,
+     "total_over_dd": 1.544,
+     "half1": 1218.63,
+     "half2_continuous": 28.78,
+     "half2_from_zero": -148.05,
+     "half2_from_zero_dd": -640.63
+    },
+    "0.6/1.4": {
+     "total": 1356.2102,
+     "real": 1759.5123,
+     "fee": 74.0847,
+     "fund": 80.1075,
+     "bag": -249.1099,
+     "lots_end": 31,
+     "qty_end": 1.153,
+     "dd": -800.1262,
+     "ent": 2343,
+     "tk": 2185,
+     "vol": 430509.324,
+     "turnover": 441349.4217,
+     "regime_closes": 4,
+     "regime_close_pnl": -1129.8238,
+     "hours_at_cap": 0.0,
+     "max_orders": 59,
+     "density_eff": 157.3927,
+     "eq_mid": 1299.5057,
+     "total_over_dd": 1.695,
+     "half1": 1299.51,
+     "half2_continuous": 56.7,
+     "half2_from_zero": -118.39,
+     "half2_from_zero_dd": -618.58
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "total": 608.1995,
+     "real": 1382.6021,
+     "fee": 276.8325,
+     "fund": 125.5293,
+     "bag": -372.0408,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -788.2219,
+     "ent": 13942,
+     "tk": 13761,
+     "vol": 1705354.7888,
+     "turnover": 1713637.6041,
+     "regime_closes": 4,
+     "regime_close_pnl": -1492.2165,
+     "hours_at_cap": 5833.35,
+     "max_orders": 53,
+     "density_eff": 614.949,
+     "eq_mid": 834.1345,
+     "total_over_dd": 0.772,
+     "half1": 834.13,
+     "half2_continuous": -225.93,
+     "half2_from_zero": -324.64,
+     "half2_from_zero_dd": -695.18
+    },
+    "0.1/0.49": {
+     "total": 781.4842,
+     "real": 1472.825,
+     "fee": 200.8374,
+     "fund": 125.6151,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -786.1461,
+     "ent": 10094,
+     "tk": 9912,
+     "vol": 1230194.1908,
+     "turnover": 1238540.6422,
+     "regime_closes": 4,
+     "regime_close_pnl": -1504.687,
+     "hours_at_cap": 5779.6,
+     "max_orders": 53,
+     "density_eff": 613.9932,
+     "eq_mid": 945.0534,
+     "total_over_dd": 0.994,
+     "half1": 945.05,
+     "half2_continuous": -163.57,
+     "half2_from_zero": -257.97,
+     "half2_from_zero_dd": -687.24
+    },
+    "0.1/0.89": {
+     "total": 988.2522,
+     "real": 1596.1384,
+     "fee": 117.4655,
+     "fund": 125.5323,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -770.0148,
+     "ent": 5827,
+     "tk": 5645,
+     "vol": 709120.0822,
+     "turnover": 717466.5336,
+     "regime_closes": 4,
+     "regime_close_pnl": -1491.5332,
+     "hours_at_cap": 5825.2167,
+     "max_orders": 53,
+     "density_eff": 616.3824,
+     "eq_mid": 1156.8111,
+     "total_over_dd": 1.283,
+     "half1": 1156.81,
+     "half2_continuous": -168.56,
+     "half2_from_zero": -232.16,
+     "half2_from_zero_dd": -673.22
+    },
+    "0.1/1.4": {
+     "total": 927.174,
+     "real": 1493.0354,
+     "fee": 74.388,
+     "fund": 126.5849,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -779.8721,
+     "ent": 3659,
+     "tk": 3477,
+     "vol": 439885.622,
+     "turnover": 448232.0734,
+     "regime_closes": 4,
+     "regime_close_pnl": -1479.697,
+     "hours_at_cap": 6107.8167,
+     "max_orders": 53,
+     "density_eff": 613.8299,
+     "eq_mid": 1114.5914,
+     "total_over_dd": 1.189,
+     "half1": 1114.59,
+     "half2_continuous": -187.42,
+     "half2_from_zero": -238.7,
+     "half2_from_zero_dd": -704.98
+    },
+    "0.2/0.34": {
+     "total": 453.8985,
+     "real": 1113.6517,
+     "fee": 238.4317,
+     "fund": 100.293,
+     "bag": -321.0286,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -686.0262,
+     "ent": 11981,
+     "tk": 11795,
+     "vol": 1464671.6004,
+     "turnover": 1473180.3659,
+     "regime_closes": 4,
+     "regime_close_pnl": -1352.3273,
+     "hours_at_cap": 4204.3833,
+     "max_orders": 55,
+     "density_eff": 307.6812,
+     "eq_mid": 701.2964,
+     "total_over_dd": 0.662,
+     "half1": 701.3,
+     "half2_continuous": -247.4,
+     "half2_from_zero": -425.5,
+     "half2_from_zero_dd": -619.21
+    },
+    "0.2/0.49": {
+     "total": 582.4816,
+     "real": 1175.0979,
+     "fee": 171.189,
+     "fund": 100.3988,
+     "bag": -321.0286,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -659.2828,
+     "ent": 8568,
+     "tk": 8382,
+     "vol": 1044404.8098,
+     "turnover": 1052913.5753,
+     "regime_closes": 4,
+     "regime_close_pnl": -1348.1679,
+     "hours_at_cap": 4220.55,
+     "max_orders": 55,
+     "density_eff": 307.5989,
+     "eq_mid": 801.7536,
+     "total_over_dd": 0.884,
+     "half1": 801.75,
+     "half2_continuous": -219.27,
+     "half2_from_zero": -384.93,
+     "half2_from_zero_dd": -605.86
+    },
+    "0.2/0.89": {
+     "total": 715.4639,
+     "real": 1229.4755,
+     "fee": 98.391,
+     "fund": 101.7297,
+     "bag": -313.8908,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -654.3054,
+     "ent": 4875,
+     "tk": 4689,
+     "vol": 589417.6896,
+     "turnover": 597926.4551,
+     "regime_closes": 4,
+     "regime_close_pnl": -1327.8267,
+     "hours_at_cap": 4238.6167,
+     "max_orders": 55,
+     "density_eff": 307.2586,
+     "eq_mid": 894.5298,
+     "total_over_dd": 1.093,
+     "half1": 894.53,
+     "half2_continuous": -179.07,
+     "half2_from_zero": -341.93,
+     "half2_from_zero_dd": -611.0
+    },
+    "0.2/1.4": {
+     "total": 789.2974,
+     "real": 1270.3728,
+     "fee": 65.9883,
+     "fund": 101.1962,
+     "bag": -313.8908,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -656.1905,
+     "ent": 3228,
+     "tk": 3041,
+     "vol": 386671.1294,
+     "turnover": 395256.474,
+     "regime_closes": 4,
+     "regime_close_pnl": -1331.781,
+     "hours_at_cap": 4247.9,
+     "max_orders": 55,
+     "density_eff": 307.0349,
+     "eq_mid": 982.2371,
+     "total_over_dd": 1.203,
+     "half1": 982.24,
+     "half2_continuous": -192.94,
+     "half2_from_zero": -347.91,
+     "half2_from_zero_dd": -603.6
+    },
+    "0.3/0.34": {
+     "total": 419.4065,
+     "real": 982.2109,
+     "fee": 211.2277,
+     "fund": 84.3514,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -635.0233,
+     "ent": 10596,
+     "tk": 10413,
+     "vol": 1295612.632,
+     "turnover": 1303799.4953,
+     "regime_closes": 4,
+     "regime_close_pnl": -1197.5521,
+     "hours_at_cap": 2829.35,
+     "max_orders": 55,
+     "density_eff": 205.3093,
+     "eq_mid": 598.5578,
+     "total_over_dd": 0.66,
+     "half1": 598.56,
+     "half2_continuous": -179.15,
+     "half2_from_zero": -366.78,
+     "half2_from_zero_dd": -560.84
+    },
+    "0.3/0.49": {
+     "total": 529.9833,
+     "real": 1033.8845,
+     "fee": 151.5944,
+     "fund": 85.0816,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -635.1834,
+     "ent": 7577,
+     "tk": 7394,
+     "vol": 922904.4528,
+     "turnover": 931091.3161,
+     "regime_closes": 4,
+     "regime_close_pnl": -1193.5015,
+     "hours_at_cap": 2858.9833,
+     "max_orders": 55,
+     "density_eff": 205.1196,
+     "eq_mid": 684.2774,
+     "total_over_dd": 0.834,
+     "half1": 684.28,
+     "half2_continuous": -154.29,
+     "half2_from_zero": -331.19,
+     "half2_from_zero_dd": -558.76
+    },
+    "0.3/0.89": {
+     "total": 659.782,
+     "real": 1096.0592,
+     "fee": 88.183,
+     "fund": 86.5086,
+     "bag": -261.5856,
+     "lots_end": 48,
+     "qty_end": 0.96,
+     "dd": -632.4189,
+     "ent": 4362,
+     "tk": 4176,
+     "vol": 526153.2972,
+     "turnover": 534483.4928,
+     "regime_closes": 4,
+     "regime_close_pnl": -1182.1616,
+     "hours_at_cap": 2832.9167,
+     "max_orders": 55,
+     "density_eff": 204.7553,
+     "eq_mid": 799.2057,
+     "total_over_dd": 1.043,
+     "half1": 799.21,
+     "half2_continuous": -139.42,
+     "half2_from_zero": -305.29,
+     "half2_from_zero_dd": -550.59
+    },
+    "0.3/1.4": {
+     "total": 690.2447,
+     "real": 1101.0866,
+     "fee": 58.3205,
+     "fund": 85.2961,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -636.2395,
+     "ent": 2854,
+     "tk": 2670,
+     "vol": 339703.7314,
+     "turnover": 347970.291,
+     "regime_closes": 4,
+     "regime_close_pnl": -1177.8258,
+     "hours_at_cap": 2881.3,
+     "max_orders": 55,
+     "density_eff": 203.9982,
+     "eq_mid": 837.8097,
+     "total_over_dd": 1.085,
+     "half1": 837.81,
+     "half2_continuous": -147.56,
+     "half2_from_zero": -307.77,
+     "half2_from_zero_dd": -549.46
+    },
+    "0.6/0.34": {
+     "total": 312.0499,
+     "real": 652.2737,
+     "fee": 147.4645,
+     "fund": 54.2238,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -551.9197,
+     "ent": 7143,
+     "tk": 7015,
+     "vol": 903298.2612,
+     "turnover": 909416.5779,
+     "regime_closes": 4,
+     "regime_close_pnl": -866.8953,
+     "hours_at_cap": 801.4333,
+     "max_orders": 51,
+     "density_eff": 106.2051,
+     "eq_mid": 382.1899,
+     "total_over_dd": 0.565,
+     "half1": 382.19,
+     "half2_continuous": -70.14,
+     "half2_from_zero": -239.66,
+     "half2_from_zero_dd": -471.32
+    },
+    "0.6/0.49": {
+     "total": 403.9922,
+     "real": 705.2765,
+     "fee": 107.6274,
+     "fund": 55.1215,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -552.3696,
+     "ent": 5192,
+     "tk": 5062,
+     "vol": 653953.378,
+     "turnover": 660192.6999,
+     "regime_closes": 4,
+     "regime_close_pnl": -872.2591,
+     "hours_at_cap": 809.05,
+     "max_orders": 51,
+     "density_eff": 106.104,
+     "eq_mid": 465.0488,
+     "total_over_dd": 0.731,
+     "half1": 465.05,
+     "half2_continuous": -61.06,
+     "half2_from_zero": -229.01,
+     "half2_from_zero_dd": -473.44
+    },
+    "0.6/0.89": {
+     "total": 476.2564,
+     "real": 733.5789,
+     "fee": 62.4071,
+     "fund": 56.38,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -552.3664,
+     "ent": 2974,
+     "tk": 2843,
+     "vol": 371087.595,
+     "turnover": 377406.6131,
+     "regime_closes": 4,
+     "regime_close_pnl": -871.8693,
+     "hours_at_cap": 828.7833,
+     "max_orders": 51,
+     "density_eff": 105.9897,
+     "eq_mid": 527.9047,
+     "total_over_dd": 0.862,
+     "half1": 527.9,
+     "half2_continuous": -51.65,
+     "half2_from_zero": -202.29,
+     "half2_from_zero_dd": -473.28
+    },
+    "0.6/1.4": {
+     "total": 514.2909,
+     "real": 751.2483,
+     "fee": 41.4459,
+     "fund": 56.9762,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -548.4289,
+     "ent": 1949,
+     "tk": 1818,
+     "vol": 240079.9348,
+     "turnover": 246398.9529,
+     "regime_closes": 4,
+     "regime_close_pnl": -856.9227,
+     "hours_at_cap": 859.5833,
+     "max_orders": 50,
+     "density_eff": 105.7084,
+     "eq_mid": 566.3417,
+     "total_over_dd": 0.938,
+     "half1": 566.34,
+     "half2_continuous": -52.05,
+     "half2_from_zero": -183.39,
+     "half2_from_zero_dd": -461.78
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "total": 605.4047,
+     "real": 1378.3982,
+     "fee": 275.4918,
+     "fund": 125.4609,
+     "bag": -372.0408,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -790.151,
+     "ent": 13853,
+     "tk": 13674,
+     "vol": 1697223.4388,
+     "turnover": 1705423.6362,
+     "regime_closes": 4,
+     "regime_close_pnl": -1482.7698,
+     "hours_at_cap": 5866.5333,
+     "max_orders": 51,
+     "density_eff": 615.9367,
+     "eq_mid": 833.2688,
+     "total_over_dd": 0.766,
+     "half1": 833.27,
+     "half2_continuous": -227.86
+    },
+    "0.1/0.49": {
+     "total": 777.0969,
+     "real": 1467.3497,
+     "fee": 199.8067,
+     "fund": 125.5577,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -789.6754,
+     "ent": 10026,
+     "tk": 9846,
+     "vol": 1224000.2642,
+     "turnover": 1232264.0977,
+     "regime_closes": 4,
+     "regime_close_pnl": -1495.2403,
+     "hours_at_cap": 5819.8833,
+     "max_orders": 51,
+     "density_eff": 615.0301,
+     "eq_mid": 944.1954,
+     "total_over_dd": 0.984,
+     "half1": 944.2,
+     "half2_continuous": -167.1
+    },
+    "0.1/0.89": {
+     "total": 980.7864,
+     "real": 1587.9247,
+     "fee": 116.7735,
+     "fund": 125.4764,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -775.8729,
+     "ent": 5782,
+     "tk": 5602,
+     "vol": 705042.84,
+     "turnover": 713306.6735,
+     "regime_closes": 4,
+     "regime_close_pnl": -1482.0865,
+     "hours_at_cap": 5884.6167,
+     "max_orders": 51,
+     "density_eff": 617.5895,
+     "eq_mid": 1155.2033,
+     "total_over_dd": 1.264,
+     "half1": 1155.2,
+     "half2_continuous": -174.42
+    },
+    "0.1/1.4": {
+     "total": 922.8261,
+     "real": 1488.2665,
+     "fee": 74.0064,
+     "fund": 126.5455,
+     "bag": -364.8884,
+     "lots_end": 45,
+     "qty_end": 0.9,
+     "dd": -782.7607,
+     "ent": 3635,
+     "tk": 3455,
+     "vol": 437748.721,
+     "turnover": 446012.5545,
+     "regime_closes": 4,
+     "regime_close_pnl": -1470.2503,
+     "hours_at_cap": 6127.7667,
+     "max_orders": 51,
+     "density_eff": 614.8363,
+     "eq_mid": 1113.3056,
+     "total_over_dd": 1.179,
+     "half1": 1113.31,
+     "half2_continuous": -190.48
+    },
+    "0.2/0.34": {
+     "total": 462.2666,
+     "real": 1121.5978,
+     "fee": 238.1704,
+     "fund": 100.1322,
+     "bag": -321.0286,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -677.6581,
+     "ent": 11966,
+     "tk": 11784,
+     "vol": 1463534.273,
+     "turnover": 1471877.8028,
+     "regime_closes": 4,
+     "regime_close_pnl": -1342.7466,
+     "hours_at_cap": 4223.7,
+     "max_orders": 51,
+     "density_eff": 307.793,
+     "eq_mid": 701.2964,
+     "total_over_dd": 0.682,
+     "half1": 701.3,
+     "half2_continuous": -239.03
+    },
+    "0.2/0.49": {
+     "total": 590.233,
+     "real": 1182.4604,
+     "fee": 170.9558,
+     "fund": 100.2429,
+     "bag": -321.0286,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -659.2828,
+     "ent": 8555,
+     "tk": 8373,
+     "vol": 1043443.0952,
+     "turnover": 1051786.625,
+     "regime_closes": 4,
+     "regime_close_pnl": -1338.8804,
+     "hours_at_cap": 4242.5833,
+     "max_orders": 51,
+     "density_eff": 307.7348,
+     "eq_mid": 801.7536,
+     "total_over_dd": 0.895,
+     "half1": 801.75,
+     "half2_continuous": -211.52
+    },
+    "0.2/0.89": {
+     "total": 724.6502,
+     "real": 1238.3758,
+     "fee": 98.2698,
+     "fund": 101.565,
+     "bag": -313.8908,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -654.3054,
+     "ent": 4870,
+     "tk": 4688,
+     "vol": 589155.7796,
+     "turnover": 597499.3094,
+     "regime_closes": 4,
+     "regime_close_pnl": -1318.5392,
+     "hours_at_cap": 4258.4,
+     "max_orders": 51,
+     "density_eff": 307.3502,
+     "eq_mid": 894.5298,
+     "total_over_dd": 1.108,
+     "half1": 894.53,
+     "half2_continuous": -169.88
+    },
+    "0.2/1.4": {
+     "total": 798.8613,
+     "real": 1279.6602,
+     "fee": 65.8811,
+     "fund": 101.027,
+     "bag": -313.8908,
+     "lots_end": 46,
+     "qty_end": 0.92,
+     "dd": -656.1905,
+     "ent": 3224,
+     "tk": 3041,
+     "vol": 386496.6062,
+     "turnover": 394916.715,
+     "regime_closes": 4,
+     "regime_close_pnl": -1322.4936,
+     "hours_at_cap": 4249.9667,
+     "max_orders": 51,
+     "density_eff": 307.1451,
+     "eq_mid": 982.2371,
+     "total_over_dd": 1.217,
+     "half1": 982.24,
+     "half2_continuous": -183.38
+    },
+    "0.3/0.34": {
+     "total": 419.3736,
+     "real": 981.983,
+     "fee": 211.0422,
+     "fund": 84.342,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -635.0233,
+     "ent": 10586,
+     "tk": 10407,
+     "vol": 1294948.6194,
+     "turnover": 1302970.247,
+     "regime_closes": 4,
+     "regime_close_pnl": -1196.934,
+     "hours_at_cap": 2834.8333,
+     "max_orders": 51,
+     "density_eff": 205.3727,
+     "eq_mid": 598.5578,
+     "total_over_dd": 0.66,
+     "half1": 598.56,
+     "half2_continuous": -179.18
+    },
+    "0.3/0.49": {
+     "total": 529.8705,
+     "real": 1033.6168,
+     "fee": 151.4489,
+     "fund": 85.0722,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -635.1834,
+     "ent": 7570,
+     "tk": 7391,
+     "vol": 922490.53,
+     "turnover": 930512.1576,
+     "regime_closes": 4,
+     "regime_close_pnl": -1193.162,
+     "hours_at_cap": 2864.1333,
+     "max_orders": 51,
+     "density_eff": 205.1818,
+     "eq_mid": 684.2774,
+     "total_over_dd": 0.834,
+     "half1": 684.28,
+     "half2_continuous": -154.41
+    },
+    "0.3/0.89": {
+     "total": 659.8832,
+     "real": 1096.0319,
+     "fee": 88.064,
+     "fund": 86.4991,
+     "bag": -261.5856,
+     "lots_end": 48,
+     "qty_end": 0.96,
+     "dd": -632.4189,
+     "ent": 4357,
+     "tk": 4175,
+     "vol": 525904.9404,
+     "turnover": 534069.9003,
+     "regime_closes": 4,
+     "regime_close_pnl": -1181.8221,
+     "hours_at_cap": 2838.7667,
+     "max_orders": 51,
+     "density_eff": 204.8321,
+     "eq_mid": 799.2057,
+     "total_over_dd": 1.043,
+     "half1": 799.21,
+     "half2_continuous": -139.32
+    },
+    "0.3/1.4": {
+     "total": 690.6994,
+     "real": 1101.426,
+     "fee": 58.2147,
+     "fund": 85.2867,
+     "bag": -267.2252,
+     "lots_end": 47,
+     "qty_end": 0.94,
+     "dd": -636.2395,
+     "ent": 2850,
+     "tk": 2670,
+     "vol": 339538.1562,
+     "turnover": 347639.48,
+     "regime_closes": 4,
+     "regime_close_pnl": -1177.4864,
+     "hours_at_cap": 2887.85,
+     "max_orders": 51,
+     "density_eff": 204.0908,
+     "eq_mid": 837.8097,
+     "total_over_dd": 1.086,
+     "half1": 837.81,
+     "half2_continuous": -147.11
+    },
+    "0.6/0.34": {
+     "total": 312.0499,
+     "real": 652.2737,
+     "fee": 147.4645,
+     "fund": 54.2238,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -551.9197,
+     "ent": 7143,
+     "tk": 7015,
+     "vol": 903298.2612,
+     "turnover": 909416.5779,
+     "regime_closes": 4,
+     "regime_close_pnl": -866.8953,
+     "hours_at_cap": 801.4333,
+     "max_orders": 51,
+     "density_eff": 106.2051,
+     "eq_mid": 382.1899,
+     "total_over_dd": 0.565,
+     "half1": 382.19,
+     "half2_continuous": -70.14
+    },
+    "0.6/0.49": {
+     "total": 403.9922,
+     "real": 705.2765,
+     "fee": 107.6274,
+     "fund": 55.1215,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -552.3696,
+     "ent": 5192,
+     "tk": 5062,
+     "vol": 653953.378,
+     "turnover": 660192.6999,
+     "regime_closes": 4,
+     "regime_close_pnl": -872.2591,
+     "hours_at_cap": 809.05,
+     "max_orders": 51,
+     "density_eff": 106.104,
+     "eq_mid": 465.0488,
+     "total_over_dd": 0.731,
+     "half1": 465.05,
+     "half2_continuous": -61.06
+    },
+    "0.6/0.89": {
+     "total": 476.2564,
+     "real": 733.5789,
+     "fee": 62.4071,
+     "fund": 56.38,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -552.3664,
+     "ent": 2974,
+     "tk": 2843,
+     "vol": 371087.595,
+     "turnover": 377406.6131,
+     "regime_closes": 4,
+     "regime_close_pnl": -871.8693,
+     "hours_at_cap": 828.7833,
+     "max_orders": 51,
+     "density_eff": 105.9897,
+     "eq_mid": 527.9047,
+     "total_over_dd": 0.862,
+     "half1": 527.9,
+     "half2_continuous": -51.65
+    },
+    "0.6/1.4": {
+     "total": 514.2909,
+     "real": 751.2483,
+     "fee": 41.4459,
+     "fund": 56.9762,
+     "bag": -138.5354,
+     "lots_end": 31,
+     "qty_end": 0.62,
+     "dd": -548.4289,
+     "ent": 1949,
+     "tk": 1818,
+     "vol": 240079.9348,
+     "turnover": 246398.9529,
+     "regime_closes": 4,
+     "regime_close_pnl": -856.9227,
+     "hours_at_cap": 859.5833,
+     "max_orders": 50,
+     "density_eff": 105.7084,
+     "eq_mid": 566.3417,
+     "total_over_dd": 0.938,
+     "half1": 566.34,
+     "half2_continuous": -52.05
+    }
+   }
+  }
+ },
+ "bootstrap": {
+  "BTCUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "diff": -435.83,
+     "ci95": [
+      -689.96,
+      -207.21
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -769.13,
+      -180.61
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/0.49": {
+     "diff": -387.57,
+     "ci95": [
+      -631.54,
+      -167.96
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -702.84,
+      -147.13
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/0.89": {
+     "diff": -339.48,
+     "ci95": [
+      -569.93,
+      -133.33
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -630.58,
+      -118.39
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/1.4": {
+     "diff": -305.0,
+     "ci95": [
+      -543.87,
+      -88.07
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -596.47,
+      -82.47
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.34": {
+     "diff": -248.65,
+     "ci95": [
+      -377.34,
+      -124.48
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -429.26,
+      -106.84
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.49": {
+     "diff": -188.13,
+     "ci95": [
+      -302.23,
+      -76.65
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -340.4,
+      -64.28
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.89": {
+     "diff": -132.86,
+     "ci95": [
+      -231.5,
+      -39.99
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -250.6,
+      -30.8
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/1.4": {
+     "diff": -108.21,
+     "ci95": [
+      -210.21,
+      -12.83
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -215.33,
+      -11.57
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.34": {
+     "diff": -244.92,
+     "ci95": [
+      -372.46,
+      -134.09
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -407.34,
+      -120.84
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.49": {
+     "diff": -177.81,
+     "ci95": [
+      -284.67,
+      -85.29
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -309.04,
+      -78.56
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.89": {
+     "diff": -120.91,
+     "ci95": [
+      -197.96,
+      -49.41
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -211.16,
+      -51.31
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/1.4": {
+     "diff": -99.88,
+     "ci95": [
+      -187.59,
+      -14.64
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -185.29,
+      -22.47
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.34": {
+     "diff": -206.98,
+     "ci95": [
+      -313.17,
+      -101.04
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -353.11,
+      -96.65
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -141.52,
+     "ci95": [
+      -227.38,
+      -62.78
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -251.02,
+      -59.6
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -58.58,
+     "ci95": [
+      -104.28,
+      -17.64
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -108.67,
+      -16.03
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "diff": 948.67,
+     "ci95": [
+      -2722.45,
+      4530.29
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -2952.19,
+      4475.45
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.49": {
+     "diff": 1343.01,
+     "ci95": [
+      -2354.92,
+      4990.76
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -2601.26,
+      4978.19
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.89": {
+     "diff": 1662.89,
+     "ci95": [
+      -2127.41,
+      5395.15
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -2297.49,
+      5471.44
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/1.4": {
+     "diff": 2048.99,
+     "ci95": [
+      -1636.64,
+      5841.94
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1854.16,
+      5928.3
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.34": {
+     "diff": 791.99,
+     "ci95": [
+      -711.17,
+      2355.42
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -828.32,
+      2556.1
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.49": {
+     "diff": 1035.96,
+     "ci95": [
+      -496.78,
+      2609.13
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -625.17,
+      2865.77
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.89": {
+     "diff": 1234.83,
+     "ci95": [
+      -336.52,
+      2876.33
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -482.16,
+      3108.73
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/1.4": {
+     "diff": 1317.6,
+     "ci95": [
+      -221.03,
+      2927.63
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -406.6,
+      3253.8
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.34": {
+     "diff": 300.15,
+     "ci95": [
+      -440.59,
+      1073.43
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -500.05,
+      1141.21
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.49": {
+     "diff": 469.02,
+     "ci95": [
+      -276.55,
+      1257.83
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -356.68,
+      1375.06
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.89": {
+     "diff": 613.8,
+     "ci95": [
+      -171.99,
+      1449.62
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -242.81,
+      1583.53
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/1.4": {
+     "diff": 675.03,
+     "ci95": [
+      -89.85,
+      1505.26
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -163.1,
+      1624.95
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/0.34": {
+     "diff": -236.51,
+     "ci95": [
+      -364.05,
+      -113.92
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -398.21,
+      -106.52
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -162.28,
+     "ci95": [
+      -264.73,
+      -70.67
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -282.75,
+      -65.73
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -67.07,
+     "ci95": [
+      -121.86,
+      -18.31
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -129.18,
+      -13.94
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "diff": 111.07,
+     "ci95": [
+      -2212.93,
+      2440.33
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -2298.82,
+      2427.32
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.49": {
+     "diff": 396.18,
+     "ci95": [
+      -1957.68,
+      2748.66
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -2046.82,
+      2743.09
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.89": {
+     "diff": 547.01,
+     "ci95": [
+      -1846.25,
+      2953.06
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1913.42,
+      3010.8
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/1.4": {
+     "diff": 902.83,
+     "ci95": [
+      -1516.3,
+      3398.47
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1583.36,
+      3350.84
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.34": {
+     "diff": 173.66,
+     "ci95": [
+      -1321.03,
+      1648.53
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1433.75,
+      1598.77
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.49": {
+     "diff": 358.77,
+     "ci95": [
+      -1167.54,
+      1874.85
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1267.62,
+      1821.95
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.89": {
+     "diff": 512.9,
+     "ci95": [
+      -1063.49,
+      2051.57
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1161.01,
+      2083.38
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/1.4": {
+     "diff": 638.37,
+     "ci95": [
+      -914.77,
+      2152.73
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -1039.67,
+      2247.62
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.34": {
+     "diff": 230.5,
+     "ci95": [
+      -521.04,
+      987.95
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -572.74,
+      1036.61
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.49": {
+     "diff": 392.9,
+     "ci95": [
+      -368.29,
+      1159.32
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -433.91,
+      1245.66
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.89": {
+     "diff": 512.97,
+     "ci95": [
+      -302.49,
+      1338.69
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -340.24,
+      1425.3
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/1.4": {
+     "diff": 577.62,
+     "ci95": [
+      -214.25,
+      1398.41
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -250.81,
+      1463.45
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/0.34": {
+     "diff": -236.51,
+     "ci95": [
+      -364.05,
+      -113.92
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -398.21,
+      -106.52
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -162.28,
+     "ci95": [
+      -264.73,
+      -70.67
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -282.75,
+      -65.73
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -67.07,
+     "ci95": [
+      -121.86,
+      -18.31
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -129.18,
+      -13.94
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   }
+  },
+  "ETHUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "diff": -710.58,
+     "ci95": [
+      -1033.4,
+      -423.04
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -1079.45,
+      -378.07
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/0.49": {
+     "diff": -574.75,
+     "ci95": [
+      -862.14,
+      -319.15
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -902.7,
+      -297.46
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/0.89": {
+     "diff": -411.14,
+     "ci95": [
+      -658.16,
+      -185.97
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -665.42,
+      -203.06
+     ],
+     "includes_zero_4w": false
+    },
+    "0.1/1.4": {
+     "diff": -319.08,
+     "ci95": [
+      -550.47,
+      -115.34
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -532.61,
+      -143.01
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.34": {
+     "diff": -572.63,
+     "ci95": [
+      -850.71,
+      -349.93
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -889.91,
+      -310.84
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.49": {
+     "diff": -428.28,
+     "ci95": [
+      -675.07,
+      -236.13
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -698.46,
+      -213.99
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/0.89": {
+     "diff": -255.55,
+     "ci95": [
+      -426.33,
+      -119.41
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -431.58,
+      -117.4
+     ],
+     "includes_zero_4w": false
+    },
+    "0.2/1.4": {
+     "diff": -158.55,
+     "ci95": [
+      -298.17,
+      -39.53
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -287.56,
+      -55.17
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.34": {
+     "diff": -496.59,
+     "ci95": [
+      -753.29,
+      -296.42
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -781.16,
+      -264.29
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.49": {
+     "diff": -342.71,
+     "ci95": [
+      -556.31,
+      -183.88
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -572.5,
+      -162.41
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/0.89": {
+     "diff": -146.39,
+     "ci95": [
+      -291.28,
+      -29.51
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -282.22,
+      -40.65
+     ],
+     "includes_zero_4w": false
+    },
+    "0.3/1.4": {
+     "diff": -100.05,
+     "ci95": [
+      -195.22,
+      -27.2
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -192.29,
+      -25.6
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.34": {
+     "diff": -454.32,
+     "ci95": [
+      -674.67,
+      -276.63
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -719.64,
+      -235.78
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -281.38,
+     "ci95": [
+      -461.73,
+      -141.13
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -473.27,
+      -131.23
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -108.8,
+     "ci95": [
+      -223.34,
+      -13.79
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -213.97,
+      -20.62
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "diff": 93.91,
+     "ci95": [
+      -967.39,
+      1158.21
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -961.55,
+      1262.41
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.49": {
+     "diff": 267.19,
+     "ci95": [
+      -852.74,
+      1373.4
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -831.33,
+      1509.91
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.89": {
+     "diff": 473.96,
+     "ci95": [
+      -712.35,
+      1633.97
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -727.24,
+      1860.52
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/1.4": {
+     "diff": 412.88,
+     "ci95": [
+      -756.86,
+      1546.36
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -741.53,
+      1751.37
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.34": {
+     "diff": -60.39,
+     "ci95": [
+      -852.48,
+      683.58
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -885.52,
+      817.1
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.49": {
+     "diff": 68.19,
+     "ci95": [
+      -753.85,
+      843.19
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -794.93,
+      1013.19
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.89": {
+     "diff": 201.17,
+     "ci95": [
+      -652.95,
+      988.27
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -680.97,
+      1182.26
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/1.4": {
+     "diff": 275.01,
+     "ci95": [
+      -607.3,
+      1112.25
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -639.16,
+      1291.72
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.34": {
+     "diff": -94.88,
+     "ci95": [
+      -656.07,
+      428.23
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -656.99,
+      497.1
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.49": {
+     "diff": 15.69,
+     "ci95": [
+      -566.63,
+      576.95
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -584.02,
+      667.14
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.89": {
+     "diff": 145.49,
+     "ci95": [
+      -435.21,
+      725.9
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -463.42,
+      842.78
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/1.4": {
+     "diff": 175.95,
+     "ci95": [
+      -452.96,
+      805.79
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -493.88,
+      930.03
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/0.34": {
+     "diff": -202.24,
+     "ci95": [
+      -308.31,
+      -115.31
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -356.31,
+      -82.94
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -110.3,
+     "ci95": [
+      -188.11,
+      -42.87
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -211.1,
+      -33.95
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -38.03,
+     "ci95": [
+      -97.31,
+      16.82
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -103.05,
+      14.93
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "diff": 91.11,
+     "ci95": [
+      -967.0,
+      1146.57
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -948.99,
+      1265.28
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.49": {
+     "diff": 262.81,
+     "ci95": [
+      -846.52,
+      1364.96
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -838.14,
+      1498.06
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/0.89": {
+     "diff": 466.5,
+     "ci95": [
+      -709.76,
+      1633.89
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -728.9,
+      1858.65
+     ],
+     "includes_zero_4w": true
+    },
+    "0.1/1.4": {
+     "diff": 408.54,
+     "ci95": [
+      -753.14,
+      1537.1
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -749.68,
+      1751.76
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.34": {
+     "diff": -52.02,
+     "ci95": [
+      -830.83,
+      699.74
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -863.96,
+      829.64
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.49": {
+     "diff": 75.94,
+     "ci95": [
+      -744.73,
+      843.25
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -782.14,
+      1013.38
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/0.89": {
+     "diff": 210.36,
+     "ci95": [
+      -639.27,
+      997.76
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -660.33,
+      1182.26
+     ],
+     "includes_zero_4w": true
+    },
+    "0.2/1.4": {
+     "diff": 284.57,
+     "ci95": [
+      -596.29,
+      1116.15
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -625.04,
+      1309.42
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.34": {
+     "diff": -94.92,
+     "ci95": [
+      -656.43,
+      428.66
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -657.05,
+      497.09
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.49": {
+     "diff": 15.58,
+     "ci95": [
+      -566.86,
+      576.84
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -584.27,
+      666.91
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/0.89": {
+     "diff": 145.59,
+     "ci95": [
+      -435.11,
+      726.1
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -463.22,
+      842.98
+     ],
+     "includes_zero_4w": true
+    },
+    "0.3/1.4": {
+     "diff": 176.41,
+     "ci95": [
+      -452.51,
+      806.68
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -493.42,
+      930.48
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/0.34": {
+     "diff": -202.24,
+     "ci95": [
+      -308.31,
+      -115.31
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -356.31,
+      -82.94
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.49": {
+     "diff": -110.3,
+     "ci95": [
+      -188.11,
+      -42.87
+     ],
+     "includes_zero": false,
+     "ci95_4w_blocks (чувствительность)": [
+      -211.1,
+      -33.95
+     ],
+     "includes_zero_4w": false
+    },
+    "0.6/0.89": {
+     "diff": -38.03,
+     "ci95": [
+      -97.31,
+      16.82
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      -103.05,
+      14.93
+     ],
+     "includes_zero_4w": true
+    },
+    "0.6/1.4": {
+     "diff": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ],
+     "includes_zero": true,
+     "ci95_4w_blocks (чувствительность)": [
+      0.0,
+      0.0
+     ],
+     "includes_zero_4w": true
+    }
+   }
+  }
+ },
+ "flat_neighbors": {
+  "BTCUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   }
+  },
+  "ETHUSDT": {
+   "N1": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   },
+   "N2": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   },
+   "N2 лотов≤50 (чувствительность)": {
+    "0.1/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.1/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.1/0.34",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.1/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.1/0.49",
+      "0.1/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.1/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.1/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.34": {
+     "neighbors": [
+      "0.1/0.34",
+      "0.3/0.34",
+      "0.2/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.49": {
+     "neighbors": [
+      "0.1/0.49",
+      "0.3/0.49",
+      "0.2/0.34",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.2/0.89": {
+     "neighbors": [
+      "0.1/0.89",
+      "0.3/0.89",
+      "0.2/0.49",
+      "0.2/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.2/1.4": {
+     "neighbors": [
+      "0.1/1.4",
+      "0.3/1.4",
+      "0.2/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.34": {
+     "neighbors": [
+      "0.2/0.34",
+      "0.6/0.34",
+      "0.3/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.49": {
+     "neighbors": [
+      "0.2/0.49",
+      "0.6/0.49",
+      "0.3/0.34",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.3/0.89": {
+     "neighbors": [
+      "0.2/0.89",
+      "0.6/0.89",
+      "0.3/0.49",
+      "0.3/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.3/1.4": {
+     "neighbors": [
+      "0.2/1.4",
+      "0.6/1.4",
+      "0.3/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.34": {
+     "neighbors": [
+      "0.3/0.34",
+      "0.6/0.49"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.49": {
+     "neighbors": [
+      "0.3/0.49",
+      "0.6/0.34",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    },
+    "0.6/0.89": {
+     "neighbors": [
+      "0.3/0.89",
+      "0.6/0.49",
+      "0.6/1.4"
+     ],
+     "both_signs": false
+    },
+    "0.6/1.4": {
+     "neighbors": [
+      "0.3/1.4",
+      "0.6/0.89"
+     ],
+     "both_signs": false
+    }
+   }
+  }
+ },
+ "runtime_sec": 124.9
+}
