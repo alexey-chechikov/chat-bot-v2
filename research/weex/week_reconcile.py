@@ -24,6 +24,11 @@
   между T0 и первой полной минутой — отдельным счётчиком); фандинг строки «биржа» — оценка: объём лотов бота по
   журналу × цена × ставка Binance в моменты расчёта (фактический фандинг WEEX — по символу целиком, всех сеток и
   ручных, отдельной строкой); лоты на конце сверяются с учётом сетки по (цена входа, объём), а не по числу.
+- 02.11 (разбор GPT 29.10, docs/WEEX_GPT_CRITICAL_REPLY_RECHECK_2026-10-29.md §2): стоящий вход снимка живёт и при
+  непустой позиции — до исполнения или перестановки движком (уровень по правилу ушёл дальше trail_min_move_pct,
+  сменился размер по расписанию); курсор cum_qty биржи стартует с исполненного до окна (строки журнала до W0: до T0 —
+  уже в снимке, T0…W0 — отдельный счётчик); базу узнать нельзя — отказ, а не ноль; «вход (часть)»/«тейк (часть)» —
+  та же заявка, что «вход»/«тейк».
 Запуск: week_reconcile.py --btc=<копия> --eth=<копия>
 """
 from __future__ import annotations
@@ -69,6 +74,12 @@ def round_tick(x: float, tick: float, up: bool) -> float:
     return (math.ceil(k - 1e-9) if up else math.floor(k + 1e-9)) * tick
 
 
+def standing_kept(pending: float, rule: float, tick: float, trail_pct: float) -> bool:
+    """Стоящий вход остаётся, пока уровень по правилу не ушёл от его цены дальше допуска движка
+    (engine._side: |цена − desired| ≤ trail_min_move_pct, иначе снять и поставить заново)."""
+    return abs(pending - rule) <= max(tick / 2, rule * trail_pct / 100)
+
+
 W0 = (int(T0) // 60 + 1) * 60                                 # первая полная минута окна — общая для бэктеста и биржи
 EPS = 1e-12
 
@@ -86,19 +97,27 @@ def load(sym: str, t_end: float | None = None):
 
 def sim(name: str, g: dict, cfg: dict, tms, pts, closes, funding: dict) -> dict:
     step, tgt, tick = cfg["step_pct"] / 100, cfg["target_pct"] / 100, float(cfg["price_tick"])
+    trail = float(cfg.get("trail_min_move_pct") or 0)
     sched = SCHEDULE[name]
     lots = [[float(x["entry"]), float(x["qty"]), float(x["tp"])] for x in g["sides"]["LONG"]["lots"]]
     e0 = g["sides"]["LONG"].get("entry_order")
     pending = float(e0["price"]) if e0 else None                  # стоящий на старте вход
     pending_q = float(e0["qty"]) if e0 and e0.get("qty") is not None else None   # и его собственный объём
-    ref = None
+    # 02.11 (разбор GPT 29.10 §2 P1): стоящий вход живёт до исполнения или до перестановки движком — уровень по правилу
+    # ушёл дальше trail_min_move_pct или сменился размер; раньше при непустой позиции он сбрасывался сразу и терял объём.
+    # Без лотов его опора — та, от которой он поставлен.
+    ref = pending / (1 - step) if pending is not None and not lots else None
     ent = tk = 0
     vol = real = fee = fund = 0.0
     si = 0
+    q_prev = None
     for k, (t, row) in enumerate(zip(tms, pts)):
         while si + 1 < len(sched) and t >= sched[si + 1][0]:
             si += 1
         q, cap, mx = float(sched[si][1]), sched[si][2], sched[si][3]
+        if q_prev is not None and q != q_prev:
+            pending = pending_q = None                            # новый размер — движок ставит вход заново
+        q_prev = q
         rate = funding.get(int(t) // 60)
         if rate is not None and lots:
             fund += sum(x[1] for x in lots) * row[0] * rate
@@ -115,16 +134,17 @@ def sim(name: str, g: dict, cfg: dict, tms, pts, closes, funding: dict) -> dict:
             lots = keep
             if lots:
                 ref = min(x[0] for x in lots)
-                lvl = round_tick(ref * (1 - step), tick, up=False)
-                pending = None
             else:
                 # без лотов вход подтягивается вслед за ростом (trail_min_move_pct движка) от максимума — как regime_grid;
                 # 24.10: первая версия считала уровень от текущей цены каждой точки — вход не исполнялся никогда
                 ref = p if ref is None else max(ref, p)
-                lvl = pending if pending else round_tick(ref * (1 - step), tick, up=False)
+            rule = round_tick(ref * (1 - step), tick, up=False)
+            if pending is not None and not standing_kept(pending, rule, tick, trail):
+                pending = pending_q = None                        # уровень ушёл — стоящий снят, новый по правилу
+            lvl = pending if pending is not None else rule
             cost, qty = sum(x[0] * x[1] for x in lots), sum(x[1] for x in lots)
-            # стоящая лимитка на уровне исполняется по своей цене (так модель сошлась с биржей 19–21.10: ±1–7%)
-            qf = pending_q if pending is not None and lvl == pending and pending_q else q
+            # стоящая лимитка на уровне исполняется по своей цене и своим объёмом (так модель сошлась с биржей 19–21.10)
+            qf = pending_q if pending is not None and pending_q else q
             if p <= lvl and len(lots) < mx and max(cost, qty * lvl) + qf * lvl <= cap:
                 lots.append([lvl, qf, round_tick(lvl * (1 + tgt), tick, up=True)])
                 fee += qf * lvl * MAKER
@@ -150,11 +170,30 @@ def _reduce(lots: list, entry: float, q: float) -> float:
     return left
 
 
+FILL_KIND = {"вход": "вход", "вход (часть)": "вход", "тейк": "тейк", "тейк (часть)": "тейк"}   # части — та же заявка
+
+
+def _cursor_base(name: str, key: tuple, base: dict, cum: float, q: float) -> float:
+    """Исполнено заявкой до окна W0 (база курсора cum_qty). Есть строки до окна — их наибольший cum_qty; строк нет — 0,
+    только если первая строка окна сама начинает заявку (cum_qty = qty). Иначе базу узнать нельзя — отказ (разбор GPT
+    29.10 §2 P1: пустой курсор молча считал ноль и второй раз учитывал исполнение, уже лежащее в снимке)."""
+    if key in base:
+        if base[key] is None:
+            raise ValueError(f"{name}: заявка {key[1]} ({key[0]}) до окна записана без cum_qty — базу курсора узнать "
+                             "нельзя")
+        return base[key]
+    if cum - q > EPS:
+        raise ValueError(f"{name}: заявка {key[1]} ({key[0]}): первая строка окна cum_qty {cum:g} > qty {q:g}, строк до "
+                         "окна нет — исполненное до окна неизвестно")
+    return 0.0
+
+
 def live(name: str, g: dict, t_end: float, pe: float, funding: dict | None = None,
          px_at: dict | None = None) -> dict:
-    """Биржа по журналу сетки: прирост исполнения каждой заявки — один раз (курсор cum_qty по order_id);
-    фандинг — оценка по лотам бота в моменты расчёта (funding: минута → ставка, px_at: минута → цена)."""
+    """Биржа по журналу сетки: прирост исполнения каждой заявки — один раз (курсор cum_qty по order_id, база — строки
+    журнала до окна W0); фандинг — оценка по лотам бота в моменты расчёта (funding: минута → ставка, px_at: минута → цена)."""
     lots = [[float(x["entry"]), float(x["qty"])] for x in g["sides"]["LONG"]["lots"]]
+    base: dict[tuple, float | None] = {}                          # (вид, заявка) → cum_qty до окна; None — без cum_qty
     cur: dict[tuple, float] = {}
     orders = {"вход": set(), "тейк": set()}
     ent = tk = 0
@@ -171,6 +210,12 @@ def live(name: str, g: dict, t_end: float, pe: float, funding: dict | None = Non
             gap_rows += 1                                         # между стартом и первой полной минутой окна
         if W0 <= t <= t_end:
             rows.append((t, r))
+        elif t < W0 and FILL_KIND.get(r.get("kind")) and r.get("order_id") is not None:
+            key = (FILL_KIND[r["kind"]], r["order_id"])
+            if r.get("cum_qty") is None:
+                base[key] = None
+            elif key not in base or base[key] is not None:
+                base[key] = max(base.get(key) or 0.0, float(r["cum_qty"]))
     rows.sort(key=lambda x: x[0])
     fts = sorted(m * 60 for m in (funding or {}) if W0 <= m * 60 <= t_end)
     fi = 0
@@ -186,19 +231,22 @@ def live(name: str, g: dict, t_end: float, pe: float, funding: dict | None = Non
 
     for t, r in rows:
         settle(t)
-        kind = r.get("kind") or ""
-        if kind not in ("вход", "тейк"):
-            if "комисси" in kind:                          # 25.10 R3: поздняя комиссия — без qty/price
+        kind = FILL_KIND.get(r.get("kind"))
+        if kind is None:
+            if "комисси" in (r.get("kind") or ""):         # 25.10 R3: поздняя комиссия — без qty/price
                 fee += float(r.get("fee") or 0)
             continue
         q, px = float(r["qty"]), float(r["price"])
         oid = r.get("order_id")
         if oid is not None and r.get("cum_qty") is not None:
             key = (kind, oid)
-            q = float(r["cum_qty"]) - cur.get(key, 0.0)
+            cum = float(r["cum_qty"])
+            if key not in cur:
+                cur[key] = _cursor_base(name, key, base, cum, q)
+            q = cum - cur[key]
             if q <= EPS:
-                continue                                   # повтор отчёта той же заявки
-            cur[key] = float(r["cum_qty"])
+                continue                                   # повтор отчёта той же заявки (или уже исполненное до окна)
+            cur[key] = cum
             new_order = oid not in orders[kind]
             orders[kind].add(oid)
         else:

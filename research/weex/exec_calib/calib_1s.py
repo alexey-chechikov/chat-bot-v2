@@ -193,14 +193,17 @@ def run(name: str, g: dict, cfg: dict, tms, pts, lat: int | None) -> dict:
     """Движок S1L. lat=None — заявки сразу после каждой точки (правила week_reconcile.sim() точка в точку);
     lat=L — новые заявки только на тактах W0 + k·L (см. правило 3)."""
     step, tgt, tick = cfg["step_pct"] / 100, cfg["target_pct"] / 100, float(cfg["price_tick"])
+    trail = float(cfg.get("trail_min_move_pct") or 0)
     sched = wr.SCHEDULE[name]
     inst = lat is None
     # лот: [вход, объём, цель, тейк стоит?, время входа (None — лот снимка)]
     lots = [[float(x["entry"]), float(x["qty"]), float(x["tp"]), True, None] for x in g["sides"]["LONG"]["lots"]]
     e0 = g["sides"]["LONG"].get("entry_order")
-    st = {"pending": float(e0["price"]) if e0 else None,
+    # стоящий вход снимка — как в sim(): живёт до исполнения или перестановки движком (02.11, разбор GPT 29.10 §2 P1)
+    pend0 = float(e0["price"]) if e0 else None
+    st = {"pending": pend0,
           "pending_q": float(e0["qty"]) if e0 and e0.get("qty") is not None else None,
-          "ref": None}
+          "ref": pend0 / (1 - step) if pend0 is not None and not lots else None}
     order = None                                   # стоящий вход (цена, объём)
     ent = tk = 0
     vol = real = fee = 0.0
@@ -215,13 +218,14 @@ def run(name: str, g: dict, cfg: dict, tms, pts, lat: int | None) -> dict:
     def place(p_obs: float, lots_: list, q_: float, cap_: float, mx_: int):
         if lots_:
             st["ref"] = min(x[0] for x in lots_)
-            lvl = wr.round_tick(st["ref"] * (1 - step), tick, up=False)
-            st["pending"] = None
         else:
             st["ref"] = p_obs if st["ref"] is None else max(st["ref"], p_obs)
-            lvl = st["pending"] if st["pending"] else wr.round_tick(st["ref"] * (1 - step), tick, up=False)
+        rule = wr.round_tick(st["ref"] * (1 - step), tick, up=False)
+        if st["pending"] is not None and not wr.standing_kept(st["pending"], rule, tick, trail):
+            st["pending"] = st["pending_q"] = None
+        lvl = st["pending"] if st["pending"] is not None else rule
         cost, qty = sum(x[0] * x[1] for x in lots_), sum(x[1] for x in lots_)
-        qf = st["pending_q"] if st["pending"] is not None and lvl == st["pending"] and st["pending_q"] else q_
+        qf = st["pending_q"] if st["pending"] is not None and st["pending_q"] else q_
         if len(lots_) < mx_ and max(cost, qty * lvl) + qf * lvl <= cap_:
             return (lvl, qf)
         return None
@@ -232,6 +236,8 @@ def run(name: str, g: dict, cfg: dict, tms, pts, lat: int | None) -> dict:
             nsi += 1
         if nsi != si:
             si = nsi
+            if q is not None and float(sched[si][1]) != q:
+                st["pending"] = st["pending_q"] = None     # новый размер — движок ставит вход заново (как sim())
             q, cap, mx = float(sched[si][1]), sched[si][2], sched[si][3]
             dirty = True
         if not inst:
