@@ -12,6 +12,9 @@
    полном окне; пропуск — «нет данных», не ноль).
 4. Что против — до двух: противоречащий поток, пробитая, но не подтверждённая граница, пробелы данных, давность.
 5. Подтверждение / отмена — условия по ЗАКРЫТЫМ часам (касание ≠ закрепление).
+   hy-2 (02.11, разбор GPT 29.10 §2 P2): у диапазона тезис — удержание: подтверждает удержание 6 ч, отменяет выход в
+   ЛЮБУЮ сторону (в hy-1 выход вверх «подтверждал» тезис «торговля внутри диапазона»). Давление покупателей/продавцов —
+   отдельная гипотеза «tilt» со своими исходами: выход в сторону давления подтверждает, в обратную — отменяет.
 6. Что изменилось с прошлого показа — по журналу state/coinglass/hypothesis_log.jsonl.
 Вероятность не пишется: гипотеза не откалибрована. OI стороны инициатора не показывает — в выводе не используется.
 Формулировки наблюдательные: «совместимо с…», без «обязательно» и без обещаний тейка или дохода.
@@ -28,8 +31,9 @@ from services.coinglass_web import compare, scenarios
 
 ROOT = Path(__file__).resolve().parents[2]
 LOG = ROOT / "state" / "coinglass" / "hypothesis_log.jsonl"
-VERSION = "hy-1"
+VERSION = "hy-2"
 H1 = pd.Timedelta(hours=1)
+HOLD_H = 6                                                   # горизонт удержания диапазона — верх «2–6 ч» заголовка
 LEVEL_RU = {"support": "опора", "extreme": "экстремум", "H": "верх диапазона", "L": "низ диапазона"}
 # сводка ретро sc-1 на 180 днях (research/coinglass_compare/scenario_replay_result.json, 28.10) — для честной оговорки
 STALL_NOTE = "на 180 днях такое предупреждение предшествовало слому редко (BTC 5 из 63, ETH 2–4 из 45)"
@@ -80,7 +84,7 @@ def build(rec: dict | None, sym: str, df: pd.DataFrame, now: datetime, prev: dic
     if "px_close" in df and closed_end in df.index and pd.notna(df.at[closed_end, "px_close"]):
         now_px = float(df.at[closed_end, "px_close"])       # незакрытый час — «сейчас», не закрытие
     why, against = [], []
-    conf = canc = None
+    conf = canc = tilt = None
     levels = {}
     # ── поток против реакции цены
     if fl["known"]:
@@ -159,14 +163,24 @@ def build(rec: dict | None, sym: str, df: pd.DataFrame, now: datetime, prev: dic
         canc = "возврат за сломанную опору и новый экстремум в прежнюю сторону"
     elif s in ("RANGE", "RANGE_BUY_PRESSURE", "RANGE_SELL_PRESSURE") and box:
         levels = {"H": box["H"], "L": box["L"]}
-        tilt = {"RANGE_BUY_PRESSURE": " с давлением покупателей — попытка выхода вверх возможна, но не подтверждена",
-                "RANGE_SELL_PRESSURE": " с давлением продавцов — попытка выхода вниз возможна, но не подтверждена"}
-        concl = (f"Рабочая гипотеза — торговля внутри диапазона {_p(box['L'])}–{_p(box['H'])}"
-                 f"{tilt.get(s, '')}, пока закрытые часы не подтвердят выход.")
+        concl = (f"Рабочая гипотеза — торговля внутри диапазона {_p(box['L'])}–{_p(box['H'])}, пока закрытые часы не "
+                 "подтвердят выход.")
         why.append(f"флет: ширина {box.get('width_pct', 0):.1f}%, эффективность хода за 24 ч ER "
                    f"{(f.get('er') or 0):.2f}")
-        conf = f"выход вверх — два закрытых часа выше {_p(box['H'])}"
-        canc = f"выход вниз — два закрытых часа ниже {_p(box['L'])}"
+        # hy-2: тезис — удержание диапазона, выход в ЛЮБУЮ сторону его отменяет (раньше выход вверх «подтверждал»)
+        conf = (f"удержание — за {HOLD_H} ч нет двух закрытых часов подряд ни выше {_p(box['H'])}, ни ниже "
+                f"{_p(box['L'])}")
+        canc = f"выход в любую сторону — два закрытых часа подряд выше {_p(box['H'])} или ниже {_p(box['L'])}"
+        if s != "RANGE":                                    # перекос — своя гипотеза со своими исходами
+            up = s == "RANGE_BUY_PRESSURE"
+            edge, opp = (box["H"], box["L"]) if up else (box["L"], box["H"])
+            tilt = {"dir": 1 if up else -1,
+                    "conclusion": (f"Отдельная гипотеза — перекос: давление {'покупателей' if up else 'продавцов'}, "
+                                   f"попытка выхода {'вверх' if up else 'вниз'} возможна, но не подтверждена."),
+                    "confirm": f"выход {'вверх' if up else 'вниз'} — два закрытых часа подряд "
+                               f"{'выше' if up else 'ниже'} {_p(edge)}",
+                    "cancel": f"выход {'вниз' if up else 'вверх'} — два закрытых часа подряд "
+                              f"{'ниже' if up else 'выше'} {_p(opp)}"}
         if pend:
             edge = box["H"] if pend["side"] > 0 else box["L"]
             against.insert(0, f"последний час закрылся {'выше' if pend['side'] > 0 else 'ниже'} {_p(edge)} — выход ждёт "
@@ -200,7 +214,7 @@ def build(rec: dict | None, sym: str, df: pd.DataFrame, now: datetime, prev: dic
             change = ("состояние то же, сдвинулись уровни: " + "; ".join(moved)) if moved else \
                 f"с {prev.get('shown_warsaw')} без изменений"
     return {"v": VERSION, "sym": sym, "header": hdr, "code": s, "dir": d, "conclusion": concl, "why": why[:3],
-            "against": against[:2], "confirm": conf, "cancel": canc, "change": change, "levels": levels,
+            "against": against[:2], "confirm": conf, "cancel": canc, "tilt": tilt, "change": change, "levels": levels,
             "bar": rec["bar"], "age_min": age, "now_px": now_px, "close": close}
 
 
@@ -219,7 +233,7 @@ def log_shown(h: dict, now: datetime, path: Path | None = None) -> None:
     rec = {"kind": "shown", "v": VERSION, "sym": h["sym"], "shown_at": T.isoformat(timespec="seconds"),
            "shown_warsaw": f"{T.tz_convert(compare.WARSAW):%d.%m %H:%M}", "bar": h.get("bar"), "code": h["code"],
            "levels": h.get("levels") or {}, "confirm": h.get("confirm"), "cancel": h.get("cancel"),
-           "close": h.get("close"), "now_px": h.get("now_px")}
+           "tilt": h.get("tilt"), "close": h.get("close"), "now_px": h.get("now_px")}
     compare._write(path or LOG, [rec])
 
 
@@ -232,6 +246,9 @@ def lines(h: dict) -> list[str]:
         out.append("Против: " + "; ".join(h["against"]) + ".")
     if h.get("confirm") or h.get("cancel"):
         out.append("Подтвердит: " + (h["confirm"] or "—") + ". Отменит: " + (h["cancel"] or "—") + ".")
+    if h.get("tilt"):
+        t = h["tilt"]
+        out.append(f"{t['conclusion']} Подтвердит: {t['confirm']}. Отменит: {t['cancel']}.")
     if h.get("change"):
         out.append("С прошлого показа: " + h["change"] + ".")
     return out

@@ -86,7 +86,8 @@ def test_range_and_no_data_and_pending_breakout():
     r = _rec(state="RANGE_BUY_PRESSURE")
     r["pend"] = {"side": 1}
     h = hypothesis.build(r, "ETHUSDT", _df(), _now())
-    assert "торговля внутри диапазона 2 281–2 383" in h["conclusion"] and "не подтверждена" in h["conclusion"]
+    assert "торговля внутри диапазона 2 281–2 383" in h["conclusion"]
+    assert "не подтверждена" in h["tilt"]["conclusion"]           # hy-2: перекос — отдельная гипотеза
     assert any("одно закрытие — ещё не закрепление" in a for a in h["against"])
     nd = hypothesis.build(None, "ETHUSDT", _df(), _now())
     assert nd["conclusion"].startswith("Не могу выбрать сценарий")

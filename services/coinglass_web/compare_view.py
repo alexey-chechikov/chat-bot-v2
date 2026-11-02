@@ -372,6 +372,7 @@ function hyp(p) { const h = p.hypothesis; if (!h) return '';
     <div class="cols"><div><div class="lbl">Почему</div><ul>${li(h.why)}</ul></div>
     <div><div class="lbl">Что против</div><ul>${li(h.against)}</ul></div></div>
     <div class="lbl">Подтвердит</div><div>${h.confirm || '—'}</div><div class="lbl">Отменит</div><div>${h.cancel || '—'}</div>
+    ${h.tilt ? `<div class="lbl">Отдельная гипотеза — перекос</div><div>${h.tilt.conclusion}<br>Подтвердит: ${h.tilt.confirm}. Отменит: ${h.tilt.cancel}.</div>` : ''}
     ${h.change ? `<div class="lbl">С прошлого показа</div><div>${h.change}</div>` : ''}
     <div class="sub">Гипотеза ${h.v} не откалибрована — вероятность не пишу. Подробности состояния ниже.</div><hr>`; }
 function scn(p) { const el = document.getElementById('scn'), c = p.scenario;

@@ -227,11 +227,13 @@ def signature(rows: dict[int, dict], now: float) -> tuple:
 
 
 def fresh_missing(rows: dict[int, dict], now: float) -> list[str]:
-    """Обязательные столбцы, пустые в последнем закрытом баре (нет закрытого бара — все)."""
-    closed = [t for t in rows if t + 3600 <= now]
-    if not closed:
+    """Обязательные столбцы, пустые в ОЖИДАЕМОМ последнем закрытом часе floor(now, 1ч) − 1ч; этого часа в выгрузке нет —
+    все. Разбор GPT 29.10 §2 P2: раньше брался последний ИМЕЮЩИЙСЯ закрытый бар — выгрузка без последнего часа
+    проходила как свежая."""
+    want = int(now // 3600) * 3600 - 3600
+    last = rows.get(want)
+    if last is None:
         return list(FRESH)
-    last = rows[max(closed)]
     return [c for c in FRESH if c in COLUMNS and last.get(c) is None]
 
 
