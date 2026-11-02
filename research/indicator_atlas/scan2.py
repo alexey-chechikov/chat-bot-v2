@@ -7,6 +7,10 @@
 - atlas.build_all() (ATLAS_VERSION = atlas-2, только сверенные выгрузки CoinGlass 1h, sha256 и закрытость баров
   проверяет atlas.load); метки — atlas.token_columns(d) (88 булевых; NaN признака → False); состояние — context;
   исходы — first / top_here / bottom_here / f24 (atlas.outcomes: тройной барьер ±2·ATR на 24 ч).
+- ИСПРАВЛЕНИЕ 02.11 (atlas-2.1, разбор GPT 29.10 §2 P1 — дефект, не подбор под результат): у каждой метки своя маска
+  наблюдаемости (atlas.KNOWN + метка). Группа «без метки» — только часы, где метка наблюдаема и её нет; час с
+  неизвестным признаком не входит ни в одну группу. Маска сдвигается в плацебо вместе с меткой, знаменатели — по ней же
+  (половины, монеты, все смещения). Раньше «без метки» = все часы состояния минус «с меткой» — неизвестное шло в ноль.
 - Каждая монета — свой часовой календарь (сортировка по времени внутри монеты).
 
 Тест = (состояние, метка, исход). Состояния UP, DOWN, FLAT (MIX не берём). Исходы:
@@ -133,14 +137,25 @@ def outcome_mats(d: pd.DataFrame, keys) -> tuple[np.ndarray, np.ndarray]:
     return np.column_stack(ys), np.column_stack(vs)
 
 
+def token_mats(g: pd.DataFrame, toks: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Метки T и их наблюдаемость O (часы × метки, 0/1). Нет столбцов наблюдаемости — ошибка, а не «всё известно»."""
+    T = g[toks].to_numpy(dtype=float)
+    O = g[atlas.known_columns(toks)].to_numpy(dtype=float)
+    if (T > O).any():
+        raise ValueError("метка стоит в часе, где она не наблюдаема")
+    return T, O
+
+
 def delta_from(acc: np.ndarray, tot: np.ndarray, j: int):
-    """acc: K×2J суммы по часам с меткой [Σy, Σv]; tot: 2J итоги по состоянию. → (Δ, с меткой, без, часы)."""
+    """acc: K×2J суммы по часам с меткой [Σy, Σv]; tot: K×2J те же суммы по часам, где метка наблюдаема (Oᵀ·M), или
+    2J — по всем часам состояния. → (Δ, с меткой, без, часы с меткой)."""
     a, b = acc[:, :j], acc[:, j:]
-    sy, sv = tot[:j], tot[j:]
+    tot = np.broadcast_to(tot, acc.shape)
+    sy, sv = tot[:, :j], tot[:, j:]
     with np.errstate(divide="ignore", invalid="ignore"):
         w = np.where(b > 0, a / b, np.nan)
-        nb = sv[None, :] - b
-        wo = np.where(nb > 0, (sy[None, :] - a) / nb, np.nan)
+        nb = sv - b
+        wo = np.where(nb > 0, (sy - a) / nb, np.nan)
     return w - wo, w, wo, b
 
 
@@ -163,32 +178,37 @@ def episodes(mask: np.ndarray) -> int:
     return int(1 + np.sum(np.diff(idx) >= EPI_GAP))
 
 
-def placebo(Ts, Ms, tot, j, common: bool, seed: int) -> np.ndarray:
+def placebo(Ts, Os, Ms, j, common: bool, seed: int) -> np.ndarray:
     rng = np.random.default_rng(seed)
     ns = [len(t) for t in Ts]
     k = Ts[0].shape[1]
     out = np.empty((REPS, k, j))
     for r in range(REPS):
         acc = np.zeros((k, 2 * j))
+        tot = np.zeros((k, 2 * j))
         if common:
             s_all = int(rng.integers(SHIFT_MIN, min(ns) - SHIFT_MIN + 1))
-        for c, (T, M) in enumerate(zip(Ts, Ms)):
+        for c, (T, O, M) in enumerate(zip(Ts, Os, Ms)):
             s = s_all if common else int(rng.integers(SHIFT_MIN, ns[c] - SHIFT_MIN + 1))
-            # метки сдвинуты на +s: Σ_t T[t−s]·M[t] = Σ_u T[u]·M[u+s]
-            acc += T.T @ np.roll(M, -s, axis=0)
+            # метки сдвинуты на +s: Σ_t T[t−s]·M[t] = Σ_u T[u]·M[u+s]; маска наблюдаемости — вместе с меткой
+            Mr = np.roll(M, -s, axis=0)
+            acc += T.T @ Mr
+            tot += O.T @ Mr
         out[r] = delta_from(acc, tot, j)[0]
         if (r + 1) % 200 == 0:
             print(f"  плацебо {'общее' if common else 'раздельное'}: {r + 1}/{REPS}", flush=True)
     return out
 
 
-def placebo_all_common(Ts, Ms, tot, j) -> np.ndarray:
+def placebo_all_common(Ts, Os, Ms, j) -> np.ndarray:
     """Все общие смещения s ∈ [168, min N − 168] (чувствительность, добавлена после первого прогона)."""
     n = min(len(t) for t in Ts)
     shifts = range(SHIFT_MIN, n - SHIFT_MIN + 1)
     out = np.empty((len(shifts), Ts[0].shape[1], j))
     for r, s in enumerate(shifts):
-        acc = sum(T.T @ np.roll(M, -s, axis=0) for T, M in zip(Ts, Ms))
+        Mr = [np.roll(M, -s, axis=0) for M in Ms]
+        acc = sum(T.T @ m for T, m in zip(Ts, Mr))
+        tot = sum(O.T @ m for O, m in zip(Os, Mr))
         out[r] = delta_from(acc, tot, j)[0]
     return out
 
@@ -236,30 +256,33 @@ def main() -> None:
     idx0 = d_by[syms[0]].index
     same_calendar = all(d_by[s].index.equals(idx0) for s in syms)
 
-    Ts, Ms, Ms1, Ms2, halves_masks = [], [], [], [], []
+    Ts, Os, Ms, Ms1, Ms2 = [], [], [], [], []
     for s in syms:
         g = d_by[s]
-        T = g[toks].to_numpy(dtype=float)
+        T, O = token_mats(g, toks)
         vy, v = outcome_mats(g, keys)
         M = np.hstack([vy, v])
         h1 = (g.index < CUT).astype(float)[:, None]
         Ts.append(T)
+        Os.append(O)
         Ms.append(M)
         Ms1.append(M * h1)
         Ms2.append(M * (1 - h1))
 
     def pooled(mlist):
         acc = sum(T.T @ M for T, M in zip(Ts, mlist))
-        tot = sum(M.sum(axis=0) for M in mlist)
+        tot = sum(O.T @ M for O, M in zip(Os, mlist))           # только часы, где метка наблюдаема
         return acc, tot
 
     acc, tot = pooled(Ms)
     delta, w, wo, hours = delta_from(acc, tot, j)
+    hours_wo = tot[:, j:] - hours                                # знаменатель «без метки»
+    hours_unknown = sum(M.sum(axis=0) for M in Ms)[None, j:] - tot[:, j:]
     acc1, tot1 = pooled(Ms1)
     d1, _, _, h1n = delta_from(acc1, tot1, j)
     acc2, tot2 = pooled(Ms2)
     d2, _, _, h2n = delta_from(acc2, tot2, j)
-    coin = [delta_from(T.T @ M, M.sum(axis=0), j) for T, M in zip(Ts, Ms)]
+    coin = [delta_from(T.T @ M, O.T @ M, j) for T, O, M in zip(Ts, Os, Ms)]
 
     eps = np.zeros((k, j), dtype=int)
     for T, M in zip(Ts, Ms):
@@ -271,15 +294,15 @@ def main() -> None:
                 eps[a, b] += episodes(m[:, b])
     print(f"фактические Δ и эпизоды: {time.time() - t0:.1f} с", flush=True)
 
-    pl = placebo(Ts, Ms, tot, j, common=False, seed=SEED)
+    pl = placebo(Ts, Os, Ms, j, common=False, seed=SEED)
     p = pvals(delta, pl)
     with np.errstate(invalid="ignore"):
         err = np.nanstd(pl, axis=0, ddof=1)
     print(f"плацебо раздельное: {time.time() - t0:.1f} с", flush=True)
-    plc = placebo(Ts, Ms, tot, j, common=True, seed=SEED_COMMON)
+    plc = placebo(Ts, Os, Ms, j, common=True, seed=SEED_COMMON)
     pc = pvals(delta, plc)
     print(f"плацебо общее: {time.time() - t0:.1f} с", flush=True)
-    pla = placebo_all_common(Ts, Ms, tot, j)
+    pla = placebo_all_common(Ts, Os, Ms, j)
     pa = pvals(delta, pla)
     n_all_shifts = len(pla)
     del pla
@@ -324,7 +347,8 @@ def main() -> None:
             "Δ": fnum(delta[a, b] * sc), "ошибка (σ плацебо)": fnum(err[a, b] * sc),
             "|Δ|/ошибка": fnum(abs(delta[a, b]) / err[a, b]) if err[a, b] > 0 else None,
             "Δf24 ATR": fnum(delta[a, fj]), "f24 с/без ATR": [fnum(w[a, fj]), fnum(wo[a, fj])],
-            "часов": int(hours[a, b]), "эпизодов": int(eps[a, b]),
+            "часов": int(hours[a, b]), "часов без метки": int(hours_wo[a, b]),
+            "часов метка не наблюдаема": int(hours_unknown[a, b]), "эпизодов": int(eps[a, b]),
             "p": fnum(p[a, b]), "q": fnum(q[a, b]), "p общее смещение (чувств.)": fnum(pc[a, b]),
             "q общее смещение (чувств.)": fnum(qc[a, b]),
             "p все общие смещения (чувств. после прогона)": fnum(pa[a, b]),

@@ -14,6 +14,11 @@ superseded_atlas1/):
 - UP требует r24 > 0, DOWN — r24 < 0;
 - load проверяет sha256 CSV против манифеста и что каждый бар закрыт к моменту выгрузки;
 - «высоко/низко» уровней — относительно прошлых 30 суток (перцентиль), не абсолютный уровень.
+
+atlas-2.1 (02.11, разбор GPT 29.10 §2 P1; docs/WEEX_GPT_CRITICAL_REPLY_RECHECK_2026-10-29.md): у каждой метки — своя
+маска наблюдаемости (token_known: все признаки метки известны; столбцы KNOWN + метка). Метка остаётся False при
+неизвестном признаке, но сравнение «с меткой / без» берёт только наблюдаемые часы этой метки — в обеих группах, в
+перестановках плацебо (маска сдвигается вместе с меткой) и в знаменателях. Значения меток и признаков те же, что atlas-2.
 Ревизии истории CoinGlass (revision_audit.py, BTC/ETH): у старых баров все столбцы совпадают с живым журналом;
 у последнего закрытого часа в момент выгрузки CoinGlass ещё досчитывает объём (медиана 0.6–0.9%) и дельту тейкеров
 (1.5–3.1%) — для окон 6–24 ч несущественно.
@@ -63,7 +68,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ATLAS_VERSION = "atlas-2"
+ATLAS_VERSION = "atlas-2.1"
+KNOWN = "наблюдаемо: "                                # префикс столбцов наблюдаемости меток (atlas-2.1)
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "research" / "coinglass_compare" / "data"
 COINS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT",
@@ -180,39 +186,57 @@ def features(df: pd.DataFrame) -> pd.DataFrame:
     return f
 
 
-def tokens(f: pd.DataFrame) -> pd.DataFrame:
-    """Слова описания часа (булевы столбцы). NaN признака → False."""
+def _token_specs(f: pd.DataFrame) -> dict[str, tuple[pd.Series, tuple[str, ...]]]:
+    """Метка → (условие, признаки, без которых она не наблюдаема)."""
     t = {}
     for key, nm in NAMES.items():
         p = f[f"{key}_p"]
-        t[f"{nm} высоко"] = p >= 0.90
-        t[f"{nm} низко"] = p <= 0.10
+        t[f"{nm} высоко"] = (p >= 0.90, (f"{key}_p",))
+        t[f"{nm} низко"] = (p <= 0.10, (f"{key}_p",))
         for k in (6, 24):
-            z = f[f"{key}_z{k}"]
-            t[f"{nm} ↑↑ {k}ч"] = z >= 2
-            t[f"{nm} ↑ {k}ч"] = (z >= 1) & (z < 2)
-            t[f"{nm} ↓ {k}ч"] = (z <= -1) & (z > -2)
-            t[f"{nm} ↓↓ {k}ч"] = z <= -2
-        up, dn = f["r24"] >= 2, f["r24"] <= -2
-        t[f"цена ↑, {nm} ↓ (дивергенция 24ч)"] = up & (f[f"{key}_z24"] <= -1)
-        t[f"цена ↓, {nm} ↑ (дивергенция 24ч)"] = dn & (f[f"{key}_z24"] >= 1)
+            z, need = f[f"{key}_z{k}"], (f"{key}_z{k}",)
+            t[f"{nm} ↑↑ {k}ч"] = (z >= 2, need)
+            t[f"{nm} ↑ {k}ч"] = ((z >= 1) & (z < 2), need)
+            t[f"{nm} ↓ {k}ч"] = ((z <= -1) & (z > -2), need)
+            t[f"{nm} ↓↓ {k}ч"] = (z <= -2, need)
+        up, dn, need = f["r24"] >= 2, f["r24"] <= -2, ("r24", f"{key}_z24")
+        t[f"цена ↑, {nm} ↓ (дивергенция 24ч)"] = (up & (f[f"{key}_z24"] <= -1), need)
+        t[f"цена ↓, {nm} ↑ (дивергенция 24ч)"] = (dn & (f[f"{key}_z24"] >= 1), need)
     for k in (6, 24):
-        p, x = f[f"tak{k}p"], f[f"tak{k}"]
-        t[f"тейкеры покупают сильно {k}ч"] = (x > 0) & (p >= 0.90)
-        t[f"тейкеры продают сильно {k}ч"] = (x < 0) & (p <= 0.10)
-    t["цена ↑, тейкеры продают 24ч"] = (f["r24"] >= 2) & (f["tak24"] < 0)
-    t["цена ↓, тейкеры покупают 24ч"] = (f["r24"] <= -2) & (f["tak24"] > 0)
-    t["стакан красный 5+/6"] = f["red6"] >= 5
-    t["стакан зелёный 5+/6"] = f["green6"] >= 5
-    t["стакан сильно красный (6ч)"] = (f["book6"] < 0) & (f["bookp6"] <= 0.10)
-    t["стакан сильно зелёный (6ч)"] = (f["book6"] > 0) & (f["bookp6"] >= 0.90)
-    t["объём высокий 6ч"] = f["vol6p"] >= 0.90
-    t["объём низкий 6ч"] = f["vol6p"] <= 0.10
-    t["всплеск ликвидаций лонгов 6ч"] = f["liqL_spike"].astype(bool)
-    t["всплеск ликвидаций шортов 6ч"] = f["liqS_spike"].astype(bool)
-    t["диапазон 24ч узкий"] = f["w24p"] <= 0.20
-    t["диапазон 24ч широкий"] = f["w24p"] >= 0.80
-    return pd.DataFrame({k: v.fillna(False).astype(bool) for k, v in t.items()}, index=f.index)
+        p, x, need = f[f"tak{k}p"], f[f"tak{k}"], (f"tak{k}", f"tak{k}p")
+        t[f"тейкеры покупают сильно {k}ч"] = ((x > 0) & (p >= 0.90), need)
+        t[f"тейкеры продают сильно {k}ч"] = ((x < 0) & (p <= 0.10), need)
+    t["цена ↑, тейкеры продают 24ч"] = ((f["r24"] >= 2) & (f["tak24"] < 0), ("r24", "tak24"))
+    t["цена ↓, тейкеры покупают 24ч"] = ((f["r24"] <= -2) & (f["tak24"] > 0), ("r24", "tak24"))
+    t["стакан красный 5+/6"] = (f["red6"] >= 5, ("red6",))
+    t["стакан зелёный 5+/6"] = (f["green6"] >= 5, ("green6",))
+    t["стакан сильно красный (6ч)"] = ((f["book6"] < 0) & (f["bookp6"] <= 0.10), ("book6", "bookp6"))
+    t["стакан сильно зелёный (6ч)"] = ((f["book6"] > 0) & (f["bookp6"] >= 0.90), ("book6", "bookp6"))
+    t["объём высокий 6ч"] = (f["vol6p"] >= 0.90, ("vol6p",))
+    t["объём низкий 6ч"] = (f["vol6p"] <= 0.10, ("vol6p",))
+    t["всплеск ликвидаций лонгов 6ч"] = (f["liqL_spike"].astype(bool), ("liqL6p",))
+    t["всплеск ликвидаций шортов 6ч"] = (f["liqS_spike"].astype(bool), ("liqS6p",))
+    t["диапазон 24ч узкий"] = (f["w24p"] <= 0.20, ("w24p",))
+    t["диапазон 24ч широкий"] = (f["w24p"] >= 0.80, ("w24p",))
+    return t
+
+
+def tokens(f: pd.DataFrame) -> pd.DataFrame:
+    """Слова описания часа (булевы столбцы). Метка не наблюдаема (нет её признака) → False; сравнивать «с меткой /
+    без» — только вместе с token_known (иначе неизвестный час попадает в группу «без метки»)."""
+    t = _token_specs(f)
+    known = token_known(f)
+    return pd.DataFrame({k: v.fillna(False).astype(bool) & known[k] for k, (v, _) in t.items()}, index=f.index)
+
+
+def token_known(f: pd.DataFrame) -> pd.DataFrame:
+    """Наблюдаемость каждой метки: все её признаки известны (atlas-2.1, разбор GPT 29.10 §2 P1)."""
+    return pd.DataFrame({k: f[list(need)].notna().all(axis=1) for k, (_, need) in _token_specs(f).items()},
+                        index=f.index)
+
+
+def known_columns(toks: list[str]) -> list[str]:
+    return [KNOWN + t for t in toks]
 
 
 def context(f: pd.DataFrame) -> pd.Series:
@@ -269,7 +293,7 @@ def build(sym: str, base: Path = DATA) -> pd.DataFrame:
     """Одна монета: признаки + состояние + метки + исходы, по часам."""
     df = load(sym, base)
     f = features(df)
-    out = pd.concat([f, tokens(f)], axis=1)
+    out = pd.concat([f, tokens(f), token_known(f).add_prefix(KNOWN)], axis=1)
     out["context"] = context(f)
     out = pd.concat([out, outcomes(df, f)], axis=1)
     out["close"] = df["close"]
@@ -296,4 +320,5 @@ def build_all(base: Path = DATA, cache: Path | None = None) -> pd.DataFrame:
 
 
 def token_columns(df: pd.DataFrame) -> list[str]:
-    return [c for c in df.columns if df[c].dtype == bool and c not in ("liqL_spike", "liqS_spike")]
+    return [c for c in df.columns if df[c].dtype == bool and c not in ("liqL_spike", "liqS_spike")
+            and not c.startswith(KNOWN)]
