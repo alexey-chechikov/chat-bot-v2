@@ -1,0 +1,239 @@
+//@version=5
+// bot7 · Правила оператора: возврат к каналу / отбой от голубой EMA200 — лонг и шорт (03.11.2026)
+// Для самостоятельной проверки оператором в «Тестере стратегий». Рабочий ТФ — 1 час (работает и на 4 часах).
+// Те же правила, что в research/operator_rules_20261103/sweep.py (перебор 1 944 вариантов на BTC 2018–2026):
+//   ЛОНГ: N последних закрытий выше голубой (EMA200) И (в последних 5 барах low коснулся низа канала 30 баров ±0.15%
+//         и close выше низа — «канал»; ИЛИ low коснулся голубой — «отбой»); сигнал на закрытии бара, вход по открытию
+//         следующего; ЦЕЛЬ — верх канала на момент сигнала (лимит); СТОП — K закрытий подряд ниже голубой или импульс
+//         против (тело свечи или ход за 5 свечей ≥ X%) — выход по открытию следующего бара.
+//   ШОРТ: зеркально («перезаход у верха канала» / касание голубой снизу, N закрытий ниже голубой, цель — низ канала).
+//   Флет: наклон голубой за 5 баров её ТФ ≤ 0.15% — серый фон и линии ±3% (отмена встречной сетки); сетки во флете
+//   этот скрипт НЕ торгует: флет-правила по средним проверены 02.11 (F1 −$509, ранг 0.84).
+// Режим «Контроль: случайный вход» — те же выходы, но вход в случайный бар по ту же сторону голубой. Если «Сигналы»
+// зарабатывают не больше «Контроля» — у входа нет эджа (плюс дал рынок и тейк, а не сигнал). Сравнивать при близком
+// числе сделок (настроить «долю баров»).
+// Отличия от Python: одна комиссия на обе стороны (0.068% — у нас лимитный тейк 0.016%, поэтому TV чуть хуже);
+// фандинг TV не считает; «цель не ближе 0.2%» проверяется от close сигнала, а не от open входа; «Обе (реверс)» —
+// одна позиция (встречный сигнал переворачивает), у нас лонг и шорт независимы — для этого добавьте скрипт дважды.
+// 03.11 проверка (research/operator_rules_20261103): настройки по умолчанию на 1ч — МИНУС во всех периодах
+// (лонг 1 231 сделка: 2018–21 −111%, 2022–07.24 −72%, 08.24–11.26 −56% номинала; шорт −10 / −21 / −53%).
+// Ближайший к рабочему — шорт на 4ч: «Любое», N 1, K 3, импульс выкл, предел выкл, «Не входить во флете» вкл
+// (+58 / +16 / +10%, но случайный шорт ниже голубой даёт столько же в 9% случаев — не доказан).
+// «Размер по волатильности» на этом шорте улучшил итог/просадку во всех трёх периодах (1.66 / 1.24 / 0.54 против
+// 1.50 / 0.70 / 0.47); на настройках по умолчанию 1ч — не помог. Окно медианы в Pine ограничено 4 999 барами
+// (на 1ч ≈ 7 мес. вместо года в Python).
+strategy("bot7 · правила оператора (канал / голубая)", shorttitle="bot7·ОП", overlay=true,
+     initial_capital=10000, default_qty_type=strategy.cash, default_qty_value=1000,
+     pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.068,
+     process_orders_on_close=false, calc_on_every_tick=false, max_labels_count=500)
+
+// ── настройки
+grpE = "Вход"
+sideSel   = input.string("Лонг", "Сторона", options=["Лонг", "Шорт", "Обе (реверс)"], group=grpE)
+famSel    = input.string("Любое", "Сигнал", options=["Канал", "Отбой", "Любое"], group=grpE,
+     tooltip="Канал — возврат к низу канала над голубой (шорт: к верху под голубой). Отбой — касание голубой и закрепление.")
+nConf     = input.int(2, "Закрепление за голубой, свечей (N)", minval=1, maxval=10, group=grpE)
+chLen     = input.int(30, "Канал, баров", minval=5, group=grpE)
+tolPct    = input.float(0.15, "Допуск касания, %", step=0.05, minval=0.0, group=grpE)
+lookB     = input.int(5, "Касание не старше, баров", minval=1, maxval=20, group=grpE)
+minTpPct  = input.float(0.2, "Цель не ближе, %", step=0.1, minval=0.0, group=grpE)
+entryMode = input.string("Сигналы", "Режим входа", options=["Сигналы", "Контроль: случайный вход"], group=grpE)
+ctlPct    = input.float(2.0, "Контроль: доля баров со входом, %", step=0.5, minval=0.1, group=grpE)
+ctlSeed   = input.int(42, "Контроль: зерно случайности", group=grpE)
+
+grpB = "Голубая линия"
+blueTf    = input.string("Свой ТФ", "Голубая EMA с ТФ", options=["Свой ТФ", "4 часа"], group=grpB)
+blueLen   = input.int(200, "Длина голубой EMA", minval=2, group=grpB)
+flatOn    = input.bool(false, "Не входить во флете", group=grpB)
+flatPct   = input.float(0.15, "Флет: наклон голубой за 5 баров её ТФ не больше, %", step=0.05, minval=0.0, group=grpB)
+gridPct   = input.float(3.0, "Флет: линии отмены сетки, ± % от голубой", step=0.5, minval=0.5, group=grpB)
+
+grpX = "Выход"
+kOpp      = input.int(5, "Стоп: закрытий подряд за голубой (K)", minval=1, group=grpX)
+impOn     = input.bool(true, "Стоп: импульс против", group=grpX)
+impPct    = input.float(1.5, "Импульс: тело свечи или ход за 5 свечей, %", step=0.5, minval=0.1, group=grpX)
+holdOn    = input.bool(false, "Предел удержания", group=grpX)
+holdBars  = input.int(40, "Предел удержания, баров", minval=1, group=grpX)
+
+grpZ = "Размер"
+volSize   = input.bool(false, "Размер по волатильности", group=grpZ)
+baseCash  = input.float(1000.0, "Базовый номинал сделки, $", step=100, minval=10, group=grpZ)
+volDays   = input.int(365, "Окно медианы ATR%, дней", minval=30, group=grpZ)
+wMin      = input.float(0.5, "Вес не меньше", step=0.1, minval=0.1, group=grpZ)
+wMax      = input.float(2.0, "Вес не больше", step=0.1, minval=0.1, group=grpZ)
+
+grpV = "Вид"
+showTema  = input.bool(true, "TEMA 50 / 100 / 200 (зелёная / жёлтая / красная)", group=grpV)
+show432   = input.bool(false, "Метки пробоя 432 (для сравнения)", group=grpV)
+showTable = input.bool(true, "Таблица итогов по периодам", group=grpV)
+fromDate  = input.time(timestamp("2018-01-01T00:00:00"), "Тест с даты", group=grpV)
+
+// ── функции
+tema(src, len) =>
+    e1 = ta.ema(src, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    3 * e1 - 3 * e2 + e3
+
+f_h4() =>
+    e = ta.ema(close, blueLen)
+    s = math.abs(e / e[5] - 1) * 100
+    [e[1], s[1]]
+
+// ── голубая линия, флет, канал (только закрытые бары)
+emaOwn   = ta.ema(close, blueLen)
+slopeOwn = math.abs(emaOwn / emaOwn[5] - 1) * 100
+[emaH4, slopeH4] = request.security(syminfo.tickerid, "240", f_h4(), lookahead=barmerge.lookahead_on)
+useH4 = blueTf == "4 часа"
+blue  = useH4 ? emaH4 : emaOwn
+slope = useH4 ? slopeH4 : slopeOwn
+isFlat = not na(slope) and slope <= flatPct
+
+hi = ta.highest(high[1], chLen)
+lo = ta.lowest(low[1], chLen)
+
+var int upRun = 0
+var int dnRun = 0
+upRun := not na(blue) and close > blue ? upRun + 1 : 0
+dnRun := not na(blue) and close < blue ? dnRun + 1 : 0
+
+tol  = tolPct / 100
+tChL = not na(lo) and low <= lo * (1 + tol) ? 1 : 0
+tChS = not na(hi) and high >= hi * (1 - tol) ? 1 : 0
+tBL  = not na(blue) and low <= blue * (1 + tol) ? 1 : 0
+tBS  = not na(blue) and high >= blue * (1 - tol) ? 1 : 0
+rChL = ta.highest(tChL, lookB) > 0
+rChS = ta.highest(tChS, lookB) > 0
+rBL  = ta.highest(tBL, lookB) > 0
+rBS  = ta.highest(tBS, lookB) > 0
+
+chanL = rChL and upRun >= nConf and close > lo
+bncL  = rBL and upRun >= nConf
+chanS = rChS and dnRun >= nConf and close < hi
+bncS  = rBS and dnRun >= nConf
+condL0 = famSel == "Канал" ? chanL : famSel == "Отбой" ? bncL : (chanL or bncL)
+condS0 = famSel == "Канал" ? chanS : famSel == "Отбой" ? bncS : (chanS or bncS)
+
+ready = not na(hi) and not na(lo) and not na(blue) and time >= fromDate
+noFlat = not (flatOn and isFlat)
+condL = ready and condL0 and noFlat
+condS = ready and condS0 and noFlat
+sigL = condL and not condL[1]
+sigS = condS and not condS[1]
+
+// контроль: случайный бар по ту же сторону голубой (детерминированная последовательность по зерну)
+rnd  = math.random(0.0, 100.0, ctlSeed)
+ctlL = ready and noFlat and upRun >= 1 and rnd < ctlPct
+ctlS = ready and noFlat and dnRun >= 1 and rnd < ctlPct
+isCtl = entryMode != "Сигналы"
+goL = isCtl ? ctlL : sigL
+goS = isCtl ? ctlS : sigS
+
+wantL = sideSel != "Шорт"
+wantS = sideSel != "Лонг"
+tpOkL = not na(hi) and (hi / close - 1) * 100 >= minTpPct
+tpOkS = not na(lo) and (1 - lo / close) * 100 >= minTpPct
+
+// ── размер по волатильности: медиана ATR% за прошлое окно (без текущего бара) / текущий ATR%
+volBars = math.min(4999, math.max(50, math.round(volDays * 86400 / timeframe.in_seconds())))
+atrPct  = ta.atr(14) / close
+medAtr  = ta.percentile_nearest_rank(atrPct, volBars, 50)[1]
+wVol    = not na(medAtr) and atrPct > 0 ? math.max(wMin, math.min(wMax, medAtr / atrPct)) : 1.0
+qtyVol  = (volSize ? baseCash * wVol : baseCash) / close
+
+// ── вход
+var float tpL = na
+var float tpS = na
+canL = wantL and goL and tpOkL and strategy.position_size <= 0
+canS = wantS and goS and tpOkS and strategy.position_size >= 0 and not canL
+if canL
+    tpL := hi
+    strategy.entry("L", strategy.long, qty=qtyVol, comment=isCtl ? "L·контроль" : chanL ? "L·канал" : "L·отбой")
+if canS
+    tpS := lo
+    strategy.entry("S", strategy.short, qty=qtyVol, comment=isCtl ? "S·контроль" : chanS ? "S·канал" : "S·отбой")
+
+// ── выход: цель лимитом, стоп по закрытиям/импульсу и предел удержания — по открытию следующего бара
+if strategy.position_size > 0 or canL
+    strategy.exit("L·цель", "L", limit=tpL, comment="цель")
+if strategy.position_size < 0 or canS
+    strategy.exit("S·цель", "S", limit=tpS, comment="цель")
+
+impL = impOn and ((close / open - 1) * 100 <= -impPct or (close / close[5] - 1) * 100 <= -impPct)
+impS = impOn and ((close / open - 1) * 100 >= impPct or (close / close[5] - 1) * 100 >= impPct)
+heldBars = strategy.position_size != 0 ? bar_index - strategy.opentrades.entry_bar_index(0) + 1 : 0
+timeX = holdOn and heldBars >= holdBars
+if strategy.position_size > 0 and (dnRun >= kOpp or impL or timeX)
+    strategy.close("L", comment=dnRun >= kOpp ? "стоп K" : impL ? "стоп имп" : "время")
+if strategy.position_size < 0 and (upRun >= kOpp or impS or timeX)
+    strategy.close("S", comment=upRun >= kOpp ? "стоп K" : impS ? "стоп имп" : "время")
+
+// ── вид
+t50  = tema(close, 50)
+t100 = tema(close, 100)
+t200 = tema(close, 200)
+plot(blue, "Голубая EMA200", color=color.new(color.aqua, 0), linewidth=2)
+plot(showTema ? t50 : na, "TEMA50 (зелёная)", color=color.new(color.lime, 10))
+plot(showTema ? t100 : na, "TEMA100 (жёлтая)", color=color.new(color.yellow, 10))
+plot(showTema ? t200 : na, "TEMA200 (красная)", color=color.new(color.red, 10))
+plot(hi, "Канал: верх", color=color.new(color.teal, 40), style=plot.style_stepline)
+plot(lo, "Канал: низ", color=color.new(color.orange, 40), style=plot.style_stepline)
+bgcolor(isFlat ? color.new(color.gray, 88) : na, title="Флет голубой")
+plot(isFlat ? blue * (1 + gridPct / 100) : na, "Флет: отмена шорт-сетки", color=color.new(color.gray, 20), style=plot.style_linebr)
+plot(isFlat ? blue * (1 - gridPct / 100) : na, "Флет: отмена лонг-сетки", color=color.new(color.gray, 20), style=plot.style_linebr)
+plot(strategy.position_size > 0 ? tpL : na, "Цель лонга", color=color.new(color.lime, 30), style=plot.style_linebr)
+plot(strategy.position_size < 0 ? tpS : na, "Цель шорта", color=color.new(color.fuchsia, 30), style=plot.style_linebr)
+
+plotshape(not isCtl and wantL and sigL and chanL, "Лонг: канал", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small, text="К")
+plotshape(not isCtl and wantL and sigL and not chanL, "Лонг: отбой", shape.triangleup, location.belowbar, color.new(color.green, 0), size=size.small, text="О")
+plotshape(not isCtl and wantS and sigS and chanS, "Шорт: канал", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.small, text="К")
+plotshape(not isCtl and wantS and sigS and not chanS, "Шорт: отбой", shape.triangledown, location.abovebar, color.new(color.maroon, 0), size=size.small, text="О")
+
+[diP, diM, adxV] = ta.dmi(14, 14)
+atrV = ta.atr(14)
+b432 = not na(hi) and not na(atrV) and atrV > 0 and close > hi and adxV >= 22 and close > emaOwn and (close - hi) / atrV >= 0.5
+plotshape(show432 and b432, "Пробой 432", shape.diamond, location.belowbar, color.new(color.yellow, 0), size=size.tiny, text="432")
+
+// ── алерты (условие: bot7·ОП → вызовы alert())
+if canL and not isCtl
+    alert("bot7·ОП: ЛОНГ " + (chanL ? "канал" : "отбой") + " на " + syminfo.ticker + ", цель " + str.tostring(hi, format.mintick), alert.freq_once_per_bar_close)
+if canS and not isCtl
+    alert("bot7·ОП: ШОРТ " + (chanS ? "канал" : "отбой") + " на " + syminfo.ticker + ", цель " + str.tostring(lo, format.mintick), alert.freq_once_per_bar_close)
+
+// ── таблица: итоги закрытых сделок по периодам проверки (A подбор / B проверка / C решение)
+var table T = table.new(position.top_right, 5, 6, border_width=1)
+f_cell(c, r, txt, col) =>
+    table.cell(T, c, r, txt, text_color=col, bgcolor=color.new(color.black, 40), text_size=size.small)
+if barstate.islast and showTable
+    tA = timestamp("2022-01-01T00:00:00")
+    tB = timestamp("2024-08-01T00:00:00")
+    nArr = array.new_int(4, 0)
+    wArr = array.new_int(4, 0)
+    sArr = array.new_float(4, 0.0)
+    if strategy.closedtrades > 0
+        for i = 0 to strategy.closedtrades - 1
+            et  = strategy.closedtrades.entry_time(i)
+            ep  = strategy.closedtrades.entry_price(i)
+            sz  = math.abs(strategy.closedtrades.size(i))
+            pct = ep * sz > 0 ? strategy.closedtrades.profit(i) / (ep * sz) * 100 : 0.0
+            p = et < tA ? 0 : et < tB ? 1 : 2
+            for k in array.from(p, 3)
+                array.set(nArr, k, array.get(nArr, k) + 1)
+                array.set(wArr, k, array.get(wArr, k) + (pct > 0 ? 1 : 0))
+                array.set(sArr, k, array.get(sArr, k) + pct)
+    f_cell(0, 0, isCtl ? "КОНТРОЛЬ" : "СИГНАЛЫ", isCtl ? color.orange : color.aqua)
+    f_cell(1, 0, "сделок", color.silver)
+    f_cell(2, 0, "плюс, %", color.silver)
+    f_cell(3, 0, "ср. %", color.silver)
+    f_cell(4, 0, "сумма %", color.silver)
+    names = array.from("A 2018–21", "B 22–07.24", "C 08.24–", "всё")
+    for k = 0 to 3
+        n = array.get(nArr, k)
+        s = array.get(sArr, k)
+        f_cell(0, k + 1, array.get(names, k), color.white)
+        f_cell(1, k + 1, str.tostring(n), color.white)
+        f_cell(2, k + 1, n > 0 ? str.tostring(100.0 * array.get(wArr, k) / n, "0") : "—", color.white)
+        f_cell(3, k + 1, n > 0 ? str.tostring(s / n, "0.00") : "—", n > 0 and s > 0 ? color.lime : color.red)
+        f_cell(4, k + 1, str.tostring(s, "0.0"), s > 0 ? color.lime : color.red)
+    f_cell(0, 5, sideSel + " · " + famSel + " · N" + str.tostring(nConf) + " · K" + str.tostring(kOpp), color.silver)
+    f_cell(1, 5, volSize ? "вес " + str.tostring(wVol, "0.00") : "вес выкл", volSize ? color.aqua : color.gray)

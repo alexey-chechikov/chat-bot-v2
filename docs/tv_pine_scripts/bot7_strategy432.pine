@@ -1,5 +1,5 @@
 //@version=5
-// bot7 · Strategy 432 — пробой канала Дончиана с продолжением (25.10.2026)
+// bot7 · Strategy 432 — пробой канала Дончиана с продолжением (25.10.2026; 03.11.2026 — опция «размер по волатильности»)
 // Своя реализация правил публикации «Strategy 432 BTC - Donchian Breakout Continuation» (автор Fran_Pineda, TradingView,
 // MPL-2.0), для самостоятельной проверки оператором в «Тестере стратегий».
 // Правила по умолчанию — как у автора:
@@ -9,6 +9,14 @@
 // сигнального), комиссия 0.068% на сторону (тейкер WEEX 0.048% + проскальзывание 0.02%; меняется в «Свойствах»).
 // Наша проверка BTC 4h 2017–07.2024: 98 сделок, +3.0% на сделку после издержек, случайный вход выше EMA200 с теми же
 // длительностями +0.7% (ранг 0.001); 2024–2026: 26 сделок, +1.9%. Это история, не обещание.
+// 03.11 «Размер по волатильности» (research/btc432_20261103, R2): номинал сделки = база × (медиана ATR% за прошлый год /
+// ATR% на сигнале), в пределах 0.5–2. Входы и выходы те же. BTC 4h, итог / просадка: 2017–21 6.8 против 5.3,
+// 2022–07.24 10.2 против 9.5, 08.24–11.26 5.8 против 4.2 (итог +69% против +48.5% номинала при просадке 12.0 против
+// 11.4); 6 из 9 соседних настроек лучше во всех трёх периодах. На ETH НЕ повторилось — уверенность средняя.
+// 03.11 «Фильтр: ADX растёт за 3 бара» — ГИПОТЕЗА, заранее записанный критерий не прошла (широкий поиск 61 вариант — 0):
+// BTC итог/просадка 2017–21 7.30 против 5.33, 2022–07.24 9.48 против 9.50 (ничья), 08.24–11.26 8.19 против 4.24;
+// вместе с размером по волатильности 9.64 / 10.16 / 7.37 (итог 08.24–11.26 +55% при просадке 7.5% против +48.5% и 11.4%);
+// на ETH хуже. Смотреть вперёд, не на деньги.
 strategy("bot7 · Strategy 432 (пробой Дончиана)", shorttitle="bot7·432", overlay=true,
      initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10,
      pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.068,
@@ -21,11 +29,17 @@ adxMin    = input.float(22.0, "ADX не меньше", step=0.5, group="Вход
 emaLen    = input.int(200, "EMA тренда, длина", minval=2, group="Вход")
 atrLen    = input.int(14, "ATR, длина", minval=2, group="Вход")
 minBreak  = input.float(0.5, "Пробой не меньше, × ATR", step=0.1, minval=0, group="Вход")
+adxRise   = input.bool(false, "Фильтр: ADX растёт за 3 бара (гипотеза 03.11)", group="Вход")
 holdBars  = input.int(20, "Держать не дольше, баров (от сигнала)", minval=1, group="Выход")
 useDcExit = input.bool(true, "Выход: закрытие ниже канала", group="Выход")
-allowShort = input.bool(false, "Разрешить шорт (зеркально, у автора выключен)", group="Выход")
+allowShort = input.bool(false, "Разрешить шорт (зеркально, у автора выключен; на BTC эджа нет — 03.11)", group="Выход")
 useStop   = input.bool(false, "Аварийный стоп, % от входа (у автора нет; это уже другая версия)", group="Риск")
 stopPct   = input.float(10.0, "Аварийный стоп, %", step=0.5, minval=0.5, group="Риск")
+volSize   = input.bool(false, "Размер по волатильности (R2, 03.11)", group="Размер")
+baseCash  = input.float(1000.0, "Базовый номинал сделки, $ (при размере по волатильности)", step=100, minval=10, group="Размер")
+volWin    = input.int(2190, "Окно медианы ATR%, баров (2190 = год на 4ч)", minval=50, maxval=4999, group="Размер")
+wMin      = input.float(0.5, "Вес не меньше", step=0.1, minval=0.1, group="Размер")
+wMax      = input.float(2.0, "Вес не больше", step=0.1, minval=0.1, group="Размер")
 fromDate  = input.time(timestamp("2017-01-01T00:00:00"), "Тест с даты", group="Период")
 toDate    = input.time(timestamp("2099-01-01T00:00:00"), "Тест по дату", group="Период")
 showTable = input.bool(true, "Таблица «что сейчас»", group="Вид")
@@ -42,15 +56,28 @@ inDate = time >= fromDate and time <= toDate
 ready  = not na(dcHigh) and not na(dcLow) and not na(atrV) and not na(adxV) and not na(emaT)
 flat   = strategy.position_size == 0
 
-longSig  = ready and inDate and flat and close > dcHigh and adxV >= adxMin and close > emaT and magL >= minBreak
+// размер по волатильности: медиана ATR% за прошлое окно (без текущего бара) / текущий ATR%
+atrPct = atrV / close
+medAtr = ta.percentile_nearest_rank(atrPct, volWin, 50)[1]
+wVol   = not na(medAtr) and atrPct > 0 ? math.max(wMin, math.min(wMax, medAtr / atrPct)) : 1.0
+qtyVol = baseCash * wVol / close
+
+adxOk    = not adxRise or adxV > adxV[3]
+longSig  = ready and inDate and flat and adxOk and close > dcHigh and adxV >= adxMin and close > emaT and magL >= minBreak
 shortSig = ready and inDate and flat and allowShort and close < dcLow and adxV >= adxMin and close < emaT and magS >= minBreak
 
 var int sigBar = na
 if longSig
-    strategy.entry("Long", strategy.long)
+    if volSize
+        strategy.entry("Long", strategy.long, qty=qtyVol, comment="вес " + str.tostring(wVol, "0.00"))
+    else
+        strategy.entry("Long", strategy.long)
     sigBar := bar_index
 if shortSig
-    strategy.entry("Short", strategy.short)
+    if volSize
+        strategy.entry("Short", strategy.short, qty=qtyVol, comment="вес " + str.tostring(wVol, "0.00"))
+    else
+        strategy.entry("Short", strategy.short)
     sigBar := bar_index
 
 held = na(sigBar) ? 0 : bar_index - sigBar
@@ -77,12 +104,12 @@ bgcolor(strategy.position_size > 0 ? color.new(color.green, 92) : strategy.posit
 
 // ── алерты (strategy: через alert(), включать в окне алертов «условие: bot7·432 → вызовы alert()»)
 if longSig
-    alert("bot7·432: сигнал ЛОНГ на " + syminfo.ticker + " — вход по открытию следующего бара", alert.freq_once_per_bar_close)
+    alert("bot7·432: сигнал ЛОНГ на " + syminfo.ticker + " — вход по открытию следующего бара" + (volSize ? ", вес " + str.tostring(wVol, "0.00") : ""), alert.freq_once_per_bar_close)
 if longExit or shortExit
     alert("bot7·432: сигнал ВЫХОДА на " + syminfo.ticker, alert.freq_once_per_bar_close)
 
 // ── таблица «что сейчас»
-var table T = table.new(position.top_right, 2, 7, border_width=1)
+var table T = table.new(position.top_right, 2, 8, border_width=1)
 f_row(t, r, k, v, c) =>
     table.cell(t, 0, r, k, text_color=color.silver, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
     table.cell(t, 1, r, v, text_color=c, bgcolor=color.new(color.black, 45), text_size=size.small, text_halign=text.align_left)
@@ -95,3 +122,4 @@ if barstate.islast and showTable
     f_row(T, 4, "Сила пробоя, × ATR", str.tostring(magL, "0.00") + " (нужно ≥ " + str.tostring(minBreak, "0.0") + ")", magL >= minBreak ? color.lime : color.gray)
     f_row(T, 5, "Позиция", strategy.position_size > 0 ? "ЛОНГ, баров " + str.tostring(held) + " из " + str.tostring(holdBars) : strategy.position_size < 0 ? "ШОРТ, баров " + str.tostring(held) : "нет", strategy.position_size != 0 ? color.yellow : color.silver)
     f_row(T, 6, "Выход по каналу ниже", str.tostring(dcLow, format.mintick) + " (" + str.tostring((dcLow / close - 1) * 100, "0.0") + "%)", color.orange)
+    f_row(T, 7, "Вес по волатильности сейчас", str.tostring(wVol, "0.00") + (volSize ? " (вкл)" : " (выкл)"), volSize ? color.aqua : color.gray)
