@@ -19,8 +19,10 @@ from validate_432 import s432  # noqa: E402
 OUT = HERE / "out"
 COST = 0.00048 + 0.0002
 H4 = 14400
-PERIODS = {"A 2017–2021": ("2017-01-01", "2022-01-01"), "B 2022–07.2024": ("2022-01-01", "2024-08-01"),
+# A — с 12.2017, как в PREREG.md (до 03.11 в коде стояло 01.2017: 5 сделок окт–нояб 2017 попадали в A; замечание GPT 5bdaa84)
+PERIODS = {"A 12.2017–2021": ("2017-12-01", "2022-01-01"), "B 2022–07.2024": ("2022-01-01", "2024-08-01"),
            "C 08.2024–2026": ("2024-08-01", "2030-01-01")}
+ALL = ("2017-12-01", "2030-01-01")                                 # «всё» = A + B + C
 RNG = np.random.default_rng(20261103)
 
 
@@ -59,7 +61,14 @@ class Data:
         self.ft, self.fcs = f.index.to_numpy(), np.r_[0.0, np.cumsum(f.to_numpy())]
 
     def fsum(self, a, b):
-        return self.fcs[np.searchsorted(self.ft, self.t[b])] - self.fcs[np.searchsorted(self.ft, self.t[a])]
+        """Фандинг позиции, открытой на open бара a и закрытой на open бара b: расчёты t[a] < ft ≤ t[b].
+        Расчёт на границе — до операций (вход на open в момент расчёта не платит, выход — платит). До 03.11 было
+        t[a] ≤ ft < t[b] — сдвиг на один расчёт на каждой границе (замечание GPT 5bdaa84)."""
+        return self.fcum(self.t[b]) - self.fcum(self.t[a])
+
+    def fcum(self, when):
+        """Накопленный фандинг по расчётам ≤ when (скаляр или массив моментов)."""
+        return self.fcs[np.searchsorted(self.ft, when, side="right")]
 
 
 def run(D: Data, side=1, H=20, restart=False, cap=None, units=1, stop_k=None, tstop=None, reg=None):
@@ -121,10 +130,12 @@ def run(D: Data, side=1, H=20, restart=False, cap=None, units=1, stop_k=None, ts
 
 
 def equity(D: Data, units: list) -> np.ndarray:
+    """Переоценка на закрытиях H4; фандинг — в момент расчёта (до 03.11 — только при выходе, просадка его не видела)."""
     eq = np.zeros(len(D.c))
+    fc = D.fcum(D.t + H4)                                          # накопленный фандинг на закрытии каждого бара
     for u in units:
         j, k, s = u["j"], u["k"], u["side"]
-        eq[j:k] += s * (D.c[j:k] / u["px"] - 1) - COST
+        eq[j:k] += s * (D.c[j:k] / u["px"] - 1) - COST - s * (fc[j:k] - D.fcum(D.t[j]))
         eq[k:] += u["net"]
     return eq
 
@@ -139,7 +150,7 @@ def boot_ci(x, reps=5000):
 def stats(D: Data, units: list) -> dict:
     eq = equity(D, units)
     res = {}
-    for name, (a, b) in list(PERIODS.items()) + [("всё", ("2017-01-01", "2030-01-01"))]:
+    for name, (a, b) in list(PERIODS.items()) + [("всё", ALL)]:
         ta, tb = ts(a), ts(b)
         us = [u for u in units if ta <= u["t_in"] < tb]
         x = np.array([u["net"] for u in us])
@@ -187,7 +198,7 @@ def diag(D: Data, units: list) -> pd.DataFrame:
         r["hour"] = int(((D.t[i] + H4) % 86400) // 3600)
         r["reg0"] = D.reg[0][i]
         r["fwd20_after"] = s * (o[k + 20] / o[k] - 1) if k + 20 < len(o) else np.nan
-        r["period"] = next(nm for nm, (a, b) in PERIODS.items() if ts(a) <= D.t[j] < ts(b))
+        r["period"] = next((nm for nm, (a, b) in PERIODS.items() if ts(a) <= D.t[j] < ts(b)), "до A")
         rows.append(r)
     return pd.DataFrame(rows)
 

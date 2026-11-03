@@ -13,7 +13,7 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "research" / "operator_rules_20261103"))
-from review import COST, PERIODS, Data, run, ts  # noqa: E402
+from review import ALL, COST, H4, PERIODS, Data, run, ts  # noqa: E402
 from sweep import TF  # noqa: E402
 
 MAKER = 0.00016
@@ -22,11 +22,12 @@ MAKER = 0.00016
 def eq_stats(D: Data, legs: list) -> dict:
     """legs: (j вход, k выход, цена входа, сторона, вес, net). Переоценка по закрытиям H4; итог, просадка, отношение."""
     eq = np.zeros(len(D.c))
+    fc = D.fcum(D.t + H4)                                          # фандинг — в момент расчёта (до 03.11 — при выходе)
     for j, k, px, s, w, net in legs:
-        eq[j:k] += w * (s * (D.c[j:k] / px - 1) - COST)
+        eq[j:k] += w * (s * (D.c[j:k] / px - 1) - COST - s * (fc[j:k] - D.fcum(D.t[j])))
         eq[k:] += w * net
     out = {}
-    for name, (a, b) in list(PERIODS.items()) + [("всё", ("2017-01-01", "2030-01-01"))]:
+    for name, (a, b) in list(PERIODS.items()) + [("всё", ALL)]:
         m = (D.t >= ts(a)) & (D.t < ts(b))
         e = eq[m] - (eq[m][0] if m.any() else 0)
         s_ = float(e[-1]) if m.any() else 0.0
