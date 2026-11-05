@@ -207,4 +207,4 @@ def summary(tbl: pd.DataFrame) -> dict:
     pos = tbl[tbl["сторона"] != "B"]
     return {"итог_$": round(float(cum[-1]), 2), "просадка_от_пика_$": round(dd, 2), "ног": len(tbl), "шорт_$": part("S"), "лонг_$": part("L"),
             "две_$": part("B"), "пик_номинал_$": int(tbl["пик_номинал_$"].max()),
-            "позиция_$1000_$": round(float((pos["ход_%"] * 10 - 1.36).sum()), 1)}
+            "позиция_$1000_без_фандинга_$": round(float((pos["ход_%"] * 10 - 1.36).sum()), 1)}

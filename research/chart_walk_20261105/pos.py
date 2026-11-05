@@ -60,7 +60,7 @@ def stats(x: np.ndarray) -> dict:
 
 
 def max_dd(x: np.ndarray) -> float:
-    """Просадка суммы сделок, % номинала."""
+    """Просадка суммы ЗАКРЫТЫХ сделок, % номинала. Путь открытой позиции не видит: настоящая просадка счёта — ledger.equity и ledger.drawdown."""
     c = np.cumsum(x)
     return round(float((c - np.maximum.accumulate(np.r_[0.0, c])[1:]).min()), 1) if len(c) else 0.0
 

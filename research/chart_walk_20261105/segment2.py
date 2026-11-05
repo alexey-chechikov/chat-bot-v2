@@ -53,7 +53,7 @@ def main():
         sa, sb, sall = split(tbl)
         res[nm] = {"A": sa, "B": sb, "всё": sall}
         rows.append({"вариант": nm, "A_$": sa["итог_$"], "B_$": sb["итог_$"], "всё_$": sall["итог_$"], "просадка": sall["просадка_от_пика_$"], "ног": sall["ног"],
-                     "B_шорт": sb["шорт_$"], "B_лонг": sb["лонг_$"], "B_две": sb["две_$"], "поз_$1000_B": sb.get("позиция_$1000_$", 0)})
+                     "B_шорт": sb["шорт_$"], "B_лонг": sb["лонг_$"], "B_две": sb["две_$"], "поз_$1000_B": sb.get("позиция_$1000_без_фандинга_$", 0)})
     print(pd.DataFrame(rows).to_string(index=False))
     for nm in (VARIANTS[0][0], VARIANTS[1][0], VARIANTS[4][0]):
         tbl = rules.grid_legs(mk, rules.run(a, T0, T1, **dict(VARIANTS)[nm]), cw.utc)

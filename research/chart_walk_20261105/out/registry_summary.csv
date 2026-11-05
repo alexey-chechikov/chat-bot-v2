@@ -1,0 +1,56 @@
+таблица,вариантов,считается
+entry_flips_far.csv,22,да
+entry_green_cross.csv,84,да
+entry_l1_filters.csv,36,да
+entry_rule5_coins.csv,8,да
+entry_types.csv,12,да
+entry_types_zones.csv,12,да
+flips_blue.csv,48,да
+flips_blue_control.csv,8,да
+history_v1_exits.csv,6,да
+history_v1_legs.csv,0,"нет, описание"
+history_v1_mfe.csv,0,"нет, описание"
+history_v1_tol.csv,7,да
+history_v1_tp_sl.csv,150,да
+history_v1_types.csv,7,да
+journal_auc.csv,0,"нет, описание"
+journal_history.csv,0,"нет, описание"
+journal_history_summary.csv,0,"нет, описание"
+journal_points.csv,0,"нет, описание"
+rule5_table.csv,60,да
+segment1_bars_1h.csv,0,"нет, описание"
+segment1_bars_4h.csv,0,"нет, описание"
+segment1_legs_v_далеко.csv,0,"нет, описание"
+segment1_legs_v_держать.csv,0,"нет, описание"
+segment1_legs_вариант_без_флипа_в_пучке_<1%.csv,0,"нет, описание"
+segment1_legs_вариант_выход_лонга_по_1ч.csv,0,"нет, описание"
+segment1_legs_вариант_оба.csv,0,"нет, описание"
+segment1_legs_далеко_закрывать.csv,0,"нет, описание"
+segment1_legs_держать_без_далеко.csv,0,"нет, описание"
+segment1_legs_зелёная.csv,0,"нет, описание"
+segment1_points.csv,0,"нет, описание"
+segment1_runs.csv,0,"нет, описание"
+segment2_legs_+_допуск_над_голубыми_без_цели.csv,0,"нет, описание"
+segment2_legs_+_допуск_над_голубыми_без_цели_лонг_от_сужения.csv,0,"нет, описание"
+segment2_legs_+_допуск_шорт_от_голубой_до_красной_1ч.csv,0,"нет, описание"
+segment2_legs_+_то_же_без_далеко.csv,0,"нет, описание"
+segment2_legs_+_то_же_далеко_от_красной_-12_вместо_зелёной.csv,0,"нет, описание"
+segment2_legs_+_цель_с_допуском_0.5.csv,0,"нет, описание"
+segment2_legs_v1.csv,0,"нет, описание"
+segment2_legs_v2.csv,0,"нет, описание"
+segment2_legs_кагал:_всё_закрыть_и_ждать_выхода.csv,0,"нет, описание"
+segment2_legs_кагал:_две_сетки_до_выхода.csv,0,"нет, описание"
+segment2_legs_правила_участка_1_без_изменений.csv,0,"нет, описание"
+segment2_points.csv,0,"нет, описание"
+segment3_rules_BTC.csv,18,да
+segment3_rules_ETH.csv,18,да
+short_mirror_coins.csv,18,да
+short_r1_table.csv,32,да
+tp_blue_L1_BTC.csv,80,да
+tp_blue_L1_ETH.csv,80,да
+tp_blue_runs_лонг_L1.csv,0,"нет, описание"
+tp_blue_runs_лонг_L2.csv,0,"нет, описание"
+tp_blue_runs_шорт_L1.csv,0,"нет, описание"
+tp_blue_runs_шорт_L2.csv,0,"нет, описание"
+tp_blue_table.csv,256,да
+tp_blue_zig.csv,0,"нет, описание"
