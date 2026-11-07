@@ -1,7 +1,7 @@
 ﻿python : C:\bot7\tmp\indicator_lab_wt\research\indicator_lab_win\g4_eval.py:40: RuntimeWarning: divide by zero encounte
 red in divide
-At line:1 char:402
-+ ... PYTHONIOENCODING='utf8'; python -X utf8 g4_eval.py *> out\g4_eval.txt
+At line:1 char:548
++ ... py *> out\lab_stats.txt; python -X utf8 g4_eval.py *> out\g4_eval.txt
 +                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (C:\bot7\tmp\ind...tered in divide:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError

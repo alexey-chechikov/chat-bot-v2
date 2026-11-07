@@ -349,7 +349,7 @@ def run(S, **kw):
             if allow_l and f > Bv[jj] and rle[jj] >= k_le - 1 and c[i] > early_ln[jj] and rlx[jj] > -k_lx and (Lok is None or Lok[jj]) and jj >= lock_l and (brk_l is None or f > brk_l):
                 opn(i, 1, "до закрытия")
                 continue
-            if allow_s and f <= Bv[jj] and rse[jj] <= -(k_se - 1) and c[i] < early_ln[jj] and (Sok is None or Sok[jj]) and jj >= lock_s and (brk_s is None or f < brk_s):
+            if allow_s and f <= Bv[jj] and rse[jj] <= -(k_se - 1) and rsx[jj] < k_sx and c[i] < early_ln[jj] and (Sok is None or Sok[jj]) and jj >= lock_s and (brk_s is None or f < brk_s):
                 opn(i, -1, "до закрытия")
                 continue
         if side != 0 or not new4:
@@ -362,7 +362,7 @@ def run(S, **kw):
                     go = 1
                     brk_l = None
         else:
-            if allow_s and f < Bv[jj] - band_s * atr[jj] and rse[jj] <= -k_se and (Sok is None or Sok[jj]) and jj >= lock_s:
+            if allow_s and f < Bv[jj] - band_s * atr[jj] and rse[jj] <= -k_se and rsx[jj] < k_sx and (Sok is None or Sok[jj]) and jj >= lock_s:
                 if brk_s is None or f < brk_s:
                     go = -1
                     brk_s = None

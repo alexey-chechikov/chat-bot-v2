@@ -3,7 +3,7 @@
 совпало входов: 590 только Мак: 0 только я: 0
 макс. разница цены входа %: 0.0 выхода %: 0.0 итога пунктов: 0.0638
 == 2. Настоящие words3.run и pine_mirror_simple.run на моих массивах
-BTC R сделок 590 совпало с words3: True движок 36 мс
+BTC R сделок 590 совпало с words3: True движок 34 мс
 BTC R совпало с pine_mirror_simple (закрытые): True
 BTC G сделок 837 совпало с words3: True движок 23 мс
 BTC G совпало с pine_mirror_simple (закрытые): True
@@ -12,23 +12,23 @@ BTC стоп 2.0 ATR: мой 652 сделок, words3 645 (у words3 блоки�
 BTC стоп 6.0 ATR: мой 592 сделок, words3 592 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
 ETH R сделок 591 совпало с words3: True движок 34 мс
 ETH R совпало с pine_mirror_simple (закрытые): True
-ETH G сделок 830 совпало с words3: True движок 25 мс
+ETH G сделок 830 совпало с words3: True движок 23 мс
 ETH G совпало с pine_mirror_simple (закрытые): True
-ETH Y сделок 708 совпало с words3: True движок 38 мс
+ETH Y сделок 708 совпало с words3: True движок 28 мс
 ETH стоп 2.0 ATR: мой 628 сделок, words3 622 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
 ETH стоп 6.0 ATR: мой 591 сделок, words3 591 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
-XRP R сделок 442 совпало с words3: True движок 30 мс
+XRP R сделок 442 совпало с words3: True движок 27 мс
 XRP R совпало с pine_mirror_simple (закрытые): True
-XRP G сделок 608 совпало с words3: True движок 20 мс
+XRP G сделок 608 совпало с words3: True движок 17 мс
 XRP G совпало с pine_mirror_simple (закрытые): True
 XRP Y сделок 514 совпало с words3: True движок 21 мс
 XRP стоп 2.0 ATR: мой 490 сделок, words3 484 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
 XRP стоп 6.0 ATR: мой 443 сделок, words3 442 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
-Bitstamp R сделок 242 совпало с words3: True движок 17 мс
+Bitstamp R сделок 242 совпало с words3: True движок 20 мс
 Bitstamp R совпало с pine_mirror_simple (закрытые): True
-Bitstamp G сделок 354 совпало с words3: True движок 12 мс
+Bitstamp G сделок 354 совпало с words3: True движок 11 мс
 Bitstamp G совпало с pine_mirror_simple (закрытые): True
-Bitstamp Y сделок 307 совпало с words3: True движок 14 мс
+Bitstamp Y сделок 307 совпало с words3: True движок 15 мс
 Bitstamp стоп 2.0 ATR: мой 256 сделок, words3 256 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
 Bitstamp стоп 6.0 ATR: мой 246 сделок, words3 246 (у words3 блокировка повторного входа, у меня её нет, разница ожидаема)
 все сделки совпали: True
