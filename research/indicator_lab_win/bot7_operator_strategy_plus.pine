@@ -1,0 +1,494 @@
+//@version=5
+// bot7 · Стратегия оператора по линиям (05–06.11.2026). Только показ: ничего не торгует и никуда не шлёт. Простое правило — сделки на графиках 1ч и 4ч, вариант A — только 1ч, линии — любой график до 4ч.
+// Простое правило как research/chart_walk_20261105/words3.py: над синей лонг на 2 закрытиях 4ч над зелёной, под синей шорт на 2 закрытиях под зелёной, выход шорта на 2 закрытиях над зелёной, выход лонга настройкой.
+// Вариант A как words2.py: шорт 2/6 ATR и X01 — галками.
+// Простое+ (кандидат, 07.11.2026, research/indicator_lab_win/candidate.py): те же входы и выходы, но шорт запрещён при ранге ATR100% за год выше порога, размер сделки обратно пропорционален ATR100%. На резерве ещё не проверен.
+// Оповещения: при создании выбрать условие «Any alert() function call» либо одно из условий «bot7: ...», частота «Once Per Bar Close».
+// Линии: зелёная TEMA50, жёлтая TEMA100, красная TEMA200, голубая EMA200, 4ч и 1ч. Значение 4ч на часе — последняя ЗАКРЫТАЯ свеча 4ч.
+// Сигнал и вход — по закрытию часа, цель и стоп — по уровню или открытию часа. Итог — % от номинала сделки, издержка 0.068% на сторону (как ledger.py), БЕЗ фандинга.
+// Сверять с Python надо на BINANCE:BTCUSDT 1ч: Bybit и другие биржи дают другие цены, значит и другие сделки.
+// Автомат начинает с первой свечи графика, поэтому первые недели могут расходиться с расчётом на всей истории.
+// Серым: сжатие и локальный диапазон, либо пила (за 10 дней автомат открыл 6 сделок и больше). Серое — непонятно мне, а не убыток.
+// На истории серые сделки не хуже остальных: BTC +0.40% на сделку против +0.29%.
+indicator("bot7 · стратегия оператора", shorttitle="bot7·A", overlay=true, max_labels_count=500, max_bars_back=500)
+
+// ── настройки
+grpM = "Стратегия"
+stratMode = input.string("Простое правило", "Стратегия", options=["Простое правило", "Простое+ (кандидат)", "Вариант A"], group=grpM, tooltip="Простое правило считается на графиках 1ч и 4ч, сделки одни и те же. Простое+ — то же плюс фильтр шорта и размер от волатильности, на резерве ещё не проверено. Вариант A — только на 1ч.")
+exitLine = input.string("под красной", "Простое: выход из лонга", options=["под красной", "под зелёной"], group=grpM, tooltip="BTC с комиссией и фандингом, итог и просадка: под красной +361 и −64, под зелёной +282 и −49, вариант A +312 и −93.")
+
+grpP = "Простое+"
+shortRankMax = input.float(60.0, "Шорт только при ранге ATR100% не выше, %", minval=0, maxval=100, step=5, group=grpP, tooltip="Ранг за год на барах 4ч. Соседи 40–80% дают тот же знак на BTC, ETH, XRP и Bitstamp.")
+
+grpO = "Вариант A (только 1ч)"
+optGate = input.bool(true, "Шорт только по описанию (вариант A)", group=grpO, tooltip="Цветные смешаны, либо G>Y>R при цене под обеими голубыми и не растущей голубой 4ч.")
+optAtr  = input.bool(true, "Шорт: стоп и тейк в ATR 4ч", group=grpO, tooltip="20 монет: +5994 против +5277, лучше на 19 из 20. На BTC прибавки нет: +312 против +304.")
+sStop   = input.float(2.0, "Стоп шорта, ATR", step=0.5, minval=0.5, group=grpO)
+sTp     = input.float(6.0, "Тейк шорта, ATR", step=0.5, minval=0.5, group=grpO)
+optX01  = input.bool(false, "X01 на всех лонгах: 4ч под зелёной и 1ч под красной", group=grpO, tooltip="Твоё правило. На 20 монетах +3139 против +5277, выигрывает только в 2025–26. Включён — показывает все лонги с этим выходом.")
+optHalf = input.bool(true, "Лонг вне описания половиной размера (в итоге)", group=grpO, tooltip="Описание лонга: над обеими голубыми и голубая 4ч выше, чем 5 дней назад. Сделка остаётся, в итог идёт ×0.5.")
+
+grpV = "Показ"
+showLines  = input.bool(true, "Линии", group=grpV)
+showR1     = input.bool(false, "Красная 1ч", group=grpV)
+showLevels = input.bool(true, "Цель, стоп и тейк открытой сделки", group=grpV)
+showFill   = input.bool(true, "Заливка позиции", group=grpV)
+showGray   = input.bool(true, "Серым непонятные окна", group=grpV)
+showLabels = input.bool(true, "Подписи сделок", group=grpV)
+showMarks  = input.bool(true, "Твои действия из записок (только BTC)", group=grpV)
+tableMode  = input.string("Коротко", "Таблица положения", options=["Коротко", "Полная", "Скрыть"], group=grpV, tooltip="Коротко: положение, открытая сделка, выход и итог. Полная: ещё все линии, расстояния и закрытия.")
+tablePos   = input.string(position.bottom_right, "Где таблица", options=[position.bottom_right, position.bottom_left, position.top_right, position.top_left, position.middle_right], group=grpV)
+statsFrom = input.time(timestamp("2025-01-01T00:00:00+00:00"), "Считать итог с", group=grpV)
+
+C_G = #34d399
+C_Y = #facc15
+C_R = #f87171
+C_B4 = #38bdf8
+C_B1 = #a5e3fd
+C_L = #22c55e
+C_S = #ef4444
+FAR_G = -5.0
+FAR_B = -10.0
+NEAR_G = -1.0
+TOL = 0.5
+K4 = 2
+K1 = 3
+SIDE_COST = 0.068
+H4_MS = 14400000
+VOL_BARS = 2190
+SIZE_LO = 0.5
+SIZE_HI = 2.0
+SIZE_NORM = 1.18
+
+isH1 = timeframe.period == "60"
+isH4 = timeframe.period == "240"
+lineTf = timeframe.in_seconds() <= 14400
+isPlus = stratMode == "Простое+ (кандидат)"
+runS = (stratMode == "Простое правило" or isPlus) and (isH1 or isH4)
+runA = stratMode == "Вариант A" and isH1
+b1d = isH1 ? 24 : 6
+b5d = isH1 ? 120 : 30
+b10d = isH1 ? 240 : 60
+
+// ── линии
+f_tema(src, n) =>
+    e1 = ta.ema(src, n)
+    e2 = ta.ema(e1, n)
+    e3 = ta.ema(e2, n)
+    3 * e1 - 3 * e2 + e3
+
+f_4h() =>
+    p = ta.atr(100) / close
+    m = ta.median(p, VOL_BARS)
+    [close, f_tema(close, 50), f_tema(close, 100), f_tema(close, 200), ta.ema(close, 200), ta.atr(14), ta.percentrank(p, VOL_BARS), m[1], p]
+
+f_4h_prev() =>
+    g = f_tema(close, 50)
+    y = f_tema(close, 100)
+    r = f_tema(close, 200)
+    b = ta.ema(close, 200)
+    a = ta.atr(14)
+    p = ta.atr(100) / close
+    rk = ta.percentrank(p, VOL_BARS)
+    m = ta.median(p, VOL_BARS)
+    [close[1], g[1], y[1], r[1], b[1], a[1], rk[1], m[2], p[1]]
+
+// Час, на котором закрылась свеча 4ч, берёт её итог. Остальные часы — последнюю закрытую, без перерисовки.
+[c4a, g4a, y4a, r4a, b4a, t4a, rka, mda, pca] = request.security(syminfo.tickerid, "240", f_4h(), lookahead=barmerge.lookahead_off)
+[c4b, g4b, y4b, r4b, b4b, t4b, rkb, mdb, pcb] = request.security(syminfo.tickerid, "240", f_4h_prev(), lookahead=barmerge.lookahead_on)
+new4 = time_close % H4_MS == 0
+fc   = new4 ? c4a : c4b
+fG   = new4 ? g4a : g4b
+fY   = new4 ? y4a : y4b
+fR   = new4 ? r4a : r4b
+fB   = new4 ? b4a : b4b
+atr4 = new4 ? t4a : t4b
+rk4  = new4 ? rka : rkb
+md4  = new4 ? mda : mdb
+pc4  = new4 ? pca : pcb
+sizeNow = (na(md4) or na(pc4) or pc4 <= 0 ? 1.0 : math.max(math.min(md4 / pc4, SIZE_HI), SIZE_LO)) / SIZE_NORM
+shortOk = na(rk4) or rk4 <= shortRankMax
+R1  = f_tema(close, 200)
+B1h = ta.ema(close, 200)
+// Только для рисунка на других таймфреймах: автомат считает по R1 и B1h на графике 1 час.
+[b1Any, r1Any] = request.security(syminfo.tickerid, "60", [ta.ema(close, 200), f_tema(close, 200)])
+b1Show = isH1 ? B1h : b1Any
+r1Show = isH1 ? R1 : r1Any
+
+f_run(prev, x) =>
+    s = na(x) ? 0 : int(math.sign(x))
+    s == 0 ? 0 : (prev != 0 and (s > 0) == (prev > 0)) ? prev + s : s
+
+// ── состояние автомата
+var int side = 0
+var string tag = ""
+var float entry = na
+var int entryTime = na
+var float entryAtr = na
+var float entrySize = 1.0
+var bool entryDesc = false
+var bool covered = false
+var bool awaitBlue = false
+var float fB1 = na
+var int rG = 0
+var int rY = 0
+var int rR = 0
+var int rB = 0
+var int runR = 0
+var int runB1 = 0
+var int nAll = 0
+var float sAll = 0.0
+var float sLong = 0.0
+var float sShort = 0.0
+var string lastTrade = "—"
+var int firstBar = time
+
+rising = fB > fB[b5d]
+stack = fG > fY and fY > fR ? 1 : fG < fY and fY < fR ? -1 : 0
+dG     = (fc / fG - 1) * 100
+dB     = (fc / fB - 1) * 100
+aB     = (fc - fB) / atr4
+
+int entryFlag = 0
+int exitFlag = 0
+bool closeNow = false
+float xPx = na
+string xWhy = ""
+int oSide = 0
+string oTag = ""
+
+if barstate.isconfirmed and (runA or runS)
+    if new4
+        fB1 := b1Show
+        rG := f_run(rG, fc - fG)
+        rY := f_run(rY, fc - fY)
+        rR := f_run(rR, fc - fR)
+        rB := f_run(rB, fc - fB)
+    if isH1
+        runR := f_run(runR, close - R1)
+        runB1 := f_run(runB1, close - B1h)
+
+    overGY  = fc > fG and fc > fY
+    underGY = fc < fG and fc < fY
+    rOver   = runR >= K1
+    rUnder  = runR <= -K1
+    overBL  = fc > fB and fc > fB1
+    underBL = fc < fB and fc < fB1
+    gUnder  = rG <= -K4 and rUnder
+    inDesc  = stack == 0 or (stack == 1 and underBL and not rising)
+    allowS  = not optGate or inDesc
+    bool skip = false
+    rExit = exitLine == "под красной" ? rR : rG
+
+    // простое правило: только на закрытии 4ч
+    if runS and new4
+        if side == 1 and rExit <= -K4
+            closeNow := true
+            xPx := close
+            xWhy := "2 закрытия " + exitLine
+        else if side == -1 and rG >= K4
+            closeNow := true
+            xPx := close
+            xWhy := "2 закрытия над зелёной"
+
+    // открытый лонг варианта A
+    if runA and side == 1
+        if tag == "к голубой"
+            lvl = fB[1] * (1 - TOL / 100)
+            if high >= lvl and entry < lvl
+                closeNow := true
+                xPx := math.max(lvl, open)
+                xWhy := "цель"
+                awaitBlue := true
+                skip := true
+            else if (optX01 ? gUnder : (underGY and rUnder))
+                closeNow := true
+                xPx := close
+                xWhy := optX01 ? "X01: под G, 1ч под R" : "под G+Y, 1ч под R"
+                skip := true
+                if allowS
+                    oSide := -1
+                    oTag := "перекладка"
+        else
+            if optX01 and gUnder
+                closeNow := true
+                xPx := close
+                xWhy := "X01: под G, 1ч под R"
+                skip := true
+            else if tag == "над голубыми" and new4 and rY <= -K4
+                closeNow := true
+                xPx := close
+                xWhy := "2 закрытия под жёлтой"
+            else if tag == "снова над жёлтой" and new4 and rR <= -K4
+                closeNow := true
+                xPx := close
+                xWhy := "2 закрытия под красной"
+
+    // открытый шорт варианта A
+    else if runA and side == -1
+        if optAtr and (high >= entry + sStop * entryAtr or low <= entry - sTp * entryAtr)
+            closeNow := true
+            xPx := high >= entry + sStop * entryAtr ? math.max(entry + sStop * entryAtr, open) : math.min(entry - sTp * entryAtr, open)
+            xWhy := high >= entry + sStop * entryAtr ? "стоп ATR" : "тейк ATR"
+            covered := true
+            skip := true
+        else if tag == "от голубой" and new4 and fc > fB
+            closeNow := true
+            xPx := close
+            xWhy := "стоп над голубой"
+            awaitBlue := true
+            skip := true
+        else
+            if tag == "от голубой" and fc < fG
+                tag := "от голубой, под зелёной"
+            if str.startswith(tag, "от голубой") and new4 and (dG <= FAR_G or dB <= FAR_B)
+                closeNow := true
+                xPx := close
+                xWhy := "далеко"
+                covered := true
+                skip := true
+            else if tag == "под голубой" or tag == "перекладка" or tag == "снова шорт" or tag == "от голубой, под зелёной"
+                if new4 and dG <= FAR_G
+                    closeNow := true
+                    xPx := close
+                    xWhy := "далеко"
+                    covered := true
+                    skip := true
+                else if overGY and rOver
+                    closeNow := true
+                    xPx := close
+                    xWhy := "над G+Y, 1ч над R"
+                    skip := true
+                    oSide := 1
+                    oTag := fc < fB ? "к голубой" : "над голубыми"
+            if not closeNow and tag == "над голубыми" and new4 and rG >= 1 and runB1 >= K1
+                closeNow := true
+                xPx := close
+                xWhy := "над зелёной и голубой 1ч"
+
+    // закрытие сделки: итог и подпись
+    if closeNow
+        net = side * (xPx / entry - 1) * 100 - SIDE_COST - SIDE_COST * (xPx / entry)
+        w = runA and optHalf and side == 1 and not entryDesc ? 0.5 : runS and isPlus ? entrySize : 1.0
+        if entryTime >= statsFrom
+            nAll += 1
+            sAll += net * w
+            if side == 1
+                sLong += net * w
+            else
+                sShort += net * w
+        lastTrade := (side == 1 ? "L " : "S ") + tag + ", " + str.format_time(entryTime, "dd.MM.yy HH:mm", "UTC") + " – " + str.format_time(time_close, "dd.MM HH:mm", "UTC") + ", " + str.tostring(net, "+0.00;-0.00") + "%"
+        if showLabels
+            label.new(bar_index, xPx, "× " + str.tostring(net, "+0.0;-0.0") + "%", style=label.style_none, textcolor=net >= 0 ? C_L : C_S, size=size.small, tooltip=xWhy + "\nвход " + str.tostring(entry, format.mintick) + ", выход " + str.tostring(xPx, format.mintick) + (w < 1 ? "\nв итог ×0.5" : ""))
+        exitFlag := side
+        alert(syminfo.ticker + " bot7: закрыть " + (side == 1 ? "лонг" : "шорт") + " по " + str.tostring(xPx, format.mintick) + ", " + xWhy + ", сделка " + str.tostring(net, "+0.00;-0.00") + "%", alert.freq_once_per_bar_close)
+        side := 0
+        tag := ""
+
+    // новый вход простого правила
+    if runS and new4 and side == 0
+        if fc > fB
+            if rG >= K4 and rExit > -K4
+                oSide := 1
+                oTag := "над синей"
+        else if rG <= -K4 and (not isPlus or shortOk)
+            oSide := -1
+            oTag := "под синей"
+
+    // новый вход варианта A, если час не занят
+    if runA and not skip and side == 0
+        bool go = true
+        if awaitBlue
+            if new4 and fc < fB
+                awaitBlue := false
+                go := false
+                if allowS
+                    oSide := -1
+                    oTag := "от голубой"
+            else if new4 and (aB > 1 or (overBL and stack == 1 and overGY))
+                awaitBlue := false
+            else
+                go := false
+        if go
+            if fc < fB
+                if overGY and rOver
+                    oSide := 1
+                    oTag := "к голубой"
+                    covered := false
+                else if new4 and covered and fc < fG and dG > NEAR_G
+                    covered := false
+                    if allowS
+                        oSide := -1
+                        oTag := "снова шорт"
+                else if new4 and covered and fc > fG
+                    covered := false
+                else if new4 and not covered and underGY and underBL
+                    if allowS
+                        oSide := -1
+                        oTag := "под голубой"
+            else if new4 and rY == 1 and overBL
+                oSide := 1
+                oTag := "снова над жёлтой"
+            else if new4 and overBL and stack == 1 and overGY
+                oSide := 1
+                oTag := "над голубыми"
+            else if new4 and rR == -K4
+                if allowS
+                    oSide := -1
+                    oTag := "над голубыми"
+
+    if oSide != 0
+        side := oSide
+        tag := oTag
+        entry := close
+        entryTime := time_close
+        entryAtr := atr4
+        entryDesc := oSide == 1 ? (overBL and rising) : inDesc
+        entrySize := runS and isPlus ? sizeNow : 1.0
+        entryFlag := 1
+        alert(syminfo.ticker + " bot7: " + (oSide == 1 ? "ЛОНГ" : "ШОРТ") + " по " + str.tostring(close, format.mintick) + (runS and isPlus ? ", размер ×" + str.tostring(entrySize, "0.00") : "") + (runS ? ", выход: 2 закрытия 4ч " + (oSide == 1 ? exitLine : "над зелёной") : ""), alert.freq_once_per_bar_close)
+        if showLabels
+            half = runA and optHalf and oSide == 1 and not entryDesc
+            txt = (oSide == 1 ? "L " : "S ") + oTag + (half ? " ½" : "") + (runS and isPlus ? " ×" + str.tostring(entrySize, "0.00") : "")
+            tip = str.format_time(time_close, "dd.MM.yyyy HH:mm", "UTC") + " UTC\nвход " + str.tostring(close, format.mintick) + "\nописание: " + (entryDesc ? "да" : "нет")
+            label.new(bar_index, oSide == 1 ? low : high, txt, style=oSide == 1 ? label.style_label_up : label.style_label_down, color=color.new(oSide == 1 ? C_L : C_S, 15), textcolor=color.white, size=size.small, tooltip=tip)
+
+// ── оповещения: те же события, что и alert() выше, для обычного окна создания оповещения
+alertcondition(entryFlag == 1 and side == 1, title="bot7: вход в лонг", message="{{ticker}} bot7: вход в лонг, цена {{close}}")
+alertcondition(entryFlag == 1 and side == -1, title="bot7: вход в шорт", message="{{ticker}} bot7: вход в шорт, цена {{close}}")
+alertcondition(exitFlag == 1, title="bot7: закрыть лонг", message="{{ticker}} bot7: закрыть лонг, цена {{close}}")
+alertcondition(exitFlag == -1, title="bot7: закрыть шорт", message="{{ticker}} bot7: закрыть шорт, цена {{close}}")
+
+// ── фаза и серые окна: как research/chart_walk_20261105/state_map.py
+sB4   = (fB - fB[b5d]) / atr4
+over  = fc > fB and fc > fB1
+under = fc < fB and fc < fB1
+phase = over ? (sB4 > 0.5 and stack == 1 ? "рост" : "над голубыми, рост не сформирован") : under ? (stack == -1 ? "падение" : stack == 1 ? "отскок под голубыми" : "под голубыми, цветные смешаны") : "между голубыми"
+
+sgnGY  = math.sign(fG - fY)
+crosses = math.sum(sgnGY != sgnGY[1] ? 1 : 0, b10d)
+comp   = math.abs(fG - fY) <= 0.75 * atr4 and crosses > 0
+er24   = math.abs(close - close[24]) / math.sum(math.abs(close - close[1]), 24)
+hi24   = ta.highest(high, 24)[1]
+lo24   = ta.lowest(low, 24)[1]
+rangeL = isH1 and comp and math.abs(fG - fG[24]) <= 0.5 * atr4 and math.abs(fY - fY[24]) <= 0.5 * atr4 and er24 <= 0.35 and math.abs(close - B1h) <= 1.5 * atr4 and close <= hi24 + 0.25 * atr4 and close >= lo24 - 0.25 * atr4
+saw    = math.sum(entryFlag, b10d) >= 6
+gray   = isH1 and (rangeL or saw)
+
+// ── рисунок
+plot(showLines and lineTf ? fG : na, "Зелёная 4ч", color=C_G, linewidth=1, style=plot.style_stepline)
+plot(showLines and lineTf ? fY : na, "Жёлтая 4ч", color=C_Y, linewidth=1, style=plot.style_stepline)
+plot(showLines and lineTf ? fR : na, "Красная 4ч", color=C_R, linewidth=1, style=plot.style_stepline)
+plot(showLines and lineTf ? fB : na, "Голубая 4ч", color=C_B4, linewidth=2, style=plot.style_stepline)
+plot(showLines and lineTf ? b1Show : na, "Голубая 1ч", color=color.new(C_B1, 20), linewidth=1)
+plot(showR1 and lineTf ? r1Show : na, "Красная 1ч", color=color.new(C_R, 40), linewidth=1)
+plot(showLevels and side != 0 ? entry : na, "Вход", color=color.new(chart.fg_color, 30), style=plot.style_linebr)
+plot(showLevels and side == 1 and tag == "к голубой" ? fB * (1 - TOL / 100) : na, "Цель лонга", color=C_B4, style=plot.style_linebr)
+plot(showLevels and runA and side == -1 and optAtr ? entry + sStop * entryAtr : na, "Стоп шорта", color=C_S, style=plot.style_linebr)
+plot(showLevels and runA and side == -1 and optAtr ? entry - sTp * entryAtr : na, "Тейк шорта", color=C_L, style=plot.style_linebr)
+bgcolor(showFill and side == 1 ? color.new(C_L, 88) : showFill and side == -1 ? color.new(C_S, 88) : na, title="Позиция")
+bgcolor(showGray and gray ? color.new(#9ca3af, 72) : na, title="Непонятно")
+
+// ── твои действия из записок: время закрытия часа, UTC
+var int[] mT = array.from(
+     timestamp("UTC", 2025, 2, 24, 16, 0), timestamp("UTC", 2025, 2, 25, 8, 0), timestamp("UTC", 2025, 2, 27, 12, 0), timestamp("UTC", 2025, 2, 28, 8, 0), timestamp("UTC", 2025, 3, 1, 20, 0), timestamp("UTC", 2025, 3, 2, 18, 0),
+     timestamp("UTC", 2025, 3, 3, 4, 0), timestamp("UTC", 2025, 3, 6, 6, 0), timestamp("UTC", 2025, 3, 10, 0, 0), timestamp("UTC", 2025, 3, 11, 20, 0), timestamp("UTC", 2025, 3, 20, 1, 0), timestamp("UTC", 2025, 3, 28, 8, 0),
+     timestamp("UTC", 2025, 4, 1, 16, 0), timestamp("UTC", 2025, 4, 2, 16, 0), timestamp("UTC", 2025, 4, 9, 20, 0), timestamp("UTC", 2025, 4, 11, 18, 0), timestamp("UTC", 2025, 4, 12, 16, 0), timestamp("UTC", 2025, 4, 21, 4, 0),
+     timestamp("UTC", 2025, 4, 27, 8, 0), timestamp("UTC", 2025, 5, 4, 4, 0), timestamp("UTC", 2025, 5, 6, 20, 0), timestamp("UTC", 2025, 5, 8, 4, 0), timestamp("UTC", 2025, 5, 12, 20, 0),
+     timestamp("UTC", 2025, 11, 29, 8, 0), timestamp("UTC", 2025, 12, 1, 3, 0), timestamp("UTC", 2025, 12, 2, 17, 0), timestamp("UTC", 2025, 12, 5, 0, 0),
+     timestamp("UTC", 2026, 6, 11, 8, 0), timestamp("UTC", 2026, 6, 16, 20, 0), timestamp("UTC", 2026, 7, 1, 20, 0), timestamp("UTC", 2026, 7, 5, 23, 0),
+     timestamp("UTC", 2026, 9, 23, 12, 0), timestamp("UTC", 2026, 10, 29, 16, 0), timestamp("UTC", 2026, 11, 4, 12, 0), timestamp("UTC", 2026, 11, 4, 17, 0),
+     timestamp("UTC", 2024, 10, 28, 12, 0), timestamp("UTC", 2024, 10, 31, 12, 0), timestamp("UTC", 2024, 11, 1, 12, 0), timestamp("UTC", 2024, 11, 5, 12, 0), timestamp("UTC", 2024, 11, 15, 12, 0),
+     timestamp("UTC", 2025, 1, 2, 12, 0), timestamp("UTC", 2025, 1, 7, 12, 0), timestamp("UTC", 2025, 1, 13, 12, 0), timestamp("UTC", 2025, 1, 14, 12, 0), timestamp("UTC", 2025, 1, 19, 12, 0), timestamp("UTC", 2025, 2, 1, 12, 0), timestamp("UTC", 2025, 2, 27, 12, 0),
+     timestamp("UTC", 2025, 8, 4, 12, 0), timestamp("UTC", 2025, 8, 7, 12, 0), timestamp("UTC", 2025, 8, 11, 12, 0), timestamp("UTC", 2025, 8, 18, 12, 0), timestamp("UTC", 2025, 8, 22, 12, 0), timestamp("UTC", 2025, 8, 24, 12, 0), timestamp("UTC", 2026, 1, 15, 12, 0))
+var string[] mA = array.from(
+     "▼", "×", "▼", "×", "▲", "×",
+     "▼", "×", "×", "▲", "×", "▼",
+     "▲", "×", "▲", "×", "▲", "▲",
+     "×", "▼", "×", "▲", "×",
+     "× ▼", "×", "▲", "×",
+     "× ▲", "× ▼", "▲", "×",
+     "▼", "▼", "×", "▼",
+     "▲", "×", "▼", "▲", "×",
+     "▲", "× ▼", "×", "▲", "×", "▼", "×",
+     "▲", "▲", "×", "▼", "×", "▼", "×")
+var string[] mW = array.from(
+     "шорт: под зелёной, держать", "закрыл шорт: далеко", "шорт: возврат к зелёной, снова шорт", "закрыл шорт: далеко", "лонг: над жёлтой и красной 1ч", "закрыл лонг: цель голубая 4ч",
+     "шорт от голубой", "закрыл лонг: отбитие от голубой, 93 400", "закрыл шорт: далеко", "лонг: над красной 1ч и жёлтой 4ч", "закрыл лонг: лонг до голубой", "шорт: закрепились под голубой",
+     "лонг: над жёлтой, цель голубая", "закрыл лонг: цель голубая", "лонг, цель голубая на 83", "закрыл лонг: цель голубая на 83", "лонг: пересекли голубую, цветные вверх", "лонг: над голубыми, закрепление",
+     "закрыл лонг: закрепились под жёлтой", "шорт: закрепились под красной", "закрыл шорт: над зелёной и голубой 1ч", "лонг: опять над жёлтой", "закрыл лонг: закрепились под красной",
+     "закрыл лонг: 4ч под зелёной, 1ч под красной; шорт, цель красная", "закрыл шорт: цель красная 4ч", "лонг: 1ч вышли над голубой, цель голубая 4ч", "закрыл лонг: 4ч под зелёной, 1ч под красной",
+     "закрыл шорт: закрепились над красной 4ч; лонг", "закрыл лонг: первое закрепление под зелёной, 1ч под красной; шорт, цель красная", "лонг: закрепились над 59", "закрыл лонг: цель голубая 4ч",
+     "шорт: под зелёной и 1ч под красной, цель голубая 1ч", "шорт от голубой 29.10", "закрыл шорт: закрепились над красной", "шорт от голубой 04.11",
+     "день: лонг 28 октября", "день: держим до 31 октября", "день: шорт примерно на 70", "день: лонг от синей или над зелёной 5 ноября", "день: закрыл бы 15 ноября",
+     "день: над синей и зелёной, лонг со 2-го", "день: лонг до 7-го, шорт с 7-го", "день: шорт по 13", "день: лонг с 14", "день: лонг до 19", "день: шорт с 1 февраля", "день: отмены шорта не вижу до 27",
+     "день: цветные вверх, над зелёной, лонг", "день: лонг 115 тысяч", "день: держим до 119 тысяч", "день: шорт 18 августа", "день: шорт до 22", "день: перезаход в шорт 24", "день: лонг кончился 15 января")
+
+if showMarks and syminfo.basecurrency == "BTC" and barstate.isconfirmed and (isH1 or isH4)
+    for k = 0 to array.size(mT) - 1
+        mk = array.get(mT, k)
+        if mk > time and mk <= time_close
+            label.new(bar_index, high, "ТЫ " + array.get(mA, k), style=label.style_label_down, color=chart.fg_color, textcolor=chart.bg_color, size=size.tiny, tooltip=array.get(mW, k))
+
+// ── таблица положения
+f_way(v, eps) =>
+    v > eps ? "вверх" : v < -eps ? "вниз" : "плоско"
+
+f_row(tb, r, name, px, ref, slope, eps, run, need) =>
+    table.cell(tb, 0, r, name, text_color=chart.fg_color, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, r, str.tostring(px, "#"), text_color=chart.fg_color, text_size=size.small)
+    table.cell(tb, 2, r, str.tostring((ref / px - 1) * 100, "+0.00;-0.00") + "%", text_color=chart.fg_color, text_size=size.small)
+    table.cell(tb, 3, r, str.tostring((ref - px) / atr4, "+0.0;-0.0"), text_color=chart.fg_color, text_size=size.small)
+    table.cell(tb, 4, r, f_way(slope, eps), text_color=chart.fg_color, text_size=size.small)
+    table.cell(tb, 5, r, run == 0 ? "—" : (run > 0 ? "над " : "под ") + str.tostring(math.abs(run)) + (math.abs(run) >= need ? " ✓" : ""), text_color=chart.fg_color, text_size=size.small)
+
+f_span(tb, r, txt) =>
+    table.cell(tb, 0, r, txt, text_color=chart.fg_color, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(tb, 0, r, 5, r)
+
+var table tb = na
+if barstate.islast and tableMode != "Скрыть"
+    table.delete(tb)
+    tb := table.new(tablePos, 6, 16, bgcolor=color.new(chart.bg_color, 8), border_color=color.new(chart.fg_color, 80), border_width=1)
+    if not (runA or runS)
+        f_span(tb, 0, stratMode == "Вариант A" ? "Вариант A считается только на графике 1 час. Здесь только линии (до 4ч)" : "Сделки — на графиках 1ч и 4ч. Здесь только линии (до 4ч)")
+    else
+        trendTxt = phase == "рост" ? "ТРЕНД ВВЕРХ" : phase == "падение" ? "ТРЕНД ВНИЗ" : rangeL ? "ФЛЕТ" : "тренда нет"
+        headTxt = syminfo.ticker + " · " + trendTxt + " · фаза: " + phase
+        posTxt = side == 0 ? "Позиция: нет" + (awaitBlue ? " · ждём закрытие 4ч под голубой" : "") + (covered ? " · ждём возврат к зелёной" : "") : (side == 1 ? "ЛОНГ «" : "ШОРТ «") + tag + "» с " + str.format_time(entryTime, "dd.MM HH:mm", "UTC") + ", вход " + str.tostring(entry, "#") + ", сейчас " + str.tostring(side * (close / entry - 1) * 100, "+0.00;-0.00") + "%" + (runA and optHalf and side == 1 and not entryDesc ? ", половина" : "")
+        lvTxt = runS ? (side == 1 ? "выход: 2 закрытия 4ч " + exitLine : "выход: 2 закрытия 4ч над зелёной") : side == 1 ? (tag == "к голубой" ? "цель " + str.tostring(fB * (1 - TOL / 100), "#") : "выход по линиям") : optAtr ? "стоп " + str.tostring(entry + sStop * entryAtr, "#") + ", тейк " + str.tostring(entry - sTp * entryAtr, "#") : "выход по линиям"
+        sumTxt = "Закрытых с " + str.format_time(statsFrom, "dd.MM.yyyy", "UTC") + ": " + str.tostring(nAll) + ", итог " + str.tostring(sAll, "+0.0;-0.0") + "% (лонг " + str.tostring(sLong, "+0.0;-0.0") + ", шорт " + str.tostring(sShort, "+0.0;-0.0") + ")"
+        volTxt = "Волатильность: ранг " + (na(rk4) ? "нет данных" : str.tostring(rk4, "#") + "%") + ", шорт " + (shortOk ? "разрешён" : "запрещён") + ", размер новой сделки ×" + str.tostring(sizeNow, "0.00") + (side != 0 ? ", открытой ×" + str.tostring(entrySize, "0.00") : "")
+        if tableMode == "Коротко"
+            f_span(tb, 0, headTxt)
+            f_span(tb, 1, posTxt)
+            if side != 0
+                f_span(tb, 2, lvTxt)
+            f_span(tb, 3, sumTxt)
+            if isPlus
+                f_span(tb, 4, volTxt)
+        else
+            f_span(tb, 0, headTxt)
+            f_span(tb, 1, (rangeL ? "сжатие и локальный диапазон" : comp ? "сжатие, диапазона нет" : "сжатия нет") + (saw ? " · пила" : "") + (gray ? " · НЕПОНЯТНО" : ""))
+            table.cell(tb, 0, 2, "линия", text_color=chart.fg_color, text_size=size.small)
+            table.cell(tb, 1, 2, "цена", text_color=chart.fg_color, text_size=size.small)
+            table.cell(tb, 2, 2, "до неё", text_color=chart.fg_color, text_size=size.small)
+            table.cell(tb, 3, 2, "ATR", text_color=chart.fg_color, text_size=size.small)
+            table.cell(tb, 4, 2, "куда", text_color=chart.fg_color, text_size=size.small)
+            table.cell(tb, 5, 2, "закрытий", text_color=chart.fg_color, text_size=size.small)
+            f_row(tb, 3, "зелёная 4ч", fG, fc, (fG - fG[b1d]) / atr4, 0.15, rG, K4)
+            f_row(tb, 4, "жёлтая 4ч", fY, fc, (fY - fY[b1d]) / atr4, 0.15, rY, K4)
+            f_row(tb, 5, "красная 4ч", fR, fc, (fR - fR[b1d]) / atr4, 0.15, rR, K4)
+            f_row(tb, 6, "голубая 4ч", fB, fc, sB4, 0.5, rB, K4)
+            f_row(tb, 7, "голубая 1ч", b1Show, close, (b1Show - b1Show[b1d]) / atr4, 0.15, runB1, K1)
+            f_row(tb, 8, "красная 1ч", r1Show, close, (r1Show - r1Show[b1d]) / atr4, 0.15, runR, K1)
+            if runA
+                f_span(tb, 9, "X01: 4ч под зелёной " + str.tostring(math.max(-rG, 0)) + " из 2, 1ч под красной " + str.tostring(math.max(-runR, 0)) + " из 3" + (rG <= -K4 and runR <= -K1 ? " — ДА" : ""))
+            f_span(tb, 10, posTxt)
+            if side != 0
+                f_span(tb, 11, lvTxt)
+            f_span(tb, 12, sumTxt)
+            f_span(tb, 13, "Без фандинга · график с " + str.format_time(firstBar, "dd.MM.yyyy", "UTC") + (runS ? " · простое, выход " + exitLine : (optX01 ? " · X01 вкл" : " · X01 выкл") + (optAtr ? "" : " · 2/6 выкл")))
+            f_span(tb, 14, "Последняя: " + lastTrade)
+            if isPlus
+                f_span(tb, 15, volTxt)

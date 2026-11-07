@@ -1,0 +1,12 @@
+файл,строк,с,по,столбцы,sha256
+g4_cm_btc.csv,5058,2013-01-01 00:00,2026-11-06 00:00,"AdrActCnt,CapMVRVCur,CapMrktCurUSD,HashRate,IssTotUSD,ROI30d,SplyCur,TxCnt,TxTfrCnt,day",0a52751c8b29f0e97893d40acbf5934272b28cd4ebe7380b1a89e7db64322beb
+g4_cm_eth.csv,4118,2015-07-30 00:00,2026-11-06 00:00,"AdrActCnt,CapMVRVCur,CapMrktCurUSD,IssTotUSD,ROI30d,SplyCur,TxCnt,TxTfrCnt,day",b23be53776db1daf670b2500772f954950761ce70b1a15d49626d6b41bfee8c7
+g4_cm_xrp.csv,5058,2013-01-01 00:00,2026-11-06 00:00,"AdrActCnt,CapMVRVCur,CapMrktCurUSD,ROI30d,SplyCur,TxCnt,TxTfrCnt,day",1c8d31220966d39d6ae968a26aaffac34ee722a56066c92e34aa5f716a9e21ac
+g4_dvol_BTC.csv,49296,2021-03-24 00:00,2026-11-06 23:00,"ms,open,high,low,close",4224cc0413cd426cc9400808c800cc9d162bc1b25b94339bf8a8c183a237a638
+g4_dvol_ETH.csv,49296,2021-03-24 00:00,2026-11-06 23:00,"ms,open,high,low,close",509b6184c3327e1842bcb420082ef8fdf3c9cf98ab04dbc328bee833dc9b77a2
+g4_hash.csv,6514,2009-01-03 00:00,2026-11-06 00:00,"day,hash",4a6d027f3c46c449a70a73ef7e4c63c33244fa406c123ff562aba4c0f435aba5
+g4_macro.csv,3239,2014-01-02 00:00,2026-11-06 00:00,"day,spx,dxy,gold,tnx,vix,ndx",75ce5ce9c0cda6f663ee1ce611c922fa13aa3aa869599a20174e46764e1dcbfa
+g4_metrics_BTCUSDT.csv,10810,2021-12-01 00:00,2026-11-06 20:00,"sum_open_interest,sum_open_interest_value,count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,count_long_short_ratio,sum_taker_long_short_vol_ratio,ts",4c9deddde2a45685c587870b04594cbe2927e0d1557ddf8642216514937fe20e
+g4_metrics_ETHUSDT.csv,10810,2021-12-01 00:00,2026-11-06 20:00,"sum_open_interest,sum_open_interest_value,count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,count_long_short_ratio,sum_taker_long_short_vol_ratio,ts",4ef740190929e67f13a947e1c7d6528b989411f0c0f08160fdb662c7cdd00291
+g4_metrics_XRPUSDT.csv,10810,2021-12-01 00:00,2026-11-06 20:00,"sum_open_interest,sum_open_interest_value,count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,count_long_short_ratio,sum_taker_long_short_vol_ratio,ts",d5aacccafd1692b0cdb623fab6eb92e2f446230a8d3a609ab68eecfa168f6ef3
+g4_stable.csv,3265,2017-11-29 00:00,2026-11-06 00:00,"day,usd",39664865d4be3265c6f9eeaecc13742f0c306c774ff9dc5a776dabf6e2d8a638
