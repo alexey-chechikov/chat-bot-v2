@@ -24,8 +24,9 @@ def funding_marks(a, fund):
     """Накопленная выплата на 1 монету: ставка × цена на закрытии часа выплаты."""
     t, c = a["t"], a["c"]
     fm = np.zeros(len(t))
-    idx = np.clip(np.searchsorted(t, fund.index.to_numpy(), side="left"), 0, len(t) - 1)
-    np.add.at(fm, idx, fund.to_numpy() * c[idx])
+    idx = np.searchsorted(t, fund.index.to_numpy(), side="left")
+    keep = idx < len(t)                                               # выплата после последнего бара ещё не случилась (разбор GPT 37233f5)
+    np.add.at(fm, idx[keep], fund.to_numpy()[keep] * c[idx[keep]])
     return np.cumsum(fm)
 
 
@@ -170,7 +171,8 @@ def summary(a, fm, trades, lab, coin, per=pos.PER):
 
 
 def shift_rank(a, fm, trades, step=4, gap_days=90):
-    """Контроль политики: все сделки сдвигаются по кругу на каждый шаг 4ч. Цена и выплаты после конца ряда продолжаются с начала ряда с масштабом, ход не рвётся."""
+    """Контроль политики: все сделки сдвигаются по кругу на каждый шаг 4ч. Цена и выплаты после конца ряда продолжаются с начала ряда с масштабом, ход не рвётся.
+    Выход не по закрытию (цель, стоп) сдвигается вместе со своим отступом от закрытия часа, поэтому нулевой сдвиг обязан равняться учёту (разбор GPT 37233f5)."""
     b = a["i0"]
     c0, f0 = a["c"][b:], fm[b:]
     scale = c0[-1] / c0[0]
@@ -179,13 +181,17 @@ def shift_rank(a, fm, trades, step=4, gap_days=90):
     s0 = np.array([x[0] for x in trades]) - b
     s1 = np.array([x[1] for x in trades]) - b
     side = np.array([x[4] for x in trades])
+    prem = np.array([x[3] / a["c"][x[1]] for x in trades])
+    prem0 = np.array([x[2] / a["c"][x[0]] for x in trades])
 
     def total(k, mask=None):
         i, e = s0 + k, s1 + k
-        p0, p1 = c2[i], c2[e]
+        p0, p1 = c2[i] * prem0, c2[e] * prem
         v = side * (p1 / p0 - 1) - SIDE_COST - (p1 / p0) * SIDE_COST - side * (f2[e] - f2[i]) / p0
         return (v if mask is None else v[mask]).sum() * 100
 
+    led = sum((lambda m: (m[0] - m[1] - m[2]))(trade_cash(fm, tr[:5])) for tr in trades) / NOTIONAL * 100
+    assert abs(total(0) - led) < 1e-6, "нулевой сдвиг обязан равняться учёту"
     N = len(c0)
     gap = gap_days * 24
     shifts = np.arange(gap, N - gap, step)

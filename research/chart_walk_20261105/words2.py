@@ -7,7 +7,12 @@
   sblue    шорт от голубой: красная ниже входа — цель красная и отмена над жёлтой; красная выше входа — отмена 2 закрытия над красной;
   above    лонг над голубыми после сильного роста (зелёная выше жёлтой и красной минимум на above ATR) закрывается как xl, шорт с целью голубая 1ч;
   long_red после выхода лонга по xl следующий лонг «к голубой» только после касания красной 4ч;
-  xs_r     шорт под голубой при красной выше входа закрывается над красной 4ч, а не над G+Y и 1ч R."""
+  xs_r     шорт под голубой при красной выше входа закрывается над красной 4ч, а не над G+Y и 1ч R;
+  x01_all  подтверждённый оператором выход на лонгах «над голубыми» и «снова над жёлтой»: add — вместе с прежними выходами, only — вместо них;
+  s_stop, s_tp  стоп и тейк шорта в ATR 4ч от входа, s_after=covered — после них нужен новый возврат к зелёной, none — обычные входы;
+  l_stop   аварийный стоп лонга в ATR 4ч от входа;
+  no_passed не открывать лонг «к голубой», если цена уже у цели;
+  lab      для контроля: готовая метка часов разрешает шорты вместо описания, gate="lab"."""
 from __future__ import annotations
 
 import sys
@@ -23,9 +28,10 @@ import pos  # noqa: E402
 import words as wd  # noqa: E402
 
 pd.set_option("display.width", 260, "display.max_columns", 40, "display.max_rows", 300)
-DEF2 = {**wd.DEF, "xl": False, "sflip": False, "sblue": False, "above": None, "long_red": False, "xs_r": False, "tol_r": 0.5, "gate": None, "slope_d": 5}
+DEF2 = {**wd.DEF, "xl": False, "sflip": False, "sblue": False, "above": None, "long_red": False, "xs_r": False, "tol_r": 0.5, "gate": None, "slope_d": 5, "x01_all": None, "s_stop": None, "s_tp": None, "s_after": "none", "lab": None, "l_stop": None, "stop_at": None, "out": None, "no_passed": False}
 MAIN = {"gate": "shorts"}  # вариант A из PREREG_portrait.md: прошёл вторую проверку; выходы записок 4–6 (xl, sflip, sblue) её не прошли. Оператор 05.11: лонги вне описания предварительно половиной объёма, half_long.py
 OFF = {}
+MAIN26 = {**MAIN, "s_stop": 2.0, "s_tp": 6.0, "s_after": "covered"}  # настройки индикатора по умолчанию: вариант A и шорт 2/6 ATR, gpt_r3_sweep.py
 SHORT_TGT = ("к красной", "к голубой 1ч")
 DAY = 24
 
@@ -56,7 +62,7 @@ def allow(a, i, s, tag, mode, slope_d=5):
         if s == 1:
             return not (g < y < r and not rising)
         return not (rising and (g > y > r or g < y < r))
-    if in_portrait(a, i, s):
+    if in_portrait(a, i, s, slope_d):
         return True
     if mode in ("portrait+l1", "full") and s == 1 and tag == "к голубой":
         return not (a["f_G"][i] < a["f_Y"][i] < a["f_R"][i])
@@ -82,11 +88,18 @@ def run(a, **kw):
         legs.append((cur[0], i, cur[1], float(px), cur[2], cur[3], why))
 
     def opn(i, s, tag, tgt=None):
-        if P["gate"] is not None and not allow(a, i, s, tag, P["gate"], P["slope_d"]):
+        if P["no_passed"] and s == 1 and tag == "к голубой" and c[i] >= a["f_B"][i] * (1 - P["tol"] / 100):
+            return None                                 # цель уже пройдена к сигналу: сделки к ней нет
+        if P["gate"] == "lab":
+            if s == -1 and not P["lab"][i]:
+                return None
+        elif P["gate"] is not None and not allow(a, i, s, tag, P["gate"], P["slope_d"]):
             return None
         return [i, float(c[i]), s, tag, tgt]
 
     for i in range(a["i0"], len(t)):
+        if P["stop_at"] is not None and i > P["stop_at"]:
+            break
         new4 = j[i] != jp
         jp = j[i]
         fc, g, y, r, b, b1 = a["f_close"][i], a["f_G"][i], a["f_Y"][i], a["f_R"][i], a["f_B"][i], a["f_B1"][i]
@@ -100,6 +113,12 @@ def run(a, **kw):
         g_under = rg <= -P["k4"] and r_under
         if cur is not None and cur[2] == 1:
             tag = cur[3]
+            if P["l_stop"] is not None:
+                lv = cur[1] - P["l_stop"] * a["atr4"][cur[0]]
+                if l[i] <= lv:
+                    close(i, min(lv, o[i]), "стоп ATR")
+                    cur = None
+                    continue
             if tag == "к голубой":
                 lvl = a["B4p"][i] * (1 - P["tol"] / 100)
                 if h[i] >= lvl and cur[1] < lvl:
@@ -120,7 +139,13 @@ def run(a, **kw):
                     close(i, c[i], "после роста: под G, 1ч под R")
                     cur = opn(i, -1, "к голубой 1ч", "B1") if B1p[i] < c[i] else None
                     continue
-                if tag == "над голубыми" and new4 and ry <= -P["k4"]:
+                if P["x01_all"] and g_under:
+                    close(i, c[i], "X01: под G, 1ч под R")
+                    cur = None
+                    continue
+                if P["x01_all"] == "only":
+                    pass
+                elif tag == "над голубыми" and new4 and ry <= -P["k4"]:
                     close(i, c[i], "2 закрытия под жёлтой")
                     cur = None
                 elif tag == "снова над жёлтой" and new4 and rr <= -P["k4"]:
@@ -130,6 +155,16 @@ def run(a, **kw):
                     cur[4] = "strong"
         elif cur is not None:
             tag = cur[3]
+            if P["s_stop"] is not None:
+                atr0 = a["atr4"][cur[0]]
+                up, dn = cur[1] + P["s_stop"] * atr0, cur[1] - P["s_tp"] * atr0
+                if h[i] >= up or l[i] <= dn:                    # оба в одном часе — порядок неизвестен, считаем стоп
+                    if h[i] >= up:
+                        close(i, max(up, o[i]), "стоп ATR")
+                    else:
+                        close(i, min(dn, o[i]), "тейк ATR")
+                    cur, covered = None, P["s_after"] == "covered"
+                    continue
             if tag in SHORT_TGT or (tag.startswith("от голубой") and cur[4] == "R"):
                 lvl = (B1p[i] if cur[4] == "B1" else Rp[i]) * (1 + P["tol_r"] / 100)
                 if l[i] <= lvl < cur[1]:
@@ -205,7 +240,9 @@ def run(a, **kw):
             cur, wait_red = opn(i, 1, "над голубыми"), False
         elif new4 and (rr == -P["k4"] if P["event_short"] else rr <= -P["k4"]):
             cur, wait_red = opn(i, -1, "над голубыми"), False
-    if cur is not None:
+    if P["out"] is not None:
+        P["out"].update(cur=cur, covered=covered, await_blue=await_blue, wait_red=wait_red, need_red=need_red)
+    if cur is not None and P["stop_at"] is None:
         close(len(t) - 1, c[-1], "конец")
     return legs
 
