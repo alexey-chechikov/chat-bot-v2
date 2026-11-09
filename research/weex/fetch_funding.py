@@ -1,7 +1,8 @@
 """Дописать фандинг Binance USDT-M в backtests/frozen/<SYM>_funding_full.csv (24.10: файлы кончались 14.10 — бэктесты
 после этой даты шли без фандинга). Только новые расчёты после последнего в файле; формат и CRLF — как в файле
 (fundingTime,fundingRate,markPrice). Копия файла до записи — рядом, .bak_<дата>.
-Запуск: fetch_funding.py [BTCUSDT ETHUSDT XRPUSDT]
+Запуск: fetch_funding.py [BTCUSDT ETHUSDT XRPUSDT] [--no-bak]
+--no-bak — без копии (так зовёт scripts/ohlcv_gapfill_all.sh каждый час с 09.11.2026: файл кончался 24.10).
 """
 from __future__ import annotations
 
@@ -43,7 +44,8 @@ def main():
         if not new:
             print(f"{sym}: новых расчётов нет")
             continue
-        shutil.copy(path, path.with_name(path.name + f".bak_{datetime.now(timezone.utc):%Y%m%d}"))
+        if "--no-bak" not in sys.argv:
+            shutil.copy(path, path.with_name(path.name + f".bak_{datetime.now(timezone.utc):%Y%m%d}"))
         with path.open("ab") as f:
             for r in new:
                 f.write(f"{r['fundingTime']},{r['fundingRate']},{r.get('markPrice') or ''}\r\n".encode())

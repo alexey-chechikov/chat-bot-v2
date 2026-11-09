@@ -23,4 +23,7 @@ for sym in "${SYMBOLS[@]}"; do
     }
 done
 
+# 09.11.2026: фандинг Binance USDT-M — те же монеты, только новые расчёты (файлы *_funding_full.csv стояли с 24.10).
+"$PY" "$ROOT/research/weex/fetch_funding.py" "${SYMBOLS[@]}" --no-bak || echo "FAILED: funding (continuing)"
+
 echo "=== gap-fill cycle done $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
