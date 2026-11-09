@@ -1,0 +1,846 @@
+--- a/services/btc_signals/engine.py
++++ b/services/btc_signals/engine.py
+@@ -59,7 +59,9 @@
+                 close_now, x_px, why = True, float(c[i]), "отмена: 2 закрытия 4ч над жёлтой"
+             elif pos["tag"] == "под синей" and rG >= K4:
+                 close_now, x_px, why = True, float(c[i]), "2 закрытия 4ч над зелёной"
+-        if pos and pos["tag"] in MAIN and not close_now and not pos["add_done"]:
++        # The add-stop was already active during this hour. A decision made at
++        # the hour's close cannot retroactively cancel an earlier stop fill.
++        if pos and pos["tag"] in MAIN and not pos["add_done"]:
+             lv = pos["add_lv"]
+             if (pos["side"] == 1 and h[i] >= lv) or (pos["side"] == -1 and l[i] <= lv):
+                 pos["add_done"] = True
+--- a/services/btc_signals/features.py
++++ b/services/btc_signals/features.py
+@@ -103,6 +103,67 @@
+     ev = st != 0
+     last = np.nan_to_num(carry(ev, st.astype(float)), nan=0.0).astype(int)
+     return st, last
++
++
++def funding_records(times, rates_pct, expected_interval_s: int = 8 * 3600) -> dict:
++    """Explicit observed payouts, in seconds and percentage points.
++
++    A zero rate remains an observation. The expected payout interval is a source
++    contract (8h for this BTCUSDT dataset), not inferred from changes in a cash
++    accumulator. Callers with a different schedule must supply it explicitly.
++    """
++    if not np.isfinite(expected_interval_s) or expected_interval_s <= 0:
++        raise ValueError("expected funding interval must be positive")
++    ts, rates = np.asarray(times, float), np.asarray(rates_pct, float)
++    if ts.ndim != 1 or rates.ndim != 1 or len(ts) != len(rates):
++        raise ValueError("funding timestamps/rates must be equal-length vectors")
++    valid_time = np.isfinite(ts)
++    ts, rates = ts[valid_time], rates[valid_time]
++    order = np.argsort(ts, kind="stable")
++    ts, rates = ts[order], rates[order]
++    if len(ts):
++        # Last source record wins, including an explicit invalid/retracted rate.
++        last = np.r_[ts[1:] != ts[:-1], True]
++        ts, rates = ts[last], rates[last]
++    observed = np.isfinite(rates)
++    return {"times": ts[observed], "rates_pct": rates[observed],
++            "expected_interval_s": float(expected_interval_s)}
++
++
++def funding_window(records: dict | None, t, window_s) -> tuple[np.ndarray, np.ndarray]:
++    """Payout sum in (t-window, t], plus complete source coverage.
++
++    Coverage requires an observed payout at/before the left boundary, no missing
++    scheduled payout through the window, and a not-yet-due next payout at t.
++    Before inception, at a missing due payout and across internal gaps: NaN.
++    Missing metadata never makes a zero accumulator an observed zero rate.
++    """
++    query, windows = np.broadcast_arrays(np.asarray(t, float), np.asarray(window_s, float))
++    out = np.full(query.shape, np.nan)
++    covered = np.zeros(query.shape, dtype=bool)
++    empty = np.isfinite(query) & (windows == 0)
++    out[empty], covered[empty] = 0.0, True
++    if not records:
++        return out, covered
++    normalized = funding_records(records.get("times", []), records.get("rates_pct", []),
++                                 records.get("expected_interval_s", 8 * 3600))
++    ts, rates = normalized["times"], normalized["rates_pct"]
++    if not len(ts):
++        return out, covered
++    interval = normalized["expected_interval_s"]
++    left = query - windows
++    before = np.searchsorted(ts, left, side="right") - 1
++    last = np.searchsorted(ts, query, side="right") - 1
++    ib, il = np.clip(before, 0, len(ts) - 1), np.clip(last, 0, len(ts) - 1)
++    bad_gaps = np.r_[0, np.cumsum(np.diff(ts) > interval)]
++    valid = (np.isfinite(query) & np.isfinite(windows) & (windows > 0) &
++             (before >= 0) & (last >= before) &
++             (left - ts[ib] < interval) & (query - ts[il] < interval) &
++             (bad_gaps[il] == bad_gaps[ib]))
++    cumulative = np.r_[0.0, np.cumsum(rates)]
++    sums = cumulative[il + 1] - cumulative[ib + 1]
++    out[valid], covered[valid] = sums[valid], True
++    return out, covered
+ 
+ 
+ def prepare(a: dict, lay: tuple, h4f=None) -> dict[str, np.ndarray]:
+@@ -219,12 +280,10 @@
+         P["пробой 432, ATR"] = m4((b["c"] - x4["hi30"]) / x4["atr"])
+         P["от минимума 30 свечей 4ч, ATR"] = m4((b["c"] - x4["lo30"]) / x4["atr"])
+         P["от EMA200 4ч, %"] = m4((b["c"] / x4["e200"] - 1) * 100)
+-        Fu = np.asarray(a.get("F", np.zeros(n)), float)
+-        has_f = np.nanmax(np.abs(Fu)) > 0
+-        ch_f = np.flatnonzero(np.diff(Fu) != 0)
+-        fresh = np.arange(n) <= (ch_f[-1] + 1 + 24 if len(ch_f) else -1)  # файл фандинга кончился — дальше пусто, не ноль
+         for w, nm in ((24, "24ч"), (168, "7д"), (720, "30д")):
+-            P[f"фандинг {nm}, %"] = np.where(fresh, Fu - lag(Fu, w), np.nan) if has_f else np.full(n, np.nan)
++            values, coverage = funding_window(a.get("funding_records"), t, w * 3600)
++            P[f"фандинг {nm}, %"] = values
++            P[f"_funding_coverage_{w}h"] = coverage
+         if h4f is not None and "vol_vs30" in h4f:
+             j = np.asarray(a["j"], int)
+             P["объём сутки к медиане 30д"] = h4f["vol_vs30"].to_numpy(float)[j]
+@@ -270,34 +329,12 @@
+             "итог 30д, % базы": float(sum(x[3] for x in m30))}
+ 
+ 
+-def path(a: dict, i0: int, i1: int, side: int, entry: float, exit_px: float) -> dict:
+-    """Путь сделки после часа входа по час выхода включительно: MFE/MAE в % и ATR 4ч входа, когда, отдача, что было раньше."""
+-    atr = float(a["atr4"][i0])
+-    h, l, c = a["h"][i0 + 1:i1 + 1], a["l"][i0 + 1:i1 + 1], a["c"]
+-    fav = (h - entry) if side == 1 else (entry - l)
+-    adv = (entry - l) if side == 1 else (h - entry)
+-    if len(h):
+-        k_f, k_a = int(np.argmax(fav)), int(np.argmax(adv))
+-        mfe, mae = max(float(fav[k_f]), 0.0), max(float(adv[k_a]), 0.0)
+-        hit_f = np.flatnonzero(fav >= atr)
+-        hit_a = np.flatnonzero(adv >= atr)
+-        f1 = hit_f[0] if len(hit_f) else 10 ** 9
+-        a1 = hit_a[0] if len(hit_a) else 10 ** 9
+-        first = 1.0 if f1 < a1 else (-1.0 if a1 < f1 else (0.0 if f1 == 10 ** 9 else 0.5))
+-    else:
+-        k_f = k_a = 0
+-        mfe = mae = 0.0
+-        first = 0.0
+-    fin = side * (exit_px - entry)
+-    out = {"MFE, %": mfe / entry * 100, "MAE, %": mae / entry * 100, "MFE, ATR": mfe / atr, "MAE, ATR": mae / atr,
+-           "часов до MFE": float(k_f + 1) if len(h) else 0.0, "часов до MAE": float(k_a + 1) if len(h) else 0.0,
+-           "отдача, ATR": (mfe - fin) / atr, "отдача, доля MFE": (mfe - fin) / mfe if mfe > 0 else None,
+-           "сначала +1 ATR или −1 ATR": first, "часов в сделке": float(i1 - i0)}
+-    for w, nm in ((24, "24ч"), (72, "72ч"), (168, "7д")):
+-        j = min(i0 + w, i1)
+-        px = exit_px if j == i1 else float(c[j])
+-        out[f"ход через {nm}, %"] = side * (px / entry - 1) * 100
+-    return out
++def path(a: dict, i0: int, i1: int, side: int, entry: float, exit_px: float,
++         *, exit_mode: str = "close", execution: dict | None = None) -> dict:
++    """Execution-bounded path; target exits expose intrabar uncertainty."""
++    from services.btc_signals.excursions import trade_path
++
++    return trade_path(a, i0, i1, side, entry, exit_px, exit_mode=exit_mode, execution=execution)
+ 
+ 
+ # ---------- балл M2 (flat_1109b): только тень ----------
+--- /dev/null
++++ b/services/btc_signals/excursions.py
+@@ -0,0 +1,175 @@
++"""Excursions bounded by execution, with explicit intrabar uncertainty.
++
++Hourly closes give complete hourly extrema. A first-touch target gives only
++partial knowledge of its exit bar: favorable excursion stops at execution;
++the adverse extreme may have happened before or after it. Minute OHLC narrows
++that uncertainty to the touching minute, and never claims tick-level order.
++"""
++from __future__ import annotations
++
++import numpy as np
++
++PATH_BOUND_FIELDS = {
++    "MFE lower, ATR", "MFE upper, ATR", "MAE lower, ATR", "MAE upper, ATR",
++    "MFE lower, %", "MFE upper, %", "MAE lower, %", "MAE upper, %",
++    "качество пути", "разрешение выхода", "причина качества пути", "качество порядка ±1 ATR",
++    "часов до MFE lower", "часов до MFE upper", "часов до MAE lower", "часов до MAE upper",
++    "семантика времени экстремумов",
++}
++
++
++def _distance(side, entry, high, low):
++    favorable = high - entry if side == 1 else entry - low
++    adverse = entry - low if side == 1 else high - entry
++    return max(float(favorable), 0.0), max(float(adverse), 0.0)
++
++
++def _full(side, entry, high, low, at, span_h=1.0):
++    f, a = _distance(side, entry, high, low)
++    return (f, f, a, a, float(at), float(at - span_h))
++
++
++def _touch(side, entry, exit_px, open_px, high, low, at, open_fill=False, span_h=1.0):
++    favorable = max(float(side * (exit_px - entry)), 0.0)
++    known_adverse = max(float(-side * (exit_px - entry)), 0.0)
++    if np.isfinite(open_px):
++        known_adverse = max(known_adverse, float(-side * (open_px - entry)))
++    possible_adverse = known_adverse if open_fill else max(known_adverse, _distance(side, entry, high, low)[1])
++    return (favorable, favorable, known_adverse, possible_adverse, float(at), float(at if open_fill else at - span_h))
++
++
++def _first_order(parts, atr):
++    if not parts:
++        return 0.0, "exact"
++    a = np.asarray(parts, float)
++    if not np.isfinite(a[:, :4]).all():
++        return None, "ambiguous"
++    def first(column):
++        hit = np.flatnonzero(a[:, column] >= atr)
++        return int(hit[0]) if len(hit) else np.inf
++    f_certain, f_possible, a_certain, a_possible = (first(k) for k in range(4))
++    if f_possible == a_possible == np.inf:
++        return 0.0, "exact"
++    if f_certain < a_possible:
++        return 1.0, "exact"
++    if a_certain < f_possible:
++        return -1.0, "exact"
++    return None, "ambiguous"
++
++
++def _minute_parts(execution, side, entry, exit_px, bar_start, bar_end, entry_time):
++    """Return only observations up to first target hit; reject gaps before it."""
++    try:
++        ts, op, hi, lo, close = (np.asarray(execution[k], float) for k in ("t", "o", "h", "l", "c"))
++    except (KeyError, TypeError, ValueError):
++        return None, "invalid_minute_schema"
++    arrays = (ts, op, hi, lo, close)
++    if any(x.ndim != 1 or len(x) != len(ts) for x in arrays):
++        return None, "invalid_minute_schema"
++    sel = (ts >= bar_start) & (ts < bar_end)
++    ts, op, hi, lo, close = (x[sel] for x in arrays)
++    if not len(ts):
++        return None, "missing_exit_hour_minutes"
++    parts = []
++    for k in range(len(ts)):
++        if ts[k] != bar_start + 60 * k:
++            return None, "minute_gap_before_execution"
++        values = np.array([op[k], hi[k], lo[k], close[k]])
++        if (not np.isfinite(values).all() or lo[k] > min(op[k], close[k]) or
++                hi[k] < max(op[k], close[k]) or hi[k] < lo[k]):
++            return None, "invalid_minute_ohlc"
++        open_hit = side * (op[k] - exit_px) >= 0
++        hit = hi[k] >= exit_px if side == 1 else lo[k] <= exit_px
++        if open_hit or hit:
++            at = (ts[k] + (0 if open_hit else 60) - entry_time) / 3600
++            parts.append(_touch(side, entry, exit_px, op[k], hi[k], lo[k], at, open_hit, span_h=1 / 60))
++            return parts, "minute_open" if open_hit else "minute_touch_bounds"
++        parts.append(_full(side, entry, hi[k], lo[k], (ts[k] + 60 - entry_time) / 3600, span_h=1 / 60))
++    return None, "minute_target_not_found"
++
++
++def trade_path(a: dict, i0: int, i1: int, side: int, entry: float, exit_px: float,
++               *, exit_mode: str = "close", execution: dict | None = None) -> dict:
++    """Legacy path keys plus lower/upper bounds and a quality label.
++
++    execution: optional minute OHLC, `t` is minute OPEN time in UTC seconds.
++    It is consumed only for target exits. Missing/gapped minute tapes fall back
++    to honest hourly bounds; they do not invent an exact execution path.
++    """
++    if exit_mode not in {"close", "target"}:
++        raise ValueError("exit_mode must be close or target")
++    if side not in (-1, 1) or not 0 <= i0 <= i1 < len(a["c"]):
++        raise ValueError("invalid side or trade interval")
++    entry, exit_px, atr = float(entry), float(exit_px), float(a["atr4"][i0])
++    if not np.isfinite([entry, exit_px, atr]).all() or entry <= 0 or atr <= 0:
++        raise ValueError("entry, exit and entry ATR must be finite and positive")
++    t = np.asarray(a.get("t", np.arange(len(a["c"])) * 3600), float)
++    entry_time = float(t[i0])
++    high, low = np.asarray(a["h"], float), np.asarray(a["l"], float)
++    parts, resolution, reason = [], "hour", "close_complete_bar"
++    last_full = i1 + 1 if exit_mode == "close" else i1
++    for i in range(i0 + 1, last_full):
++        parts.append(_full(side, entry, high[i], low[i], (t[i] - entry_time) / 3600))
++    if exit_mode == "target" and i1 > i0:
++        op = float(a["o"][i1]) if "o" in a else np.nan
++        open_fill = np.isfinite(op) and side * (op - exit_px) >= 0
++        if open_fill:
++            parts.append(_touch(side, entry, exit_px, op, high[i1], low[i1],
++                                (t[i1] - 3600 - entry_time) / 3600, True))
++            resolution, reason = "open", "target_filled_at_hour_open"
++        else:
++            minute, minute_reason = (None, "hour_target_bounds")
++            if execution is not None:
++                minute, minute_reason = _minute_parts(execution, side, entry, exit_px,
++                                                      t[i1] - 3600, t[i1], entry_time)
++            if minute is not None:
++                parts.extend(minute)
++                resolution, reason = "minute", minute_reason
++            else:
++                parts.append(_touch(side, entry, exit_px, op, high[i1], low[i1],
++                                    (t[i1] - entry_time) / 3600))
++                reason = minute_reason
++    values = np.asarray(parts, float) if parts else np.zeros((0, 6))
++    f_lo, f_hi, a_lo, a_hi = np.max(values[:, :4], axis=0) if len(parts) else np.zeros(4)
++    mfe_known = bool(np.isclose(f_lo, f_hi, rtol=1e-12, atol=1e-12))
++    mae_known = bool(np.isclose(a_lo, a_hi, rtol=1e-12, atol=1e-12))
++    mfe, mae = float(f_lo) if mfe_known else None, float(a_lo) if mae_known else None
++    first, first_quality = _first_order(parts, atr)
++    quality = "exact" if mfe_known and mae_known and first_quality == "exact" else "ambiguous"
++    fin = side * (exit_px - entry)
++    out = {"MFE, %": mfe / entry * 100 if mfe is not None else None,
++           "MAE, %": mae / entry * 100 if mae is not None else None,
++           "MFE, ATR": mfe / atr if mfe is not None else None,
++           "MAE, ATR": mae / atr if mae is not None else None,
++           "часов до MFE": float(values[np.argmax(values[:, 0]), 4]) if len(parts) and mfe_known else (0.0 if not parts else None),
++           "часов до MAE": float(values[np.argmax(values[:, 2]), 4]) if len(parts) and mae_known else (0.0 if not parts else None),
++           "отдача, ATR": (mfe - fin) / atr if mfe is not None else None,
++           "отдача, доля MFE": (mfe - fin) / mfe if mfe is not None and mfe > 0 else None,
++           "сначала +1 ATR или −1 ATR": first, "часов в сделке": float((t[i1] - entry_time) / 3600),
++           "качество пути": quality, "разрешение выхода": resolution,
++           "причина качества пути": reason, "качество порядка ±1 ATR": first_quality,
++           "семантика времени экстремумов": "bar_upper_bound_not_tick_time"}
++    for kind, known, column in (("MFE", mfe_known, 0), ("MAE", mae_known, 2)):
++        if known and len(parts):
++            peak = int(np.argmax(values[:, column]))
++            lower, upper = max(float(values[peak, 5]), 0.0), max(float(values[peak, 4]), 0.0)
++        elif not parts:
++            lower = upper = 0.0
++        else:
++            lower = upper = None
++        out[f"часов до {kind} lower"], out[f"часов до {kind} upper"] = lower, upper
++    for kind, lower, upper in (("MFE", f_lo, f_hi), ("MAE", a_lo, a_hi)):
++        out[f"{kind} lower, ATR"], out[f"{kind} upper, ATR"] = float(lower / atr), float(upper / atr)
++        out[f"{kind} lower, %"], out[f"{kind} upper, %"] = float(lower / entry * 100), float(upper / entry * 100)
++    for w, name in ((24, "24ч"), (72, "72ч"), (168, "7д")):
++        # Preserve the legacy capped-horizon meaning, explicitly documented in
++        # the audit, using clock hours rather than a count of source rows.
++        # A missing exact horizon cannot be replaced by a later observed price.
++        horizon = entry_time + w * 3600
++        if horizon >= t[i1]:
++            px = exit_px
++        else:
++            j = int(np.searchsorted(t, horizon))
++            px = float(a["c"][j]) if j < len(t) and t[j] == horizon else np.nan
++        out[f"ход через {name}, %"] = side * (px / entry - 1) * 100 if np.isfinite(px) else None
++    return out
+--- a/services/btc_signals/run.py
++++ b/services/btc_signals/run.py
+@@ -399,7 +399,7 @@
+                     except Exception as exc:  # noqa: BLE001
+                         r["m2_error"] = repr(exc)
+             elif e["kind"] == "выход":
+-                r.update({"res": e["res"], "why": e["why"], "entry_t": p["entry_t"], "entry": p["entry"], "path": fx.path(a, p["entry_i"], e["i"], e["side"], p["entry"], e["px"])})
++                r.update({"res": e["res"], "why": e["why"], "entry_t": p["entry_t"], "entry": p["entry"], "path": fx.path(a, p["entry_i"], e["i"], e["side"], p["entry"], e["px"], exit_mode="target" if e["why"].startswith("цель") else "close")})
+             else:
+                 r["add_px"] = e["px"]
+         except Exception as exc:  # noqa: BLE001
+--- a/research/chart_walk_20261105/entry_rules.py
++++ b/research/chart_walk_20261105/entry_rules.py
+@@ -28,13 +28,19 @@
+ LIM5D = 120
+ 
+ 
+-def prep(h1, h4, d1, fund):
++def prep(h1, h4, d1, fund, funding_interval_s=8 * 3600):
++    from services.btc_signals.features import funding_records
++
+     h4 = jr.add_extra(h4.copy(), d1, fund)
+     a = rules.prepare(h1, h4)
+     t = a["t"]
+-    f = np.zeros(len(t))
+-    np.add.at(f, np.clip(np.searchsorted(t, fund.index.to_numpy(), side="left"), 0, len(t) - 1), fund.to_numpy())
+-    a["F"] = np.cumsum(f) * 100
++    # Keep actual observations (including zero rates), never future payouts.
++    observed = funding_records(fund.index.to_numpy(), fund.to_numpy() * 100, funding_interval_s)
++    keep = observed["times"] <= t[-1] if len(t) else np.zeros(len(observed["times"]), bool)
++    observed["times"], observed["rates_pct"] = observed["times"][keep], observed["rates_pct"][keep]
++    a["funding_records"] = observed
++    cumulative = np.r_[0.0, np.cumsum(observed["rates_pct"])]
++    a["F"] = cumulative[np.searchsorted(observed["times"], t, side="right")]
+     a["atr4"] = h4["atr"].to_numpy()[a["j"]]
+     a["R1"], a["B1h"], a["run_B1"] = h1["R"].to_numpy(), h1["B"].to_numpy(), h1["run_B"].to_numpy()
+     a["i0"] = int(np.searchsorted(t, cw.T("2018-01-01")))
+--- a/research/chart_walk_20261105/basis_check_1109.py
++++ b/research/chart_walk_20261105/basis_check_1109.py
+@@ -12,6 +12,7 @@
+ import plus as pl  # noqa: E402
+ import state_card as sc  # noqa: E402
+ import trade_scan as ts  # noqa: E402
++from services.btc_signals import features as fx  # noqa: E402
+ 
+ RNG = np.random.default_rng(91109)
+ MULT = np.array([0.5, 0.75, 1.0, 1.25, 1.5])
+@@ -19,7 +20,13 @@
+ 
+ 
+ def with_funding(D, fm, a):
+-    """Итог позиции с фандингом: те же ноги, что в службе (первый лот + добор), через ledger-учёт plus.unit."""
++    """Per-leg funding only after that leg's recorded entry time.
++
++    Unknown add time or incomplete observed payout coverage produces NaN rather
++    than an invented cashflow. Exact entries use ledger's (entry, exit] cutoff.
++    An engine add marked _add_before_close existed before its recorded hour-end:
++    the payout at that hour-end is included. Subhour payouts remain ambiguous.
++    """
+     t = a["t"]
+     out = []
+     for _, r in D.iterrows():
+@@ -27,10 +34,38 @@
+         s, w = int(r["сторона"]), float(r["вес"])
+         legs = [(i0, i1, float(r["цена входа"]), float(r["цена выхода"]), s, "x", "x", w * 0.5)]
+         if r["добор"] == 1.0 and pd.notna(r["цена добора"]):
+-            legs.append((i0, i1, float(r["цена добора"]), float(r["цена выхода"]), s, "x", "x", w * 0.5))
++            add_t, add_i = r.get("_add_t"), r.get("_add_i")
++            if pd.isna(add_t) and pd.notna(r.get("добор UTC")):
++                add_t = pd.Timestamp(r["добор UTC"], tz="UTC").timestamp()
++            if pd.notna(add_t):
++                add_i = int(np.searchsorted(t, add_t))
++                if add_i >= len(t) or t[add_i] != add_t:
++                    add_i = None
++            if pd.isna(add_i) or not i0 <= int(add_i) <= i1:
++                out.append(np.nan)
++                continue
++            funding_i = int(add_i)
++            before_close = r.get("_add_before_close", False)
++            if pd.notna(before_close) and bool(before_close):
++                if funding_i <= i0:
++                    out.append(np.nan)
++                    continue
++                records = a.get("funding_records") or {}
++                payout_t = np.asarray(records.get("times", []), float)
++                # At hourly resolution only the hour-end payout has a known
++                # order relative to a standing stop. Inside-hour payouts do not.
++                if np.any((payout_t > t[funding_i - 1]) & (payout_t < t[funding_i])):
++                    out.append(np.nan)
++                    continue
++                funding_i -= 1
++            legs.append((funding_i, i1, float(r["цена добора"]), float(r["цена выхода"]), s, "x", "x", w * 0.5))
++        _, coverage = fx.funding_window(a.get("funding_records"), np.array([t[x[1]] for x in legs]),
++                                        np.array([t[x[1]] - t[x[0]] for x in legs]))
++        if not coverage.all():
++            out.append(np.nan)
++            continue
+         rr, ww = pl.unit(fm, legs)
+         out.append(float((rr * ww).sum()))
+-    _ = t
+     return np.array(out)
+ 
+ 
+@@ -47,6 +82,9 @@
+         edges = np.quantile(first[ft], [0.2, 0.4, 0.6, 0.8])
+         for col in ("итог, % базы", "итог с фандингом"):
+             for nm, part in (("1-я половина", first), ("2-я половина", second)):
++                part = part[part[col].notna()]
++                if part.empty:
++                    continue
+                 q = np.searchsorted(edges, part[ft].to_numpy(float))
+                 y = part[col].to_numpy(float)
+                 base, size, skip = y.sum(), (y * MULT[q]).sum(), y[q > 0].sum()
+--- a/research/chart_walk_20261105/trade_table.py
++++ b/research/chart_walk_20261105/trade_table.py
+@@ -56,11 +56,18 @@
+         for e in [x for x in E if x["kind"] == "выход"]:
+             p = e["pos"]
+             i0, i1, s = p["entry_i"], e["i"], e["side"]
++            add_t = p.get("add_t") if p["add_done"] and e["tag"] in en.MAIN else None
++            add_i = int(np.searchsorted(a["t"], add_t)) if add_t is not None else None
++            if add_i is not None and (add_i >= len(a["t"]) or a["t"][add_i] != add_t):
++                add_i = None
+             r = {"ряд": name, "стратегия": strat, "тип": f"{'лонг' if s == 1 else 'шорт'} {e['tag']}", "сторона": s, "вход UTC": utc(p["entry_t"]), "выход UTC": utc(e["t"]),
+                  "цена входа": p["entry"], "цена выхода": e["px"], "вес": p["w"], "добор": float(bool(p["add_done"]) and e["tag"] in en.MAIN),
+-                 "цена добора": p["add_px"], "причина выхода": e["why"], "итог, % базы": e["res"], "ход, %": s * (e["px"] / p["entry"] - 1) * 100,
+-                 "_i0": i0, "_i1": i1, "_t0": p["entry_t"], "_t1": e["t"]}
+-            r.update(fx.path(a, i0, i1, s, p["entry"], e["px"]))
++                 "цена добора": p["add_px"], "добор UTC": utc(add_t) if add_t is not None else None,
++                 "причина выхода": e["why"], "итог, % базы": e["res"], "ход, %": s * (e["px"] / p["entry"] - 1) * 100,
++                 "_i0": i0, "_i1": i1, "_t0": p["entry_t"], "_t1": e["t"], "_add_t": add_t, "_add_i": add_i,
++                 "_add_before_close": bool(add_t is not None)}
++            r.update(fx.path(a, i0, i1, s, p["entry"], e["px"], exit_mode="target" if e["why"].startswith("цель") else "close"))
++            r.update({k: bool(v[i0]) for k, v in P.items() if k.startswith("_funding_coverage_")})
+             r.update(fx.history(prev, p["entry_t"], s))
+             r["432 в позиции"] = float(side_at(iv_432, i0) != 0) if strat == "система" else None
+             r["система в позиции"] = float(side_at(iv_sys, i0)) if strat == "432" else None
+@@ -199,7 +206,7 @@
+          "тип": "Сторона и вид входа: лонг над синей, шорт под синей, шорт под жёлтой, лонг 432.", "сторона": "+1 лонг, −1 шорт.",
+          "вход UTC": "Время закрытия свечи входа, UTC.", "выход UTC": "Время закрытия свечи выхода, UTC.", "цена входа": "Закрытие 4ч на входе.",
+          "цена выхода": "Цена выхода: закрытие 4ч по правилу или уровень цели.", "вес": "Вес позиции (вес системы на входе; у 432 — 1).",
+-         "добор": "1 — добор взят.", "цена добора": "Цена добора (вход ± 2 ATR 4ч).", "причина выхода": "Почему закрыта.",
++         "добор": "1 — добор взят.", "цена добора": "Цена добора (вход ± 2 ATR 4ч).", "добор UTC": "Записанное время добора (закрытие часа исполнения; точная последовательность выплаты внутри часа требует отдельного replay).", "причина выхода": "Почему закрыта.",
+          "ход, %": "Ход цены от входа до выхода в сторону сделки, без веса и издержек.", "часов в сделке": "Часов от входа до выхода.",
+          "часов после прошлой": "Часов после закрытия прошлой сделки этой стратегии."}
+ 
+--- a/research/chart_walk_20261105/trade_scan.py
++++ b/research/chart_walk_20261105/trade_scan.py
+@@ -22,6 +22,11 @@
+ OUTCOME = {"в лучших 20%", "ряд", "стратегия", "тип", "сторона", "вход UTC", "выход UTC", "цена входа", "цена выхода", "вес", "добор", "цена добора", "причина выхода", "итог, % базы", "ход, %",
+            "MFE, %", "MAE, %", "MFE, ATR", "MAE, ATR", "часов до MFE", "часов до MAE", "отдача, ATR", "отдача, доля MFE", "сначала +1 ATR или −1 ATR", "часов в сделке",
+            "ход через 24ч, %", "ход через 72ч, %", "ход через 7д, %", "фаза", "порядок линий"}
++OUTCOME.update({"добор UTC", "MFE lower, ATR", "MFE upper, ATR", "MAE lower, ATR", "MAE upper, ATR",
++                "MFE lower, %", "MFE upper, %", "MAE lower, %", "MAE upper, %",
++                "качество пути", "разрешение выхода", "причина качества пути", "качество порядка ±1 ATR"})
++OUTCOME.update({"часов до MFE lower", "часов до MFE upper", "часов до MAE lower", "часов до MAE upper",
++                "семантика времени экстремумов"})
+ pd.set_option("display.width", 260, "display.max_columns", 30, "display.max_rows", 400, "display.max_colwidth", 46)
+ 
+ 
+--- a/tests/services/btc_signals/test_btc_signals.py
++++ b/tests/services/btc_signals/test_btc_signals.py
+@@ -48,13 +48,14 @@
+     assert pos is None
+ 
+ 
+-def test_add_not_taken_on_exit_bar():
++def test_standing_add_is_taken_before_close_exit():
+     a, lay = long_case()
+     a["h"][10] = 100.0
+     a["h"][16] = 110.0
+     ev, _ = en.simulate(a, lay)
+-    assert [e["kind"] for e in ev] == ["вход", "выход"]
+-    assert ev[1]["res"] == pytest.approx(en.leg_net(1, 100.0, 105.0) * 0.5)
++    assert [e["kind"] for e in ev] == ["вход", "добор", "выход"]
++    assert ev[1]["i"] == ev[2]["i"] == 16
++    assert ev[2]["res"] == pytest.approx(0.5 * en.leg_net(1, 100.0, 105.0) + 0.5 * en.leg_net(1, 102.0, 105.0))
+ 
+ 
+ def test_cs_target_inside_4h():
+--- a/tests/services/btc_signals/test_features.py
++++ b/tests/services/btc_signals/test_features.py
+@@ -30,6 +30,7 @@
+          "order": np.zeros(n), "f_width_rank": np.full(n, 0.5), "er24": np.full(n, 0.3), "f_adx": np.full(n, 20.0),
+          "x_hi30": np.maximum.accumulate(h), "x_lo30": np.minimum.accumulate(l), "flat": np.zeros(n), "phase": np.array(["рост"] * n, object),
+          "F": np.cumsum(np.full(n, 0.001)), "run_B1": np.zeros(n), "run_R": np.zeros(n), "f_run_G_prev": np.zeros(n)}
++    a["funding_records"] = fx.funding_records(t, np.full(n, 0.001), expected_interval_s=3600)
+     for k in "GYRB":
+         a[f"f_run_{k}"] = np.sign(a["f_close"] - a[f"f_{k}"])
+     a["st"] = np.zeros((n, 15))
+--- /dev/null
++++ b/tests/research_tools/test_btc_funding_repair.py
+@@ -0,0 +1,194 @@
++"""Acceptance tests: observed funding coverage, clocks and each leg's cutoff.
++
++Only private-data imports are isolated with AST. Compiled functions are the
++current exact source bodies; no vendor requests, Telegram or live processes.
++"""
++from __future__ import annotations
++
++import ast
++from datetime import datetime, timezone
++from pathlib import Path
++from types import SimpleNamespace
++
++import numpy as np
++import pandas as pd
++import pytest
++
++from services.btc_signals import engine as en
++from services.btc_signals import features as fx
++from tests.services.btc_signals.test_features import rich, cut
++
++ROOT = Path(__file__).resolve().parents[2]
++H = 3600
++
++
++def exact(file, name, namespace):
++    tree = ast.parse((ROOT / file).read_text(encoding="utf-8"))
++    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
++    ns = dict(namespace)
++    exec(compile(ast.Module(body=[fn], type_ignores=[]), file, "exec"), ns)
++    return ns[name]
++
++
++def test_observed_zero_is_known_without_any_change_in_accumulator():
++    records = fx.funding_records(np.arange(0, 33, 8) * H, np.zeros(5))
++    values, coverage = fx.funding_window(records, np.array([24, 31, 32]) * H, 24 * H)
++    assert coverage.all()
++    assert np.array_equal(values, np.zeros(3))
++
++
++@pytest.mark.parametrize("hours", [24, 168, 720])
++def test_full_window_must_mature_after_first_observed_payout(hours):
++    first = 80 * H
++    times = first + np.arange(0, hours + 17, 8) * H
++    records = fx.funding_records(times, np.full(len(times), 0.01))
++    query = np.array([first - H, first, first + (hours - 1) * H, first + hours * H])
++    values, coverage = fx.funding_window(records, query, hours * H)
++    assert np.array_equal(coverage, [False, False, False, True])
++    assert np.isnan(values[:3]).all()
++    assert values[-1] == pytest.approx(hours / 8 * 0.01)
++
++
++def test_internal_gap_and_missing_due_payment_remain_unknown_until_covered():
++    # The due payout at hour 16 is absent; later records do not backfill it.
++    records = fx.funding_records(np.array([0, 8, 24, 32, 40]) * H, np.zeros(5))
++    values, coverage = fx.funding_window(records, np.array([8, 15, 16, 24, 40]) * H, 8 * H)
++    assert np.array_equal(coverage, [True, True, False, False, True])
++    assert np.isnan(values[2:4]).all()
++    assert values[0] == values[1] == values[-1] == 0
++
++
++def test_schedule_is_explicit_and_can_be_hourly():
++    records = fx.funding_records(np.arange(30) * H, np.full(30, 0.001), expected_interval_s=H)
++    values, coverage = fx.funding_window(records, np.array([24, 29]) * H, 24 * H)
++    assert coverage.all()
++    assert np.allclose(values, 0.024)
++
++
++def test_invalid_rate_is_missing_and_latest_duplicate_record_wins():
++    records = fx.funding_records(np.array([0, 8, 16, 16, 24]) * H, [0, 0, 1, np.nan, 0])
++    values, coverage = fx.funding_window(records, [24 * H], 24 * H)
++    assert not coverage[0] and np.isnan(values[0])
++
++
++def test_absent_metadata_never_guesses_observability_from_F():
++    a, lay = rich(n=24 * 40)
++    a.pop("funding_records")
++    a["F"] = np.cumsum(np.ones(len(a["t"])))
++    result = fx.prepare(a, lay)
++    assert all(np.isnan(result[f"фандинг {name}, %"]).all() for name in ("24ч", "7д", "30д"))
++    assert not result["_funding_coverage_24h"].any()
++
++
++@pytest.mark.parametrize("hours", [(1000, 3500), (3500,)])
++def test_prepare_prefix_unchanged_by_future_first_payout_or_resumption(hours):
++    a, lay = rich(n=24 * 150)
++    times = a["t"][list(hours)]
++    a["funding_records"] = fx.funding_records(times, np.zeros(len(times)))
++    i = 3000
++    full = fx.prepare(a, lay)
++    part = fx.prepare(cut(a, i + 1), tuple(x[:i + 1] for x in lay))
++    for name in ("24ч", "7д", "30д"):
++        assert np.isnan(full[f"фандинг {name}, %"][i])
++        np.testing.assert_equal(full[f"фандинг {name}, %"][:i + 1], part[f"фандинг {name}, %"])
++
++
++def test_upstream_never_places_future_payment_into_last_price_hour():
++    a = {"t": np.array([100, 200]), "j": np.array([0, 0])}
++    h1 = pd.DataFrame({"R": [1, 1], "B": [1, 1], "run_B": [1, 1]})
++    h4 = pd.DataFrame({"atr": [1.0], "adx": [20.0], "d_G": [0.0], "run_G": [1]})
++    prep = exact("research/chart_walk_20261105/entry_rules.py", "prep", {
++        "np": np, "jr": SimpleNamespace(add_extra=lambda h4, d1, fund: h4),
++        "rules": SimpleNamespace(prepare=lambda h1, h4: dict(a)), "cw": SimpleNamespace(T=lambda s: 0)})
++    result, _ = prep(h1, h4, None, pd.Series([0.0, 0.01], index=[100, 300]), funding_interval_s=100)
++    assert np.array_equal(result["F"], [0, 0])
++    assert np.array_equal(result["funding_records"]["times"], [100])
++    assert np.array_equal(result["funding_records"]["rates_pct"], [0])
++    assert result["funding_records"]["expected_interval_s"] == 100
++
++
++def basis_function():
++    trade_cash = exact("research/chart_walk_20261105/ledger.py", "trade_cash", {"NOTIONAL": 1000.0, "SIDE_COST": 0.00068})
++    def unit(fm, legs):
++        cash = [trade_cash(fm, x[:5]) for x in legs]
++        return np.array([(move - fee - fund) / 10 for move, fee, fund in cash]), np.array([x[7] for x in legs])
++    return exact("research/chart_walk_20261105/basis_check_1109.py", "with_funding", {
++        "np": np, "pd": pd, "fx": fx, "pl": SimpleNamespace(unit=unit)}), unit
++
++
++@pytest.mark.parametrize("side", [-1, 1])
++@pytest.mark.parametrize("use_timestamp", [True, False])
++def test_funding_before_add_is_not_charged_or_credited_to_add(side, use_timestamp):
++    times = np.array([0, 8, 16, 24]) * H
++    a = {"t": times, "funding_records": fx.funding_records(times, [0, 1, 0, 0])}
++    r = {"_i0": 0, "_i1": 3, "сторона": side, "вес": 1.0, "цена входа": 100,
++         "цена выхода": 98, "добор": 1.0, "цена добора": 99}
++    r["_add_t" if use_timestamp else "_add_i"] = times[2] if use_timestamp else 2
++    function, unit = basis_function()
++    fm = np.array([0.0, 1.0, 1.0, 1.0])
++    actual = function(pd.DataFrame([r]), fm, a)[0]
++    corrected = [(0, 3, 100, 98, side, "x", "x", .5), (2, 3, 99, 98, side, "x", "x", .5)]
++    cash, weights = unit(fm, corrected)
++    assert actual == pytest.approx(float(cash @ weights))
++
++
++def test_missing_add_clock_or_payment_coverage_returns_unknown():
++    times = np.array([0, 8, 16, 24]) * H
++    row = {"_i0": 0, "_i1": 3, "сторона": -1, "вес": 1.0, "цена входа": 100,
++           "цена выхода": 98, "добор": 1.0, "цена добора": 99}
++    function, _ = basis_function()
++    a = {"t": times, "funding_records": fx.funding_records(times, [0, 0, 0, 0])}
++    assert np.isnan(function(pd.DataFrame([row]), np.zeros(4), a)[0])
++    row["_add_t"] = times[2]
++    a["funding_records"] = fx.funding_records(times[[0, 2, 3]], [0, 0, 0])
++    assert np.isnan(function(pd.DataFrame([row]), np.zeros(4), a)[0])
++
++
++def test_payout_on_add_timestamp_uses_documented_entry_exclusive_cutoff():
++    times = np.array([0, 8, 16, 24]) * H
++    row = {"_i0": 0, "_i1": 3, "_add_t": times[2], "сторона": 1, "вес": 1.0,
++           "цена входа": 100, "цена выхода": 98, "добор": 1.0, "цена добора": 99}
++    function, unit = basis_function()
++    fm = np.array([0.0, 0.0, 1.0, 1.0])
++    a = {"t": times, "funding_records": fx.funding_records(times, [0, 0, 1, 0])}
++    expected_cash, weights = unit(fm, [(0, 3, 100, 98, 1, "x", "x", .5), (2, 3, 99, 98, 1, "x", "x", .5)])
++    assert function(pd.DataFrame([row]), fm, a)[0] == pytest.approx(float(expected_cash @ weights))
++
++
++@pytest.mark.parametrize("side", [-1, 1])
++def test_engine_intrabar_add_includes_hour_end_payment_but_entry_does_not(side):
++    times = np.arange(25) * H
++    row = {"_i0": 0, "_i1": 24, "_add_t": times[16], "_add_before_close": True,
++           "сторона": side, "вес": 1.0, "цена входа": 100, "цена выхода": 98,
++           "добор": 1.0, "цена добора": 99}
++    function, unit = basis_function()
++    # Funding at original entry time is excluded. Funding at add-hour close
++    # belongs to both legs, because the standing add filled before that close.
++    fm = np.where(times < times[16], 1.0, 2.0)
++    a = {"t": times, "funding_records": fx.funding_records(np.array([0, 8, 16, 24]) * H, [1, 0, 1, 0])}
++    cash, weights = unit(fm, [(0, 24, 100, 98, side, "x", "x", .5), (15, 24, 99, 98, side, "x", "x", .5)])
++    assert function(pd.DataFrame([row]), fm, a)[0] == pytest.approx(float(cash @ weights))
++
++
++def test_trade_table_persists_add_clock_and_coverage():
++    times = np.array([0, 8, 16, 24]) * H
++    a = {"t": times}
++    pos = {"entry_i": 0, "entry_t": 0, "entry": 100, "w": 1, "add_done": True,
++           "add_t": int(times[2]), "add_px": 99}
++    ex = {"kind": "выход", "i": 3, "t": int(times[3]), "side": -1, "tag": "под синей",
++          "pos": pos, "px": 98, "why": "test", "res": 1}
++    mock_fx = SimpleNamespace(prepare=lambda *args: {"_funding_coverage_24h": np.array([True, False, False, False])},
++                              path=lambda *args, **kwargs: {}, history=lambda *args: {}, row=lambda *args: {})
++    build = exact("research/chart_walk_20261105/trade_table.py", "build", {
++        "np": np, "pd": pd, "fx": mock_fx, "LIVE_KEYS": set(),
++        "fe": SimpleNamespace(ext_prepare=lambda *args: {}),
++        "en": SimpleNamespace(MAIN=en.MAIN, simulate=lambda *args: ([ex], None), simulate432=lambda *args: ([], None, {})),
++        "intervals": lambda *args: [], "side_at": lambda *args: 0,
++        "utc": lambda value: datetime.fromtimestamp(int(value), timezone.utc).strftime("%Y-%m-%d %H:%M")})
++    table = build("Binance", a, None, None)
++    assert table.loc[0, "_add_t"] == times[2]
++    assert table.loc[0, "_add_i"] == 2
++    assert table.loc[0, "добор UTC"] == "1970-01-01 16:00"
++    assert bool(table.loc[0, "_add_before_close"])
++    assert bool(table.loc[0, "_funding_coverage_24h"])
++
+--- /dev/null
++++ b/tests/research_tools/test_btc_path_repair.py
+@@ -0,0 +1,138 @@
++"""Acceptance: target-exit boundaries, OHLC bounds, minute continuity, label safety."""
++from __future__ import annotations
++
++import numpy as np
++import pytest
++
++from services.btc_signals import features as fx
++from services.btc_signals.excursions import PATH_BOUND_FIELDS
++from research.chart_walk_20261105 import trade_scan
++
++
++def hours(high=(100, 110), low=(100, 80), op=(100, 100), close=(100, 100), atr=1):
++    n = len(close)
++    return {"t": np.arange(n) * 3600, "o": np.array(op, float), "h": np.array(high, float),
++            "l": np.array(low, float), "c": np.array(close, float), "atr4": np.full(n, atr, float)}
++
++
++def tape(ts, op, high, low, close):
++    return {"t": np.array(ts), "o": np.array(op), "h": np.array(high), "l": np.array(low), "c": np.array(close)}
++
++
++def test_hour_target_caps_favorable_extreme_and_marks_unknown_adverse():
++    result = fx.path(hours(), 0, 1, -1, 100, 95, exit_mode="target")
++    assert result["MFE, ATR"] == result["MFE lower, ATR"] == result["MFE upper, ATR"] == 5
++    assert result["отдача, ATR"] == 0
++    assert result["MAE lower, ATR"] == 0 and result["MAE upper, ATR"] == 10
++    assert result["MAE, ATR"] is None and result["MAE, %"] is None
++    assert result["сначала +1 ATR или −1 ATR"] is None
++    assert result["качество пути"] == "ambiguous"
++
++
++@pytest.mark.parametrize("side,price", [(-1, 94), (1, 106)])
++def test_open_gap_excludes_the_entire_exit_bar_extremes(side, price):
++    a = hours(op=(100, price))
++    result = fx.path(a, 0, 1, side, 100, price, exit_mode="target")
++    assert result["MFE, ATR"] == 6
++    assert result["MAE, ATR"] == result["MAE upper, ATR"] == result["MAE lower, ATR"] == 0
++    assert result["разрешение выхода"] == "open"
++    assert result["качество пути"] == "exact"
++    assert result["часов до MFE"] == 0
++    assert result["часов до MFE lower"] == result["часов до MFE upper"] == 0
++
++
++def test_close_exit_keeps_complete_hourly_extrema_but_not_invented_order():
++    result = fx.path(hours(), 0, 1, -1, 100, 95)
++    assert result["MFE, ATR"] == 20 and result["MAE, ATR"] == 10
++    assert result["отдача, ATR"] == 15
++    assert result["сначала +1 ATR или −1 ATR"] is None
++    assert result["качество порядка ±1 ATR"] == "ambiguous"
++    assert result["часов до MFE"] == result["часов до MFE upper"] == 1
++    assert result["часов до MFE lower"] == 0
++    assert result["семантика времени экстремумов"] == "bar_upper_bound_not_tick_time"
++
++
++def test_target_preserves_extremes_from_completed_prior_hours():
++    a = hours(high=(100, 113, 110), low=(100, 96, 80), op=(100, 100, 100), close=(100, 100, 100))
++    result = fx.path(a, 0, 2, -1, 100, 95, exit_mode="target")
++    assert result["MFE, ATR"] == 5
++    assert result["MAE lower, ATR"] == result["MAE upper, ATR"] == result["MAE, ATR"] == 13
++
++
++def test_target_adverse_lower_bound_includes_known_hour_open():
++    a = hours(op=(100, 103))
++    result = fx.path(a, 0, 1, -1, 100, 95, exit_mode="target")
++    assert result["MAE lower, ATR"] == 3 and result["MAE upper, ATR"] == 10
++    assert result["MAE, ATR"] is None
++
++
++def test_minute_tape_stops_at_first_hit_and_bounds_touching_minute_only():
++    a = hours(high=(100, 120), low=(100, 70))
++    minute = tape([0, 60, 120], [100, 99.5, 95], [100.2, 100.5, 120], [99, 94, 70], [99.5, 95, 100])
++    result = fx.path(a, 0, 1, -1, 100, 95, exit_mode="target", execution=minute)
++    assert result["MFE, ATR"] == 5 and result["отдача, ATR"] == 0
++    assert result["MAE lower, ATR"] == pytest.approx(.2)
++    assert result["MAE upper, ATR"] == pytest.approx(.5)
++    assert result["MAE, ATR"] is None
++    assert result["разрешение выхода"] == "minute"
++    assert result["причина качества пути"] == "minute_touch_bounds"
++    assert result["сначала +1 ATR или −1 ATR"] == 1
++    assert result["часов до MFE lower"] == pytest.approx(1 / 60)
++    assert result["часов до MFE upper"] == pytest.approx(2 / 60)
++    assert result["часов до MFE"] == result["часов до MFE upper"]
++    assert result["часов до MAE lower"] is None
++
++
++def test_completed_prior_minute_can_make_adverse_excursion_exact():
++    minute = tape([0, 60, 120], [100, 99.5, 95], [103, 102, 120], [99, 94, 70], [99.5, 95, 100])
++    result = fx.path(hours(high=(100, 120), low=(100, 70), atr=2), 0, 1, -1, 100, 95,
++                     exit_mode="target", execution=minute)
++    assert result["MFE, ATR"] == 2.5
++    assert result["MAE, ATR"] == result["MAE lower, ATR"] == result["MAE upper, ATR"] == 1.5
++    assert result["сначала +1 ATR или −1 ATR"] == -1
++    assert result["качество пути"] == "exact"
++
++
++def test_missing_minute_before_hit_falls_back_to_hourly_bounds():
++    minute = tape([0, 120], [100, 99.5], [100.2, 100.5], [99, 94], [99.5, 95])
++    result = fx.path(hours(), 0, 1, -1, 100, 95, exit_mode="target", execution=minute)
++    assert result["разрешение выхода"] == "hour"
++    assert result["причина качества пути"] == "minute_gap_before_execution"
++    assert result["MAE upper, ATR"] == 10 and result["MAE, ATR"] is None
++
++
++def test_gaps_and_extremes_after_execution_cannot_change_the_path():
++    before = tape([0], [100], [100.2], [94], [95])
++    after = tape([0, 360, 900], [100, 95, 100], [100.2, 900, 1000], [94, 1, .1], [95, 100, 100])
++    a = hours(high=(100, 1000), low=(100, .1))
++    result = fx.path(a, 0, 1, -1, 100, 95, exit_mode="target", execution=before)
++    assert result == fx.path(a, 0, 1, -1, 100, 95, exit_mode="target", execution=after)
++
++
++def test_sequence_from_different_complete_bars_is_known():
++    a = hours(high=(100, 100.1, 102), low=(100, 98, 99), op=(100, 100, 100), close=(100, 100, 100))
++    result = fx.path(a, 0, 2, -1, 100, 100)
++    assert result["сначала +1 ATR или −1 ATR"] == 1
++    assert result["качество порядка ±1 ATR"] == "exact"
++
++
++def test_no_threshold_hit_remains_zero():
++    result = fx.path(hours(high=(100, 100.1), low=(100, 99.9)), 0, 1, 1, 100, 100)
++    assert result["сначала +1 ATR или −1 ATR"] == 0
++
++
++def test_new_path_bounds_and_quality_are_never_model_inputs():
++    assert PATH_BOUND_FIELDS <= trade_scan.OUTCOME
++    assert "добор UTC" in trade_scan.OUTCOME
++
++
++def test_capped_horizon_uses_actual_clock_and_missing_exact_hour_is_unknown():
++    a = hours(high=(100, 100, 102, 103), low=(100, 100, 100, 100),
++              op=(100, 100, 100, 100), close=(100, 100, 102, 103))
++    a["t"] = np.array([0, 1, 25, 26]) * 3600
++    result = fx.path(a, 0, 3, 1, 100, 103)
++    assert result["часов в сделке"] == 26
++    assert result["ход через 24ч, %"] is None
++    assert result["ход через 72ч, %"] == pytest.approx(3)
++    assert result["ход через 7д, %"] == pytest.approx(3)
++

@@ -56,11 +56,18 @@ def build(name, a, lay, h4f):
         for e in [x for x in E if x["kind"] == "выход"]:
             p = e["pos"]
             i0, i1, s = p["entry_i"], e["i"], e["side"]
+            add_t = p.get("add_t") if p["add_done"] and e["tag"] in en.MAIN else None
+            add_i = int(np.searchsorted(a["t"], add_t)) if add_t is not None else None
+            if add_i is not None and (add_i >= len(a["t"]) or a["t"][add_i] != add_t):
+                add_i = None
             r = {"ряд": name, "стратегия": strat, "тип": f"{'лонг' if s == 1 else 'шорт'} {e['tag']}", "сторона": s, "вход UTC": utc(p["entry_t"]), "выход UTC": utc(e["t"]),
                  "цена входа": p["entry"], "цена выхода": e["px"], "вес": p["w"], "добор": float(bool(p["add_done"]) and e["tag"] in en.MAIN),
-                 "цена добора": p["add_px"], "причина выхода": e["why"], "итог, % базы": e["res"], "ход, %": s * (e["px"] / p["entry"] - 1) * 100,
-                 "_i0": i0, "_i1": i1, "_t0": p["entry_t"], "_t1": e["t"]}
-            r.update(fx.path(a, i0, i1, s, p["entry"], e["px"]))
+                 "цена добора": p["add_px"], "добор UTC": utc(add_t) if add_t is not None else None,
+                 "причина выхода": e["why"], "итог, % базы": e["res"], "ход, %": s * (e["px"] / p["entry"] - 1) * 100,
+                 "_i0": i0, "_i1": i1, "_t0": p["entry_t"], "_t1": e["t"], "_add_t": add_t, "_add_i": add_i,
+                 "_add_before_close": bool(add_t is not None)}
+            r.update(fx.path(a, i0, i1, s, p["entry"], e["px"], exit_mode="target" if e["why"].startswith("цель") else "close"))
+            r.update({k: bool(v[i0]) for k, v in P.items() if k.startswith("_funding_coverage_")})
             r.update(fx.history(prev, p["entry_t"], s))
             r["432 в позиции"] = float(side_at(iv_432, i0) != 0) if strat == "система" else None
             r["система в позиции"] = float(side_at(iv_sys, i0)) if strat == "432" else None
@@ -199,7 +206,7 @@ BASIC = {"ряд": "Binance (BTCUSDT спот 2018–26) или Bitstamp (BTCUSD
          "тип": "Сторона и вид входа: лонг над синей, шорт под синей, шорт под жёлтой, лонг 432.", "сторона": "+1 лонг, −1 шорт.",
          "вход UTC": "Время закрытия свечи входа, UTC.", "выход UTC": "Время закрытия свечи выхода, UTC.", "цена входа": "Закрытие 4ч на входе.",
          "цена выхода": "Цена выхода: закрытие 4ч по правилу или уровень цели.", "вес": "Вес позиции (вес системы на входе; у 432 — 1).",
-         "добор": "1 — добор взят.", "цена добора": "Цена добора (вход ± 2 ATR 4ч).", "причина выхода": "Почему закрыта.",
+         "добор": "1 — добор взят.", "цена добора": "Цена добора (вход ± 2 ATR 4ч).", "добор UTC": "Записанное время добора (закрытие часа исполнения; точная последовательность выплаты внутри часа требует отдельного replay).", "причина выхода": "Почему закрыта.",
          "ход, %": "Ход цены от входа до выхода в сторону сделки, без веса и издержек.", "часов в сделке": "Часов от входа до выхода.",
          "часов после прошлой": "Часов после закрытия прошлой сделки этой стратегии."}
 

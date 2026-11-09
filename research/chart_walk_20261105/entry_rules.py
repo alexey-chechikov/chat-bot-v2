@@ -28,13 +28,19 @@ Leg = namedtuple("Leg", "i0 i1 p0 p1 s")
 LIM5D = 120
 
 
-def prep(h1, h4, d1, fund):
+def prep(h1, h4, d1, fund, funding_interval_s=8 * 3600):
+    from services.btc_signals.features import funding_records
+
     h4 = jr.add_extra(h4.copy(), d1, fund)
     a = rules.prepare(h1, h4)
     t = a["t"]
-    f = np.zeros(len(t))
-    np.add.at(f, np.clip(np.searchsorted(t, fund.index.to_numpy(), side="left"), 0, len(t) - 1), fund.to_numpy())
-    a["F"] = np.cumsum(f) * 100
+    # Keep actual observations (including zero rates), never future payouts.
+    observed = funding_records(fund.index.to_numpy(), fund.to_numpy() * 100, funding_interval_s)
+    keep = observed["times"] <= t[-1] if len(t) else np.zeros(len(observed["times"]), bool)
+    observed["times"], observed["rates_pct"] = observed["times"][keep], observed["rates_pct"][keep]
+    a["funding_records"] = observed
+    cumulative = np.r_[0.0, np.cumsum(observed["rates_pct"])]
+    a["F"] = cumulative[np.searchsorted(observed["times"], t, side="right")]
     a["atr4"] = h4["atr"].to_numpy()[a["j"]]
     a["R1"], a["B1h"], a["run_B1"] = h1["R"].to_numpy(), h1["B"].to_numpy(), h1["run_B"].to_numpy()
     a["i0"] = int(np.searchsorted(t, cw.T("2018-01-01")))

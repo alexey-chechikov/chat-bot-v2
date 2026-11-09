@@ -1,0 +1,24 @@
+{
+  "commit": "762ec6f8124cb499a7104fd74544887190d04acb",
+  "source": "C:\\bot7\\tmp\\btc-features-audit-20261109\\research\\chart_walk_20261105\\out\\trade_table_btc.csv",
+  "features": [
+    "ADX4h",
+    "efficiency24h",
+    "crossings_GY_30d",
+    "ATR4h_pct",
+    "signed_distance_green_ATR",
+    "signed_green_slope24h_ATR",
+    "signed_RSI4h_minus50",
+    "signed_move7d_pct"
+  ],
+  "model": "pooled L2 LogisticRegression C=0.1, no interactions, no class_weight",
+  "target": "net_without_funding <= type-specific 20th percentile of Binance 2018-22 outcomes",
+  "preprocessing": "feature 1/99 pct clipping, median imputation, standardization: TRAIN ONLY",
+  "split": "train Binance entry<2023-01-01 and exit<2023-01-01; test Binance entry>=2023-01-01",
+  "entry_policy": "skip score >= type-specific train-score q80, frozen once",
+  "bins": "type-specific train-score q20/q40/q60/q80, frozen once",
+  "external": "Bitstamp 2014-17 backcast: descriptive transport check, not forward validation",
+  "flow": "spot flow24h and price-vs-CVD72h in case descriptors only; no flow model fitted",
+  "no_sweep": true,
+  "path_features_used": false
+}

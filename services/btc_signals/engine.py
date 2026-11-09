@@ -59,7 +59,9 @@ def simulate(a: dict, lay: tuple, n: int | None = None, lx_blue: bool = False) -
                 close_now, x_px, why = True, float(c[i]), "отмена: 2 закрытия 4ч над жёлтой"
             elif pos["tag"] == "под синей" and rG >= K4:
                 close_now, x_px, why = True, float(c[i]), "2 закрытия 4ч над зелёной"
-        if pos and pos["tag"] in MAIN and not close_now and not pos["add_done"]:
+        # The add-stop was already active during this hour. A decision made at
+        # the hour's close cannot retroactively cancel an earlier stop fill.
+        if pos and pos["tag"] in MAIN and not pos["add_done"]:
             lv = pos["add_lv"]
             if (pos["side"] == 1 and h[i] >= lv) or (pos["side"] == -1 and l[i] <= lv):
                 pos["add_done"] = True

@@ -22,6 +22,11 @@ LATE_FROM = 1546300800  # 2019-01-01: признаки, у которых ист
 OUTCOME = {"в лучших 20%", "ряд", "стратегия", "тип", "сторона", "вход UTC", "выход UTC", "цена входа", "цена выхода", "вес", "добор", "цена добора", "причина выхода", "итог, % базы", "ход, %",
            "MFE, %", "MAE, %", "MFE, ATR", "MAE, ATR", "часов до MFE", "часов до MAE", "отдача, ATR", "отдача, доля MFE", "сначала +1 ATR или −1 ATR", "часов в сделке",
            "ход через 24ч, %", "ход через 72ч, %", "ход через 7д, %", "фаза", "порядок линий"}
+OUTCOME.update({"добор UTC", "MFE lower, ATR", "MFE upper, ATR", "MAE lower, ATR", "MAE upper, ATR",
+                "MFE lower, %", "MFE upper, %", "MAE lower, %", "MAE upper, %",
+                "качество пути", "разрешение выхода", "причина качества пути", "качество порядка ±1 ATR"})
+OUTCOME.update({"часов до MFE lower", "часов до MFE upper", "часов до MAE lower", "часов до MAE upper",
+                "семантика времени экстремумов"})
 pd.set_option("display.width", 260, "display.max_columns", 30, "display.max_rows", 400, "display.max_colwidth", 46)
 
 

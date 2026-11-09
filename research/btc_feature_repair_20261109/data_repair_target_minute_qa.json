@@ -1,0 +1,17 @@
+{
+  "target_hour_ohlc_checks": 39,
+  "mismatch_counts": {
+    "open": 0,
+    "high": 0,
+    "low": 0,
+    "close": 0,
+    "volume": 0
+  },
+  "max_abs_differences": {
+    "open": 0.0,
+    "high": 0.0,
+    "low": 0.0,
+    "close": 0.0,
+    "volume": 2.2737367544323206e-13
+  }
+}

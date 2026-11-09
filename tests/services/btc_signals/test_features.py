@@ -30,6 +30,7 @@ def rich(n=24 * 260, seed=3):
          "order": np.zeros(n), "f_width_rank": np.full(n, 0.5), "er24": np.full(n, 0.3), "f_adx": np.full(n, 20.0),
          "x_hi30": np.maximum.accumulate(h), "x_lo30": np.minimum.accumulate(l), "flat": np.zeros(n), "phase": np.array(["рост"] * n, object),
          "F": np.cumsum(np.full(n, 0.001)), "run_B1": np.zeros(n), "run_R": np.zeros(n), "f_run_G_prev": np.zeros(n)}
+    a["funding_records"] = fx.funding_records(t, np.full(n, 0.001), expected_interval_s=3600)
     for k in "GYRB":
         a[f"f_run_{k}"] = np.sign(a["f_close"] - a[f"f_{k}"])
     a["st"] = np.zeros((n, 15))

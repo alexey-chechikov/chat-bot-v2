@@ -105,6 +105,67 @@ def align(a: dict, win: int = 24) -> tuple[np.ndarray, np.ndarray]:
     return st, last
 
 
+def funding_records(times, rates_pct, expected_interval_s: int = 8 * 3600) -> dict:
+    """Explicit observed payouts, in seconds and percentage points.
+
+    A zero rate remains an observation. The expected payout interval is a source
+    contract (8h for this BTCUSDT dataset), not inferred from changes in a cash
+    accumulator. Callers with a different schedule must supply it explicitly.
+    """
+    if not np.isfinite(expected_interval_s) or expected_interval_s <= 0:
+        raise ValueError("expected funding interval must be positive")
+    ts, rates = np.asarray(times, float), np.asarray(rates_pct, float)
+    if ts.ndim != 1 or rates.ndim != 1 or len(ts) != len(rates):
+        raise ValueError("funding timestamps/rates must be equal-length vectors")
+    valid_time = np.isfinite(ts)
+    ts, rates = ts[valid_time], rates[valid_time]
+    order = np.argsort(ts, kind="stable")
+    ts, rates = ts[order], rates[order]
+    if len(ts):
+        # Last source record wins, including an explicit invalid/retracted rate.
+        last = np.r_[ts[1:] != ts[:-1], True]
+        ts, rates = ts[last], rates[last]
+    observed = np.isfinite(rates)
+    return {"times": ts[observed], "rates_pct": rates[observed],
+            "expected_interval_s": float(expected_interval_s)}
+
+
+def funding_window(records: dict | None, t, window_s) -> tuple[np.ndarray, np.ndarray]:
+    """Payout sum in (t-window, t], plus complete source coverage.
+
+    Coverage requires an observed payout at/before the left boundary, no missing
+    scheduled payout through the window, and a not-yet-due next payout at t.
+    Before inception, at a missing due payout and across internal gaps: NaN.
+    Missing metadata never makes a zero accumulator an observed zero rate.
+    """
+    query, windows = np.broadcast_arrays(np.asarray(t, float), np.asarray(window_s, float))
+    out = np.full(query.shape, np.nan)
+    covered = np.zeros(query.shape, dtype=bool)
+    empty = np.isfinite(query) & (windows == 0)
+    out[empty], covered[empty] = 0.0, True
+    if not records:
+        return out, covered
+    normalized = funding_records(records.get("times", []), records.get("rates_pct", []),
+                                 records.get("expected_interval_s", 8 * 3600))
+    ts, rates = normalized["times"], normalized["rates_pct"]
+    if not len(ts):
+        return out, covered
+    interval = normalized["expected_interval_s"]
+    left = query - windows
+    before = np.searchsorted(ts, left, side="right") - 1
+    last = np.searchsorted(ts, query, side="right") - 1
+    ib, il = np.clip(before, 0, len(ts) - 1), np.clip(last, 0, len(ts) - 1)
+    bad_gaps = np.r_[0, np.cumsum(np.diff(ts) > interval)]
+    valid = (np.isfinite(query) & np.isfinite(windows) & (windows > 0) &
+             (before >= 0) & (last >= before) &
+             (left - ts[ib] < interval) & (query - ts[il] < interval) &
+             (bad_gaps[il] == bad_gaps[ib]))
+    cumulative = np.r_[0.0, np.cumsum(rates)]
+    sums = cumulative[il + 1] - cumulative[ib + 1]
+    out[valid], covered[valid] = sums[valid], True
+    return out, covered
+
+
 def prepare(a: dict, lay: tuple, h4f=None) -> dict[str, np.ndarray]:
     t = np.asarray(a["t"], np.int64)
     c, h, l = np.asarray(a["c"], float), np.asarray(a["h"], float), np.asarray(a["l"], float)
@@ -219,12 +280,10 @@ def prepare(a: dict, lay: tuple, h4f=None) -> dict[str, np.ndarray]:
         P["пробой 432, ATR"] = m4((b["c"] - x4["hi30"]) / x4["atr"])
         P["от минимума 30 свечей 4ч, ATR"] = m4((b["c"] - x4["lo30"]) / x4["atr"])
         P["от EMA200 4ч, %"] = m4((b["c"] / x4["e200"] - 1) * 100)
-        Fu = np.asarray(a.get("F", np.zeros(n)), float)
-        has_f = np.nanmax(np.abs(Fu)) > 0
-        ch_f = np.flatnonzero(np.diff(Fu) != 0)
-        fresh = np.arange(n) <= (ch_f[-1] + 1 + 24 if len(ch_f) else -1)  # файл фандинга кончился — дальше пусто, не ноль
         for w, nm in ((24, "24ч"), (168, "7д"), (720, "30д")):
-            P[f"фандинг {nm}, %"] = np.where(fresh, Fu - lag(Fu, w), np.nan) if has_f else np.full(n, np.nan)
+            values, coverage = funding_window(a.get("funding_records"), t, w * 3600)
+            P[f"фандинг {nm}, %"] = values
+            P[f"_funding_coverage_{w}h"] = coverage
         if h4f is not None and "vol_vs30" in h4f:
             j = np.asarray(a["j"], int)
             P["объём сутки к медиане 30д"] = h4f["vol_vs30"].to_numpy(float)[j]
@@ -270,34 +329,12 @@ def history(prev: list[tuple[int, int, int, float]], t_entry: int, side: int) ->
             "итог 30д, % базы": float(sum(x[3] for x in m30))}
 
 
-def path(a: dict, i0: int, i1: int, side: int, entry: float, exit_px: float) -> dict:
-    """Путь сделки после часа входа по час выхода включительно: MFE/MAE в % и ATR 4ч входа, когда, отдача, что было раньше."""
-    atr = float(a["atr4"][i0])
-    h, l, c = a["h"][i0 + 1:i1 + 1], a["l"][i0 + 1:i1 + 1], a["c"]
-    fav = (h - entry) if side == 1 else (entry - l)
-    adv = (entry - l) if side == 1 else (h - entry)
-    if len(h):
-        k_f, k_a = int(np.argmax(fav)), int(np.argmax(adv))
-        mfe, mae = max(float(fav[k_f]), 0.0), max(float(adv[k_a]), 0.0)
-        hit_f = np.flatnonzero(fav >= atr)
-        hit_a = np.flatnonzero(adv >= atr)
-        f1 = hit_f[0] if len(hit_f) else 10 ** 9
-        a1 = hit_a[0] if len(hit_a) else 10 ** 9
-        first = 1.0 if f1 < a1 else (-1.0 if a1 < f1 else (0.0 if f1 == 10 ** 9 else 0.5))
-    else:
-        k_f = k_a = 0
-        mfe = mae = 0.0
-        first = 0.0
-    fin = side * (exit_px - entry)
-    out = {"MFE, %": mfe / entry * 100, "MAE, %": mae / entry * 100, "MFE, ATR": mfe / atr, "MAE, ATR": mae / atr,
-           "часов до MFE": float(k_f + 1) if len(h) else 0.0, "часов до MAE": float(k_a + 1) if len(h) else 0.0,
-           "отдача, ATR": (mfe - fin) / atr, "отдача, доля MFE": (mfe - fin) / mfe if mfe > 0 else None,
-           "сначала +1 ATR или −1 ATR": first, "часов в сделке": float(i1 - i0)}
-    for w, nm in ((24, "24ч"), (72, "72ч"), (168, "7д")):
-        j = min(i0 + w, i1)
-        px = exit_px if j == i1 else float(c[j])
-        out[f"ход через {nm}, %"] = side * (px / entry - 1) * 100
-    return out
+def path(a: dict, i0: int, i1: int, side: int, entry: float, exit_px: float,
+         *, exit_mode: str = "close", execution: dict | None = None) -> dict:
+    """Execution-bounded path; target exits expose intrabar uncertainty."""
+    from services.btc_signals.excursions import trade_path
+
+    return trade_path(a, i0, i1, side, entry, exit_px, exit_mode=exit_mode, execution=execution)
 
 
 # ---------- балл M2 (flat_1109b): только тень ----------

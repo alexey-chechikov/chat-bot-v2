@@ -1,0 +1,475 @@
+{
+  "created_at": "2026-11-09T12:24:33.816258+00:00",
+  "purpose": "one-off original BTC audit supplement; no trading/collector",
+  "original_commit": "762ec6f8124cb499a7104fd74544887190d04acb",
+  "target_trade_count": 39,
+  "target_exit_hours": 39,
+  "minute_hours_available": 39,
+  "minute_rows": 2340,
+  "local_target_hours": 15,
+  "hour_tail_rows": 36,
+  "funding_tail_rows": 5,
+  "local_sources": [
+    {
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv",
+      "sha256": "2b67d423eb121e12a2b0299baa5e0fc110810e2fdff164b097e7199c0fe50c10"
+    },
+    {
+      "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1m_2y.csv",
+      "sha256": "16292382a67b7178cf2e9cde12d52c568037bc41fdf30a90bcff5edc3a1e1615"
+    }
+  ],
+  "target_hours": [
+    {
+      "hour_open_ms": 1536163200000,
+      "source_id": "spot_1m_20180905T1600Z"
+    },
+    {
+      "hour_open_ms": 1551297600000,
+      "source_id": "spot_1m_20190227T2000Z"
+    },
+    {
+      "hour_open_ms": 1552572000000,
+      "source_id": "spot_1m_20190314T1400Z"
+    },
+    {
+      "hour_open_ms": 1553536800000,
+      "source_id": "spot_1m_20190325T1800Z"
+    },
+    {
+      "hour_open_ms": 1559674800000,
+      "source_id": "spot_1m_20190604T1900Z"
+    },
+    {
+      "hour_open_ms": 1563094800000,
+      "source_id": "spot_1m_20190714T0900Z"
+    },
+    {
+      "hour_open_ms": 1582214400000,
+      "source_id": "spot_1m_20200220T1600Z"
+    },
+    {
+      "hour_open_ms": 1582567200000,
+      "source_id": "spot_1m_20200224T1800Z"
+    },
+    {
+      "hour_open_ms": 1582606800000,
+      "source_id": "spot_1m_20200225T0500Z"
+    },
+    {
+      "hour_open_ms": 1590336000000,
+      "source_id": "spot_1m_20200524T1600Z"
+    },
+    {
+      "hour_open_ms": 1598371200000,
+      "source_id": "spot_1m_20200825T1600Z"
+    },
+    {
+      "hour_open_ms": 1607680800000,
+      "source_id": "spot_1m_20201211T1000Z"
+    },
+    {
+      "hour_open_ms": 1611223200000,
+      "source_id": "spot_1m_20210121T1000Z"
+    },
+    {
+      "hour_open_ms": 1617796800000,
+      "source_id": "spot_1m_20210407T1200Z"
+    },
+    {
+      "hour_open_ms": 1637024400000,
+      "source_id": "spot_1m_20211116T0100Z"
+    },
+    {
+      "hour_open_ms": 1660089600000,
+      "source_id": "spot_1m_20220810T0000Z"
+    },
+    {
+      "hour_open_ms": 1660741200000,
+      "source_id": "spot_1m_20220817T1300Z"
+    },
+    {
+      "hour_open_ms": 1677254400000,
+      "source_id": "spot_1m_20230224T1600Z"
+    },
+    {
+      "hour_open_ms": 1677805200000,
+      "source_id": "spot_1m_20230303T0100Z"
+    },
+    {
+      "hour_open_ms": 1682006400000,
+      "source_id": "spot_1m_20230420T1600Z"
+    },
+    {
+      "hour_open_ms": 1682942400000,
+      "source_id": "spot_1m_20230501T1200Z"
+    },
+    {
+      "hour_open_ms": 1689616800000,
+      "source_id": "spot_1m_20230717T1800Z"
+    },
+    {
+      "hour_open_ms": 1703869200000,
+      "source_id": "spot_1m_20231229T1700Z"
+    },
+    {
+      "hour_open_ms": 1711112400000,
+      "minute_rows": 60,
+      "source_id": "local_spot_frozen",
+      "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1m_2y.csv"
+    },
+    {
+      "hour_open_ms": 1712048400000,
+      "minute_rows": 60,
+      "source_id": "local_spot_frozen",
+      "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1m_2y.csv"
+    },
+    {
+      "hour_open_ms": 1712318400000,
+      "minute_rows": 60,
+      "source_id": "local_spot_frozen",
+      "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1m_2y.csv"
+    },
+    {
+      "hour_open_ms": 1718071200000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1728370800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1730754000000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1734634800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1738440000000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1749139200000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1749772800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1754002800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1755270000000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1778914800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1789480800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1791460800000,
+      "minute_rows": 60,
+      "source_id": "local_spot_reconstructed",
+      "path": "C:\\bot7\\research\\weex_regime_review_20261011\\data\\BTCUSDT_1m_reconstructed.csv"
+    },
+    {
+      "hour_open_ms": 1791842400000,
+      "source_id": "spot_1m_20261012T2200Z"
+    }
+  ],
+  "requests": [
+    {
+      "id": "spot_1m_20180905T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1536163200000&endTime=1536166799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:27.735457+00:00",
+      "http_status": 200,
+      "sha256": "d0d6b8349a7c5e858dd703131779c7392c3b8c595fc99e7d47ec0ce358fff987",
+      "bytes": 9956,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20190227T2000Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1551297600000&endTime=1551301199999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:27.704496+00:00",
+      "http_status": 200,
+      "sha256": "9bfa7960dd1a8dc3e09b5749065d4a392886835763beda43a6b68b4b839f1d4a",
+      "bytes": 9855,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20190314T1400Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1552572000000&endTime=1552575599999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:27.719808+00:00",
+      "http_status": 200,
+      "sha256": "c8ce26c992124eb071c79fb1f5da9c31ae1c0e749d3f9d7a3dc4b98c18c2ef35",
+      "bytes": 9980,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20190325T1800Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1553536800000&endTime=1553540399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:27.723541+00:00",
+      "http_status": 200,
+      "sha256": "663e7fb4844e04b683c38b2196274f09692fa6e1f1f482fb08d7a1f5b9f1fd24",
+      "bytes": 9895,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20190604T1900Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1559674800000&endTime=1559678399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:28.746795+00:00",
+      "http_status": 200,
+      "sha256": "126a591cfee840480ad95fbd62c28c0ae522d074fd5328cefeb05b3f66b75855",
+      "bytes": 9986,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20190714T0900Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1563094800000&endTime=1563098399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:28.731875+00:00",
+      "http_status": 200,
+      "sha256": "6808de0d70d97c7f5dfa9ebf81cb2cab57df28717b3f0a7bc23a96796493e455",
+      "bytes": 10209,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20200220T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1582214400000&endTime=1582217999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:28.761738+00:00",
+      "http_status": 200,
+      "sha256": "c1f6c335c6cb5238ffb7bb694a23b9674e5465e3720ba7190e4d37f4bb6daee9",
+      "bytes": 10043,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20200224T1800Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1582567200000&endTime=1582570799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:28.761738+00:00",
+      "http_status": 200,
+      "sha256": "fc8a04fc5dafef6d741c8e1fdd8c64dcd80df96fcb4711759d86e860fdd56709",
+      "bytes": 10013,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20200225T0500Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1582606800000&endTime=1582610399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:29.742175+00:00",
+      "http_status": 200,
+      "sha256": "4cdb30b85e0527505895ba363edc117a615333ecada83126ad75a4741889454e",
+      "bytes": 9914,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20200524T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1590336000000&endTime=1590339599999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:29.773173+00:00",
+      "http_status": 200,
+      "sha256": "18e08dfafa4551247e5084cc3b2d02e777438d380d958712d7cfe6e4fa50f4d7",
+      "bytes": 10108,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20200825T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1598371200000&endTime=1598374799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:29.774183+00:00",
+      "http_status": 200,
+      "sha256": "693e0ca6d925dc3c356f9f64ad718d11812e2bbb1bc2043611d3a6d12c0ad820",
+      "bytes": 10225,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20201211T1000Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1607680800000&endTime=1607684399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:30.567557+00:00",
+      "http_status": 200,
+      "sha256": "27fb963ac389d426d404579272a3bedc251b781b67f1886a6999477c8fe8a3d0",
+      "bytes": 10268,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20210121T1000Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1611223200000&endTime=1611226799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:30.747696+00:00",
+      "http_status": 200,
+      "sha256": "5c8823a4c3ece4e056f779767c146874c078862527765b4b2141bdf62cfa255b",
+      "bytes": 10420,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20210407T1200Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1617796800000&endTime=1617800399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:30.814356+00:00",
+      "http_status": 200,
+      "sha256": "f6b75702b30ad7e819b834f3f8322b6bf1b05d91e202255a1c0b7b5ff45ca454",
+      "bytes": 10402,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20211116T0100Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1637024400000&endTime=1637027999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:30.802488+00:00",
+      "http_status": 200,
+      "sha256": "841d26385b5a519c6598e5a9d84609699d5e759cdd364cdad2b6f886c31fafa4",
+      "bytes": 10406,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20220810T0000Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1660089600000&endTime=1660093199999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:31.586339+00:00",
+      "http_status": 200,
+      "sha256": "542012171d2b9228f6d1a67f06c91c2bd850f105c5f70bbb3184a25d7f21b21e",
+      "bytes": 10413,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20220817T1300Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1660741200000&endTime=1660744799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:31.769252+00:00",
+      "http_status": 200,
+      "sha256": "b53d4aa3d626682ba1999ab3cf0cf74236b78e951c9c31cb1ea7302c831b06fd",
+      "bytes": 10501,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20230224T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1677254400000&endTime=1677257999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:31.822155+00:00",
+      "http_status": 200,
+      "sha256": "6f9a0e5763bca7dbfa42611113b6efb6b316f058d08eeb4d0d972281e964ad8d",
+      "bytes": 10623,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20230303T0100Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1677805200000&endTime=1677808799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:31.833349+00:00",
+      "http_status": 200,
+      "sha256": "47dd5e766def56d223e0441ccf5bbaf196228ac1aec3aa7c66ffab81d7b190e5",
+      "bytes": 10599,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20230420T1600Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1682006400000&endTime=1682009999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:32.607644+00:00",
+      "http_status": 200,
+      "sha256": "fe091f415aa4afa56954a014fd03f8ff88de6604268444cb28d76af997d46934",
+      "bytes": 10366,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20230501T1200Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1682942400000&endTime=1682945999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:32.781737+00:00",
+      "http_status": 200,
+      "sha256": "cfa1b9aa34e642415fe836711b26cf73a08640f81fc7e33630761cbbbd1d35bf",
+      "bytes": 10165,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20230717T1800Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1689616800000&endTime=1689620399999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:32.841403+00:00",
+      "http_status": 200,
+      "sha256": "39b428e486a2181409c4d323d1ac51c6d5334604c15bcb79bd2ef8ccfcaa503a",
+      "bytes": 10248,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20231229T1700Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1703869200000&endTime=1703872799999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:32.843462+00:00",
+      "http_status": 200,
+      "sha256": "99dfacd95f38f4056cdcb553682c15ced3e0a6637bf2b8b20bd179aa9aa19251",
+      "bytes": 10336,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1m_20261012T2200Z",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791842400000&endTime=1791845999999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:33.622271+00:00",
+      "http_status": 200,
+      "sha256": "518790c54f1d7ee1167cc3e7b695c64edfbd52daf264da9895d0777d5c5b2efd",
+      "bytes": 10160,
+      "records": 60,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "spot_1h_tail",
+      "url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&startTime=1794009600000&endTime=1794139199999&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:33.795751+00:00",
+      "http_status": 200,
+      "sha256": "8ccdb7b5e981d4a5d2043fc22fed81cb6ea59bcf73933a9f907293747d97824b",
+      "bytes": 6358,
+      "records": 36,
+      "source": "Binance public market data"
+    },
+    {
+      "id": "funding_tail",
+      "url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1793980800001&endTime=1794139200000&limit=1000",
+      "retrieved_at": "2026-11-09T12:24:33.147080+00:00",
+      "http_status": 200,
+      "sha256": "1e4c072bd17b8c2711875994d15dafaba85486d98f799384adc668cbda6c7800",
+      "bytes": 631,
+      "records": 5,
+      "source": "Binance public market data"
+    }
+  ],
+  "errors": [],
+  "ambiguity": "Each 1m bar leaves high/low order unknown; do not report tick-exact execution.",
+  "excluded": "No futures OHLC substitution; no Bitstamp 1m download; no collectors."
+}

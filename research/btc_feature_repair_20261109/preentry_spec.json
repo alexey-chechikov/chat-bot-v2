@@ -1,0 +1,34 @@
+{
+  "fixed_before_run_at": "2026-11-09T12:39:30.800759+00:00",
+  "spec": {
+    "axes": [
+      "signed_move12h_ATR",
+      "signed_acceleration4h_ATR",
+      "pullback24h_ATR",
+      "signed_green_distance_change12h_ATR",
+      "ER24_change12h",
+      "volume4h_relative30d",
+      "signed_taker_fraction4h",
+      "signed_taker_fraction4h_minus24h"
+    ],
+    "comparisons": 32,
+    "new_model_or_policy": false,
+    "target": "original CSV net_without_funding <= per-type train q20",
+    "train": "Binance entry<2023-01-01 AND exit<2023-01-01; only mature labels",
+    "test": "Binance entry>=2023-01-01; direction and ranking frozen from train",
+    "orientation": "risk higher if train raw AUC>=0.5; otherwise lower; no test flip",
+    "coverage": "exact UTC endpoints; ER24 all25 closes, high/low/flow full 4/24 hourly observations; volume baseline >=648/720 prior rolling4h observations",
+    "volume_baseline": "median of past 720 rolling4h volumes, current observation excluded",
+    "delta_definition": "delta_k = sum(2*taker_base-volume,k hours)/sum(volume,k hours)",
+    "CI": "999 resamples of active entry-month clusters, exploratory 95% percentile intervals; >=25 finite observations and both classes",
+    "case_pair_rows": [
+      0,
+      1,
+      2,
+      4,
+      6
+    ],
+    "prefix_check": "recompute raw/green input prefix at five selected case entries",
+    "novelty_limit": "Working specification fixed before this run; original outcomes and existing matched pairs were already inspected. Not an untouched holdout or historical preregistration."
+  }
+}

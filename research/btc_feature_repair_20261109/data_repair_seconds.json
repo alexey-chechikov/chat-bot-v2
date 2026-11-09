@@ -1,0 +1,32 @@
+[
+  {
+    "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1s_2y.csv",
+    "sha256": "4efa48555a4e9f322efeec851da43c3f3b6214cb8d8f4132759e88799a65217d",
+    "rows": 31536000,
+    "first_utc": "2025-05-01T00:00:00+00:00",
+    "last_utc": "2026-04-30T23:59:59+00:00",
+    "timestamp_unit": "ms",
+    "step_seconds": 1,
+    "duplicate_adjacent_ts": 0,
+    "negative_intervals": 0,
+    "gap_count": 0,
+    "missing_seconds": 0,
+    "max_gap_ms": 1000,
+    "off_grid": 0
+  },
+  {
+    "path": "C:\\bot7\\backtests\\frozen\\BTCUSDT_1s_30d_backup.csv",
+    "sha256": "1eabc5c7a30dc6399f31688a0451fbbaf8bea1ba4413110d88ac38eeff413f6d",
+    "rows": 2592000,
+    "first_utc": "2026-04-02T08:00:00+00:00",
+    "last_utc": "2026-05-02T07:59:59+00:00",
+    "timestamp_unit": "ms",
+    "step_seconds": 1,
+    "duplicate_adjacent_ts": 0,
+    "negative_intervals": 0,
+    "gap_count": 0,
+    "missing_seconds": 0,
+    "max_gap_ms": 1000,
+    "off_grid": 0
+  }
+]

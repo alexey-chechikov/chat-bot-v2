@@ -1,0 +1,155 @@
+{
+  "matched_trades": 973,
+  "affected_trades": 345,
+  "actual_data_or_clock_affected": 250,
+  "basis_counterfactual_only": 95,
+  "reasons": {
+    "availability:фандинг 24ч, %": 122,
+    "availability:фандинг 7д, %": 134,
+    "availability:фандинг 30д, %": 165,
+    "path:часов в сделке": 13,
+    "path:MFE, ATR": 65,
+    "path:отдача, ATR": 65,
+    "path:сначала +1 ATR или −1 ATR": 10,
+    "path:ход через 24ч, %": 2,
+    "path:ход через 72ч, %": 3,
+    "basis_add_funding_start": 118,
+    "path:MAE, ATR": 7,
+    "funding_event_clock": 21,
+    "path:ход через 7д, %": 2
+  },
+  "totals": [
+    {
+      "venue": "Binance",
+      "type": "лонг 432",
+      "n": 116,
+      "affected": 31,
+      "old_replayed_net_no_funding": 326.32168991944405,
+      "corrected_net_no_funding": 326.32168991944405,
+      "old_recorded_clock_net_funding_proxy": 307.14004925123606,
+      "corrected_net_observed_funding_proxy": 307.14004925123606,
+      "delta_funding_clock_proxy": 0.0,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 93
+    },
+    {
+      "venue": "Binance",
+      "type": "лонг над синей",
+      "n": 218,
+      "affected": 112,
+      "old_replayed_net_no_funding": 406.80919062547235,
+      "corrected_net_no_funding": 406.80919062547235,
+      "old_recorded_clock_net_funding_proxy": 366.8343502171859,
+      "corrected_net_observed_funding_proxy": 366.80978211603747,
+      "delta_funding_clock_proxy": -0.024568101148373267,
+      "basis_bug_correction_proxy": 0.9529768852578469,
+      "strict_funding_n": 183
+    },
+    {
+      "venue": "Binance",
+      "type": "шорт под жёлтой",
+      "n": 85,
+      "affected": 49,
+      "old_replayed_net_no_funding": 42.40572671404317,
+      "corrected_net_no_funding": 42.40572671404317,
+      "old_recorded_clock_net_funding_proxy": 49.80449177225412,
+      "corrected_net_observed_funding_proxy": 49.795503942914415,
+      "delta_funding_clock_proxy": -0.008987829339712317,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 76
+    },
+    {
+      "venue": "Binance",
+      "type": "шорт под синей",
+      "n": 234,
+      "affected": 125,
+      "old_replayed_net_no_funding": 135.29248455403155,
+      "corrected_net_no_funding": 135.29248455403155,
+      "old_recorded_clock_net_funding_proxy": 138.9309089317292,
+      "corrected_net_observed_funding_proxy": 138.94767009355644,
+      "delta_funding_clock_proxy": 0.016761161827254734,
+      "basis_bug_correction_proxy": -0.5624008969202157,
+      "strict_funding_n": 180
+    },
+    {
+      "venue": "Bitstamp",
+      "type": "лонг 432",
+      "n": 68,
+      "affected": 1,
+      "old_replayed_net_no_funding": 174.596939888552,
+      "corrected_net_no_funding": 174.596939888552,
+      "old_recorded_clock_net_funding_proxy": 174.596939888552,
+      "corrected_net_observed_funding_proxy": 174.596939888552,
+      "delta_funding_clock_proxy": 0.0,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 0
+    },
+    {
+      "venue": "Bitstamp",
+      "type": "лонг над синей",
+      "n": 102,
+      "affected": 0,
+      "old_replayed_net_no_funding": 325.1679928713812,
+      "corrected_net_no_funding": 325.1679928713812,
+      "old_recorded_clock_net_funding_proxy": 325.1679928713812,
+      "corrected_net_observed_funding_proxy": 325.1679928713812,
+      "delta_funding_clock_proxy": 0.0,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 0
+    },
+    {
+      "venue": "Bitstamp",
+      "type": "шорт под жёлтой",
+      "n": 56,
+      "affected": 27,
+      "old_replayed_net_no_funding": 6.391763002938982,
+      "corrected_net_no_funding": 6.391763002938982,
+      "old_recorded_clock_net_funding_proxy": 6.391763002938982,
+      "corrected_net_observed_funding_proxy": 6.391763002938982,
+      "delta_funding_clock_proxy": 0.0,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 0
+    },
+    {
+      "venue": "Bitstamp",
+      "type": "шорт под синей",
+      "n": 94,
+      "affected": 0,
+      "old_replayed_net_no_funding": 69.42145929013813,
+      "corrected_net_no_funding": 69.42145929013813,
+      "old_recorded_clock_net_funding_proxy": 69.42145929013813,
+      "corrected_net_observed_funding_proxy": 69.42145929013813,
+      "delta_funding_clock_proxy": 0.0,
+      "basis_bug_correction_proxy": 0.0,
+      "strict_funding_n": 0
+    }
+  ],
+  "target_exit_quality": [
+    {
+      "venue": "Binance",
+      "exit_resolution": "minute",
+      "path_quality": "exact",
+      "n": 39
+    },
+    {
+      "venue": "Bitstamp",
+      "exit_resolution": "hour",
+      "path_quality": "ambiguous",
+      "n": 4
+    },
+    {
+      "venue": "Bitstamp",
+      "exit_resolution": "hour",
+      "path_quality": "exact",
+      "n": 22
+    },
+    {
+      "venue": "Bitstamp",
+      "exit_resolution": "open",
+      "path_quality": "exact",
+      "n": 1
+    }
+  ],
+  "source_precision": "published CSV rounded4; source old/new replay compared before rounding",
+  "funding_scope": "observed source rates and same-clock spot price proxy, not actual futures marks; strict unsupported prehistory is NaN"
+}

@@ -1,0 +1,76 @@
+{
+  "Binance": {
+    "original_trades": 653,
+    "entry_raw_offset_-3600": {
+      "compared_trades": 653,
+      "covered": 653,
+      "matched_rounded_price": 653,
+      "max_abs_diff": 0.0
+    },
+    "entry_raw_offset_0": {
+      "compared_trades": 653,
+      "covered": 652,
+      "matched_rounded_price": 0,
+      "max_abs_diff": 2394.679999999993
+    },
+    "exit_raw_offset_-3600": {
+      "compared_trades": 614,
+      "covered": 613,
+      "matched_rounded_price": 613,
+      "max_abs_diff": 0.0
+    },
+    "exit_raw_offset_0": {
+      "compared_trades": 614,
+      "covered": 613,
+      "matched_rounded_price": 0,
+      "max_abs_diff": 1996.6499999999942
+    },
+    "full_trade_inside_available_spot_minute_range": 182,
+    "target_exits_inside_available_spot_minute_range": 15,
+    "first_entry": "2018-01-03T08:00:00+00:00",
+    "last_exit": "2026-11-08T12:00:00+00:00"
+  },
+  "Bitstamp": {
+    "original_trades": 320,
+    "entry_raw_offset_-3600": {
+      "compared_trades": 320,
+      "covered": 320,
+      "matched_rounded_price": 320,
+      "max_abs_diff": 0.0
+    },
+    "entry_raw_offset_0": {
+      "compared_trades": 320,
+      "covered": 320,
+      "matched_rounded_price": 1,
+      "max_abs_diff": 274.5
+    },
+    "exit_raw_offset_-3600": {
+      "compared_trades": 293,
+      "covered": 293,
+      "matched_rounded_price": 293,
+      "max_abs_diff": 0.0
+    },
+    "exit_raw_offset_0": {
+      "compared_trades": 293,
+      "covered": 293,
+      "matched_rounded_price": 5,
+      "max_abs_diff": 347.4599999999991
+    },
+    "full_trade_inside_available_spot_minute_range": 0,
+    "target_exits_inside_available_spot_minute_range": 0,
+    "first_entry": "2014-01-03T00:00:00+00:00",
+    "last_exit": "2017-12-28T09:00:00+00:00"
+  },
+  "frozen_reconstructed_overlap": {
+    "common_minutes": 1040386,
+    "first_ms": 1715731200000,
+    "last_ms": 1778154300000,
+    "differences": {
+      "open": 0,
+      "high": 0,
+      "low": 1,
+      "close": 1,
+      "volume": 1
+    }
+  }
+}

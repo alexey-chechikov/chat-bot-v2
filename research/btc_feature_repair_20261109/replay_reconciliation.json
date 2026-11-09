@@ -1,0 +1,18 @@
+[
+  {
+    "venue": "Binance",
+    "matched_trades": 653,
+    "max_published_rounding_error": 4.9984732820362865e-05,
+    "old_no_funding": 910.8290918129898,
+    "new_no_funding": 910.8290918129898,
+    "add_state_changed": 0
+  },
+  {
+    "venue": "Bitstamp",
+    "matched_trades": 320,
+    "max_published_rounding_error": 4.987775770481928e-05,
+    "old_no_funding": 575.5781550530106,
+    "new_no_funding": 575.5781550530106,
+    "add_state_changed": 0
+  }
+]

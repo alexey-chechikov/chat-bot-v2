@@ -48,13 +48,14 @@ def test_long_entry_add_exit():
     assert pos is None
 
 
-def test_add_not_taken_on_exit_bar():
+def test_standing_add_is_taken_before_close_exit():
     a, lay = long_case()
     a["h"][10] = 100.0
     a["h"][16] = 110.0
     ev, _ = en.simulate(a, lay)
-    assert [e["kind"] for e in ev] == ["вход", "выход"]
-    assert ev[1]["res"] == pytest.approx(en.leg_net(1, 100.0, 105.0) * 0.5)
+    assert [e["kind"] for e in ev] == ["вход", "добор", "выход"]
+    assert ev[1]["i"] == ev[2]["i"] == 16
+    assert ev[2]["res"] == pytest.approx(0.5 * en.leg_net(1, 100.0, 105.0) + 0.5 * en.leg_net(1, 102.0, 105.0))
 
 
 def test_cs_target_inside_4h():

@@ -399,7 +399,7 @@ def feature_rows(R: dict, events: list[dict], now: int) -> list[dict]:
                     except Exception as exc:  # noqa: BLE001
                         r["m2_error"] = repr(exc)
             elif e["kind"] == "выход":
-                r.update({"res": e["res"], "why": e["why"], "entry_t": p["entry_t"], "entry": p["entry"], "path": fx.path(a, p["entry_i"], e["i"], e["side"], p["entry"], e["px"])})
+                r.update({"res": e["res"], "why": e["why"], "entry_t": p["entry_t"], "entry": p["entry"], "path": fx.path(a, p["entry_i"], e["i"], e["side"], p["entry"], e["px"], exit_mode="target" if e["why"].startswith("цель") else "close")})
             else:
                 r["add_px"] = e["px"]
         except Exception as exc:  # noqa: BLE001

@@ -1,0 +1,85 @@
+{
+  "rule": "fixed2023_repaired_available_population",
+  "scope": "288 closed test2023+ trades only; actual positions still open at end are excluded",
+  "start_utc": "2023-01-06 12:00",
+  "end_utc": "2026-11-08 12:00",
+  "calendar_closes_n": 33649,
+  "observed_closes_n": 33648,
+  "missing_hour_closes": [
+    "2023-03-24 14:00"
+  ],
+  "funding_price_method": "same_clock_spot_hour_close_proxy_not_actual_mark",
+  "all_trade_funding_complete": true,
+  "baseline": {
+    "final_net": 331.67233099416586,
+    "MTM_max_drawdown_pp": -25.88025880260105,
+    "drawdown_trough_utc": "2023-06-20 09:00",
+    "drawdown_peak_utc": "2023-04-26 13:00",
+    "max_hour_close_gross_pct_base": 334.1404594897403,
+    "mean_observed_hour_close_gross_pct_base": 59.63354463888176,
+    "time_weighted_gross_pct_base_observed_hour_endpoint": 59.632798295431435,
+    "mean_hour_endpoint_nominal_USDT_if_base1000": 596.3279829543144,
+    "gross_time_hours_pctbase_observed_endpoint": 2006464.7642463816,
+    "fraction_observed_closes_with_exposure": 0.5639859724203519,
+    "worst_month": "2026-10-31 00:00:00+00:00",
+    "worst_month_net_change": -14.114356786000428,
+    "hourly_change_var5_pp": -0.47905822478184135,
+    "hourly_change_ES5_pp": -1.0387762144941255,
+    "strictly_one_hour_changes_n": 33646,
+    "excluded_long_gap_changes_n": 1,
+    "hourly_tail_n": 1683
+  },
+  "candidate": {
+    "final_net": 342.7434886517033,
+    "MTM_max_drawdown_pp": -24.965871997633514,
+    "drawdown_trough_utc": "2023-06-20 09:00",
+    "drawdown_peak_utc": "2023-04-26 13:00",
+    "max_hour_close_gross_pct_base": 334.1404594897403,
+    "mean_observed_hour_close_gross_pct_base": 59.24084333165794,
+    "time_weighted_gross_pct_base_observed_hour_endpoint": 59.24008531699451,
+    "mean_hour_endpoint_nominal_USDT_if_base1000": 592.4008531699451,
+    "gross_time_hours_pctbase_observed_endpoint": 1993251.1506609144,
+    "fraction_observed_closes_with_exposure": 0.5639859724203519,
+    "worst_month": "2026-10-31 00:00:00+00:00",
+    "worst_month_net_change": -12.101183271163109,
+    "hourly_change_var5_pp": -0.4763753052409925,
+    "hourly_change_ES5_pp": -1.0363477290721426,
+    "strictly_one_hour_changes_n": 33646,
+    "excluded_long_gap_changes_n": 1,
+    "hourly_tail_n": 1683
+  },
+  "delta_final": 11.071157657537412,
+  "shortblue": {
+    "n": 87,
+    "baseline": 24.658422325891422,
+    "candidate": 35.72957998342894
+  },
+  "checks": {
+    "synthetic_long_add_close_funding_DD": "passed",
+    "synthetic_intrabar_target_close_order": "passed",
+    "baseline_end_cash_identity_error": -5.684341886080802e-14,
+    "candidate_end_cash_identity_error": -1.1368683772161603e-13,
+    "candidate_vs_prior_quintile_identity_error": -8.205553569951007e-09
+  },
+  "source_hashes": {
+    "C:\\bot7\\tmp\\btc-features-repair-20261109\\replay_cache.pkl": "3a4cb30eee352c37ebf6642efba2c2bc0a910c583292665d640177a285ee78b0",
+    "C:\\bot7\\tmp\\btc-features-repair-20261109\\replay_cashflows.py": "0056214da98bb6d70548269fbb22bab8f1c460bc3302ea5d357d93889d01e164",
+    "C:\\bot7\\tmp\\btc-features-repair-20261109\\funding_candidate_assignments.csv": "c0fb15951385895f6c6416c773bd452cc92d71f218c795f1e751bc9805f206a4"
+  },
+  "protected_before": {
+    "C:\\bot7\\tmp\\btc-features-audit-20261109\\audit_bad_trades_predictions.csv": "429eb9d42348aeb5720802479f57e8c73d5f20d6c5f1dcdb55f8abf59b1da04a",
+    "C:\\bot7\\tmp\\btc-features-repair-20261109\\progress_24h_predictions.csv": "2e808906cd4d0e5683b5906a9f14e12b39177499e2682a893f8cabd486bd4dc6"
+  },
+  "protected_after": {
+    "C:\\bot7\\tmp\\btc-features-audit-20261109\\audit_bad_trades_predictions.csv": "429eb9d42348aeb5720802479f57e8c73d5f20d6c5f1dcdb55f8abf59b1da04a",
+    "C:\\bot7\\tmp\\btc-features-repair-20261109\\progress_24h_predictions.csv": "2e808906cd4d0e5683b5906a9f14e12b39177499e2682a893f8cabd486bd4dc6"
+  },
+  "limitations": [
+    "Quantity scaling only, unchanged fixed signals/entry/add trigger/exit. No capital or margin constraint is imposed.",
+    "Hourly liquidation-value marks include entry and expected exit fees; within-hour drawdown/exposure extremes are not observed.",
+    "One missing close is NaN, not filled. DD/max exposure are observed-close measures; hourly ES excludes the two-hour transition.",
+    "Time-weighted nominal is endpoint hourly approximation on available marks, not exact intrabar notional integration.",
+    "No equal-risk normalization; different gross exposure must be judged directly.",
+    "This is closed-cohort retrospective research on previously inspected history, not full live-account equity or independent forward proof."
+  ]
+}

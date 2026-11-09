@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import plus as pl  # noqa: E402
 import state_card as sc  # noqa: E402
 import trade_scan as ts  # noqa: E402
+from services.btc_signals import features as fx  # noqa: E402
 
 RNG = np.random.default_rng(91109)
 MULT = np.array([0.5, 0.75, 1.0, 1.25, 1.5])
@@ -19,7 +20,13 @@ FEATS = ["базис 7д среднее, %", "базис фьючерс−спо
 
 
 def with_funding(D, fm, a):
-    """Итог позиции с фандингом: те же ноги, что в службе (первый лот + добор), через ledger-учёт plus.unit."""
+    """Per-leg funding only after that leg's recorded entry time.
+
+    Unknown add time or incomplete observed payout coverage produces NaN rather
+    than an invented cashflow. Exact entries use ledger's (entry, exit] cutoff.
+    An engine add marked _add_before_close existed before its recorded hour-end:
+    the payout at that hour-end is included. Subhour payouts remain ambiguous.
+    """
     t = a["t"]
     out = []
     for _, r in D.iterrows():
@@ -27,10 +34,38 @@ def with_funding(D, fm, a):
         s, w = int(r["сторона"]), float(r["вес"])
         legs = [(i0, i1, float(r["цена входа"]), float(r["цена выхода"]), s, "x", "x", w * 0.5)]
         if r["добор"] == 1.0 and pd.notna(r["цена добора"]):
-            legs.append((i0, i1, float(r["цена добора"]), float(r["цена выхода"]), s, "x", "x", w * 0.5))
+            add_t, add_i = r.get("_add_t"), r.get("_add_i")
+            if pd.isna(add_t) and pd.notna(r.get("добор UTC")):
+                add_t = pd.Timestamp(r["добор UTC"], tz="UTC").timestamp()
+            if pd.notna(add_t):
+                add_i = int(np.searchsorted(t, add_t))
+                if add_i >= len(t) or t[add_i] != add_t:
+                    add_i = None
+            if pd.isna(add_i) or not i0 <= int(add_i) <= i1:
+                out.append(np.nan)
+                continue
+            funding_i = int(add_i)
+            before_close = r.get("_add_before_close", False)
+            if pd.notna(before_close) and bool(before_close):
+                if funding_i <= i0:
+                    out.append(np.nan)
+                    continue
+                records = a.get("funding_records") or {}
+                payout_t = np.asarray(records.get("times", []), float)
+                # At hourly resolution only the hour-end payout has a known
+                # order relative to a standing stop. Inside-hour payouts do not.
+                if np.any((payout_t > t[funding_i - 1]) & (payout_t < t[funding_i])):
+                    out.append(np.nan)
+                    continue
+                funding_i -= 1
+            legs.append((funding_i, i1, float(r["цена добора"]), float(r["цена выхода"]), s, "x", "x", w * 0.5))
+        _, coverage = fx.funding_window(a.get("funding_records"), np.array([t[x[1]] for x in legs]),
+                                        np.array([t[x[1]] - t[x[0]] for x in legs]))
+        if not coverage.all():
+            out.append(np.nan)
+            continue
         rr, ww = pl.unit(fm, legs)
         out.append(float((rr * ww).sum()))
-    _ = t
     return np.array(out)
 
 
@@ -47,6 +82,9 @@ def main():
         edges = np.quantile(first[ft], [0.2, 0.4, 0.6, 0.8])
         for col in ("итог, % базы", "итог с фандингом"):
             for nm, part in (("1-я половина", first), ("2-я половина", second)):
+                part = part[part[col].notna()]
+                if part.empty:
+                    continue
                 q = np.searchsorted(edges, part[ft].to_numpy(float))
                 y = part[col].to_numpy(float)
                 base, size, skip = y.sum(), (y * MULT[q]).sum(), y[q > 0].sum()
