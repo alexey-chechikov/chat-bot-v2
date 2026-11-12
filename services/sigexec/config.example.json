@@ -1,0 +1,20 @@
+{
+ "_note": "Исполнитель системы и 432 (services/sigexec). Копию положить в state/sigexec_config.json. paper=true — бумажный режим на ценах выбранной биржи, заявки никуда не уходят. Живой режим и размер включает только оператор.",
+ "exchange": {"name": "okx", "symbol": "BTCUSDT", "paper": true, "testnet": false, "hedge": true},
+ "feed": {"symbol": "BTCUSDT"},
+ "executor": {
+  "enabled": true,
+  "slots": ["system", "432"],
+  "base_usd": 500.0,
+  "cap_usd": 1200.0,
+  "prefix": "b7x",
+  "max_signal_age_s": 1800,
+  "emergency_pct": 12.0,
+  "add_follow_signal": true,
+  "unknown_grace_s": 120,
+  "entry": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
+  "exit": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20}
+ },
+ "telegram": false,
+ "poll_s": 5
+}
