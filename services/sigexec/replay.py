@@ -58,7 +58,14 @@ def to_desired(slot: str, p: dict | None, a: dict, i: int) -> Desired | None:
                    add_done=bool(p["add_done"]) if main else False, target=target, exit_by_t=None, exit_text="")
 
 
-def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slots=(SYSTEM, Q432)) -> dict:
+FAULTS = (("place", "reject"), ("place", "unknown_placed"), ("place", "unknown_lost"), ("order", "incomplete"), ("order", "unknown_lost"),
+          ("cancel", "unknown_lost"), ("cancel", "unknown_placed"), ("partial", ""))
+
+
+def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slots=(SYSTEM, Q432), chaos: float = 0.0, seed: int = 0,
+           steps: int = 3, dt: float = 2.0) -> dict:
+    """chaos — вероятность сбоя биржи перед каждым проходом (FAULTS); steps × dt — проходов и секунд внутри часа."""
+    rng = np.random.default_rng(seed)
     a, lay = lines.build(t, o, h, l, c, i0_t=int(t[0]))
     ev, _ = en.simulate(a, lay)
     ev4, _, _ = en.simulate432(a)
@@ -90,9 +97,17 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
         desired = {s: to_desired(s, state[s], a, i) for s in slots}
         ex._t = float(a["t"][i]) + 5
         ex.move(float(a["c"][i]))
-        for k in range(3):
+        for k in range(steps):
+            ex.faults.clear()                              # сбой действует только на следующий проход — без накопления в очереди
+            ex._partial.clear()
+            if chaos and rng.random() < chaos:             # сбой биржи перед проходом: отказ, потерянный ответ, неполный поиск, частичное
+                op, mode = FAULTS[int(rng.integers(len(FAULTS)))]
+                if op == "partial":
+                    ex.partial_next(float(rng.uniform(0.2, 0.9)))
+                else:
+                    ex.fail_next(op, mode)
             exe.step(desired, evs.get(i, []) if k == 0 else [])
-            ex.tick_clock(2)
+            ex.tick_clock(dt)
         nb = i + 1
         ex.bar(float(a["o"][nb]), float(a["h"][nb]), float(a["l"][nb]), float(a["c"][nb]))
     import json

@@ -62,6 +62,7 @@ class BinanceSpotHours:
 class HourFeed:
     def __init__(self, cache: Path, source, keep: int = KEEP_HOURS):
         self.cache, self.src, self.keep = Path(cache), source, keep
+        self.gaps: list[tuple[int, int]] = []
         self.t = np.zeros(0, np.int64)
         self.ohlc = np.zeros((0, 4))
         if self.cache.exists():
@@ -88,6 +89,18 @@ class HourFeed:
         except Exception as e:  # noqa: BLE001
             raise FeedError(f"{self.src.name}: {e!r}") from None
         rows = [r for r in rows if not len(self.t) or r[0] > self.t[-1]]
+        # разбор aadc2a4: пропущенный час не дописывается молча. Свежая дыра (час закрыт меньше 3 ч назад) — ждём, пока
+        # источник отдаст час, и не пишем свечи после дыры; старая дыра — настоящий простой биржи, пишется с пометкой
+        prev = int(self.t[-1]) if len(self.t) else None
+        keep = []
+        for r in rows:
+            if prev is not None and r[0] - prev > H1:
+                if now - (prev + H1) < 3 * H1:
+                    break
+                self.gaps.append((prev + H1, r[0] - H1))
+            keep.append(r)
+            prev = r[0]
+        rows = keep
         if not rows:
             return 0
         t = np.array([r[0] for r in rows], np.int64)
@@ -101,7 +114,10 @@ class HourFeed:
     def fresh(self, now: float | None = None) -> bool:
         """Последний закрытый час на месте (с запасом 15 мин на задержку источника) и истории хватает."""
         now = time.time() if now is None else now
-        return len(self.t) >= MIN_HOURS and int(self.t[-1]) >= (int(now) - 900) // H1 * H1
+        if len(self.t) < MIN_HOURS or int(self.t[-1]) < (int(now) - 900) // H1 * H1:
+            return False
+        recent = self.t[-49:]                           # последние двое суток без дыр — иначе решение по неполным 4ч
+        return bool((np.diff(recent) == H1).all())
 
     def arrays(self):
         return self.t, self.ohlc[:, 0], self.ohlc[:, 1], self.ohlc[:, 2], self.ohlc[:, 3]

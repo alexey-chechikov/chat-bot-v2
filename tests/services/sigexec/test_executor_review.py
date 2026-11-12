@@ -31,6 +31,17 @@ def test_rejected_stop_is_not_retried_forever(tmp_path):
     assert sum("АВАРИЙНОГО СТОПА НЕТ" in s for s in said) == 1   # сообщение раз в час, не каждый проход
 
 
+def test_rejected_stop_retried_after_backoff(tmp_path):
+    e, ex = mk(tmp_path, entry={"kind": "market"})
+    run(e, ex, {"432": d432()})
+    for _ in range(3):
+        ex.fail_next("place", "reject")
+    run(e, ex, {"432": d432()}, n=6, dt=5)
+    assert [r["status"] for r in e.st["orders"].values() if r["role"] == "stop"] == ["REJECTED"] * 3
+    run(e, ex, {"432": d432()}, n=2, dt=600)               # пауза прошла — новая попытка, биржа приняла
+    assert [r["status"] for r in e.st["orders"].values() if r["role"] == "stop"][-1] == "UNTRIGGERED"
+
+
 def test_entry_market_rejected_aborts_episode(tmp_path):
     e, ex = mk(tmp_path, entry={"kind": "market"})
     for _ in range(5):
@@ -89,7 +100,8 @@ def test_missing_state_with_journal_halts(tmp_path):
     e, ex = mk(tmp_path, entry={"kind": "market"})
     run(e, ex, {"432": d432()}, n=2)
     (tmp_path / "st.json").unlink()
-    with pytest.raises(Halt):
+    e.close()
+    with pytest.raises(Halt, match="пропал"):
         Executor(SimExchange(), {"enabled": True}, tmp_path / "st.json", tmp_path / "jr.jsonl")
 
 

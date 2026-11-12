@@ -110,7 +110,7 @@ def test_lost_reply_order_absent_then_retries(tmp_path):
 
 
 def test_incomplete_lookup_keeps_waiting(tmp_path):
-    e, ex = mk(tmp_path, entry={"kind": "market"}, unknown_grace_s=10)
+    e, ex = mk(tmp_path, entry={"kind": "market"}, unknown_grace_s=60)
     ex.fail_next("place", "unknown_lost")
     run(e, ex, {"system": d_long()})
     for _ in range(4):
@@ -246,6 +246,7 @@ def test_stale_data_holds_position(tmp_path):
 def test_restart_resumes_from_state(tmp_path):
     e, ex = mk(tmp_path, entry={"kind": "market"}, exit={"kind": "market"})
     run(e, ex, {"432": d432()}, n=2)
+    e.close()
     e2 = Executor(ex, dict(e.cfg), tmp_path / "st.json", tmp_path / "jr.jsonl")
     run(e2, ex, {"432": d432()}, n=2)
     assert len([r for r in e2.st["orders"].values() if r["role"] == "entry"]) == 1
@@ -254,18 +255,20 @@ def test_restart_resumes_from_state(tmp_path):
 
 
 def test_crash_after_intent_before_send(tmp_path):
-    e, ex = mk(tmp_path, entry={"kind": "market"}, unknown_grace_s=30)
+    e, ex = mk(tmp_path, entry={"kind": "market"}, unknown_grace_s=60)
     rec = e._send  # имитируем падение между записью намерения и отправкой
     ep = e._start("432", d432())
     cid = e._cid("432", "entry")
-    e.st["orders"][cid] = {"cid": cid, "ep": ep["id"], "role": "entry", "kind": "MARKET", "side": "BUY", "qty": 0.0142, "price": None, "trigger": None,
-                           "status": "SENDING", "filled": 0.0, "avg": 0.0, "fee": 0.0, "oid": "", "t_sent": ex.now(), "t_done": None}
-    ep["work"] = {"role": "entry", "t0": ex.now(), "n": 1, "cur": cid}
+    e.st["orders"][cid] = {"cid": cid, "ep": ep["id"], "role": "entry", "kind": "MARKET", "side": "BUY", "pos_side": "LONG", "qty": 0.0142, "price": None,
+                           "trigger": None, "status": "SENDING", "filled": 0.0, "avg": 0.0, "fee": 0.0, "oid": "", "t_sent": ex.now(), "t_done": None,
+                           "own_before": 0.0, "pos_before": 0.0}
+    ep["work"] = None                                    # работа в памяти не успела записать cur — ищется по реестру
     e.save()
+    e.close()
     e2 = Executor(ex, dict(e.cfg), tmp_path / "st.json", tmp_path / "jr.jsonl")
     run(e2, ex, {"432": d432()}, n=2, dt=10)
     assert ex.pos[LONG] == 0.0                           # пока grace — новой заявки нет
-    run(e2, ex, {"432": d432()}, n=3, dt=20)
+    run(e2, ex, {"432": d432()}, n=4, dt=30)
     assert ex.pos[LONG] == pytest.approx(0.0142)
     assert rec is not None
 

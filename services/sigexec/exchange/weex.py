@@ -145,9 +145,18 @@ class WeexExchange(Exchange):
         if a is not None:
             return OrderInfo(cid=cid, status="UNTRIGGERED", oid=str(a.get("algoId", "")), raw=a)
         t = placed_at or time.time()
-        hist = list(self.c.algo_history(symbol, int((t - 600) * 1000), None) or [])
+        # разбор aadc2a4: client.algo_history теряет hasMore — читаем ответ сами; список неполный и cid нет → Incomplete
+        r = self.c.get(FUTURES, "/capi/v3/allAlgoOrders", {"symbol": symbol, "limit": 500, "startTime": int((t - 600) * 1000)})
+        if isinstance(r, dict):
+            hist, more = list(r.get("orders") or []), bool(r.get("hasMore"))
+        elif isinstance(r, list):
+            hist, more = r, len(r) >= 500
+        else:
+            raise Incomplete(f"weex allAlgoOrders: не список ({str(r)[:120]})")
         a = next((x for x in hist if x.get("clientAlgoId") == cid), None)
         if a is None:
+            if more:
+                raise Incomplete("weex allAlgoOrders: hasMore — список неполный, отсутствие не доказано")
             return None
         st = a.get("algoStatus", "")
         if st in ("UNTRIGGERED", "UNACTIVATED"):

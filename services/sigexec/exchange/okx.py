@@ -75,9 +75,14 @@ class OkxExchange(Exchange):
         try:
             r = self._http(method, BASE + rp, h, data)
         except urllib.error.HTTPError as e:
-            if 400 <= e.code < 500 and e.code not in (408, 429):
-                raise Rejected(f"okx HTTP {e.code}") from None
-            raise Unknown(f"okx HTTP {e.code}") from None
+            # разбор aadc2a4 P1-2: OKX отдаёт 50004 (таймаут, исход заявки неизвестен) как HTTP 400 — код берётся из тела;
+            # тело без кода — исход неизвестен, а не отказ
+            try:
+                r = json.loads(e.read().decode())
+            except Exception:  # noqa: BLE001
+                raise Unknown(f"okx HTTP {e.code} без разбираемого тела") from None
+            if not isinstance(r, dict) or "code" not in r:
+                raise Unknown(f"okx HTTP {e.code}: {str(r)[:120]}") from None
         except Exception as e:  # noqa: BLE001
             raise Unknown(f"okx {path}: {e!r}") from None
         if not isinstance(r, dict) or "code" not in r:
@@ -147,12 +152,15 @@ class OkxExchange(Exchange):
 
     def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
         if kind == "STOP":
-            if not oid:
-                info = self.order(symbol, cid, kind)
-                oid = info.raw.get("algoId", "") if info else ""
-                if not oid:
-                    return
-            r = self._call("POST", "/api/v5/trade/cancel-algos", [{"instId": inst_id(symbol), "algoId": oid}])
+            info = self.order(symbol, cid, kind)
+            if info is None or info.final:
+                return
+            child = (info.raw or {}).get("child_id")
+            if child:                                          # алгоритм сработал: снимать порождённую заявку (разбор aadc2a4)
+                r = self._call("POST", "/api/v5/trade/cancel-order", {"instId": inst_id(symbol), "ordId": child})
+            else:
+                aid = oid or (info.raw or {}).get("algoId", "")
+                r = self._call("POST", "/api/v5/trade/cancel-algos", [{"instId": inst_id(symbol), "algoId": aid}])
         else:
             r = self._call("POST", "/api/v5/trade/cancel-order", {"instId": inst_id(symbol), "clOrdId": cid})
         d = (r.get("data") or [{}])[0]
@@ -174,12 +182,15 @@ class OkxExchange(Exchange):
             if st is None:
                 raise Incomplete(f"okx: неизвестное состояние алгоритма {a.get('state')}")
             info = OrderInfo(cid=cid, status=st, oid=str(a.get("algoId", "")), raw=a)
-            if a.get("ordId") and st == "NEW":                 # сработал — исполнение смотрим у порождённого ордера
-                r2 = self._call("GET", "/api/v5/trade/order", {"instId": inst_id(symbol), "ordId": a["ordId"]})
+            child = a.get("ordId") or next(iter(a.get("ordIdList") or []), "")
+            if st == "NEW":                                    # сработал — исполнение смотрим у порождённого ордера
+                if not child:
+                    raise Incomplete(f"okx: алгоритм {a.get('state')} без порождённой заявки")
+                r2 = self._call("GET", "/api/v5/trade/order", {"instId": inst_id(symbol), "ordId": child})
                 if r2["code"] != "0" or not r2.get("data"):
-                    raise Incomplete(f"okx order {a['ordId']}: {r2.get('msg')}")
+                    raise Incomplete(f"okx order {child}: {r2.get('msg')}")
                 o = parse_order(r2["data"][0], ct)
-                info = OrderInfo(cid=cid, status=o.status, filled=o.filled, avg=o.avg, fee=o.fee, oid=info.oid, raw={**a, "child": o.raw})
+                info = OrderInfo(cid=cid, status=o.status, filled=o.filled, avg=o.avg, fee=o.fee, oid=info.oid, raw={**a, "child": o.raw, "child_id": child})
             return info
         r = self._call("GET", "/api/v5/trade/order", {"instId": inst_id(symbol), "clOrdId": cid})
         if r["code"] in NOT_FOUND:

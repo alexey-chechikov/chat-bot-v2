@@ -113,11 +113,15 @@ def build(t: np.ndarray, o, h, l, c, i0_t: int = I0_DEFAULT) -> tuple[dict, tupl
     tr = np.maximum(b["h"] - b["l"], np.maximum(np.abs(b["h"] - pc), np.abs(b["l"] - pc)))
     atr = rma(tr, 14)
     k4 = b["known"]
-    j = np.clip(np.searchsorted(k4, t, side="right") - 1, 0, None)
-    jp = np.clip(np.searchsorted(k4, t - H1, side="right") - 1, 0, None)
+    j_raw = np.searchsorted(k4, t, side="right") - 1
+    jp_raw = np.searchsorted(k4, t - H1, side="right") - 1
+    j, jp = np.clip(j_raw, 0, None), np.clip(jp_raw, 0, None)
+    # разбор aadc2a4: до первой закрытой 4ч (и до той, что известна к началу часа) clip(0) подставлял будущую свечу —
+    # такие часы в расчёт не идут: i0 не раньше первого часа, где обе известны честно
+    first_ok = int(np.argmax((j_raw >= 0) & (jp_raw >= 0))) if ((j_raw >= 0) & (jp_raw >= 0)).any() else len(t)
     a = {"t": t, "o": o, "h": h, "l": l, "c": c, "j": j, "B4p": B[jp], "atr4": atr[j],
          "f_close": C4[j], "f_G": G[j], "f_Y": Y[j], "f_R": R[j], "f_B": B[j],
-         "i0": int(np.searchsorted(t, i0_t))}
+         "i0": max(int(np.searchsorted(t, i0_t)), first_ok)}
     for name, line in (("f_run_G", G), ("f_run_Y", Y), ("f_run_R", R), ("f_run_B", B)):
         a[name] = run_len(np.sign(C4 - line))[j]
     return a, layer(t, h, l, c)

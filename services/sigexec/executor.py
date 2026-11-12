@@ -4,14 +4,23 @@
 движка (strategy.Desired): вход тактикой, добор стоп-ордером, цель шорта под жёлтой лимиткой reduceOnly, аварийный
 стоп, выход по сигналу тактикой; (3) сверить позицию счёта со своим учётом; (4) сохранить учёт.
 
-Правила живого ордерного кода (CLAUDE.md):
-  * намерение (заявка со статусом SENDING) пишется на диск ДО отправки;
-  * Unknown/SENDING — не конечный: новой заявки той же работы нет, пока поиск по cid не дал конечный статус;
-  * все заявки в одном реестре (state["orders"]); учёт — из НАКОПЛЕННОГО исполнения каждой заявки (повтор безопасен);
-  * учёт сохраняется до записи в журнал; битый конфиг или учёт → Halt.
+Правила живого ордерного кода (CLAUDE.md) и разбор GPT aadc2a4:
+  * намерение (заявка SENDING) пишется на диск ДО отправки; один процесс на учёт (блокировка файла);
+  * незавершённая заявка ищется в РЕЕСТРЕ по эпизоду и роли, а не в памяти процесса — после падения процесса новая
+    копия не отправит вторую заявку той же работы (P1-1);
+  * SENDING / UNKNOWN / UNRESOLVED — не конечные. Рыночная заявка, которую биржа «не знает» дольше grace, считается
+    не вставшей (ABSENT), только если позиция счёта на этой стороне изменилась ровно на наши известные исполнения;
+    иначе — UNRESOLVED: работа стоит, сообщение оператору (вопрос 2 разбора). Лимит и стоп в ABSENT ещё час
+    перепроверяются — нашлась заявка, её исполнения идут в учёт;
+  * исполнение аварийного стопа, пройденный аварийный уровень и закрытие позиции извне переводят эпизод в выход:
+    увеличения нет, добор и цель снимаются, остаток — рыночным сразу (P1-3, P1-4); стоп стоит и во время входа;
+  * потолок cap_usd: бронь = позиция + недобранный вход + недобранный добор до конца работы; каждая увеличивающая
+    заявка пересчитывается по текущей цене стакана (P1-5); добор ставится на остаток goal_add − исполнено;
+  * учёт по накопленному исполнению каждой заявки; учёт сохраняется до журнала; битый конфиг или учёт → Halt.
 Позиция эпизода = Σ исполнено (вход, добор) − Σ исполнено (выход, цель, стоп, извне)."""
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import math
@@ -26,23 +35,27 @@ log = logging.getLogger(__name__)
 IN_ROLES = ("entry", "add")
 OUT_ROLES = ("exit", "target", "stop", "external")
 DONE = frozenset(FINAL | {"ABSENT"})
-WAITING = frozenset({"SENDING", "UNKNOWN"})
+WAITING = frozenset({"SENDING", "UNKNOWN", "UNRESOLVED"})
 SLOT_CODE = {"system": "s", "432": "q"}
 ROLE_CODE = {"entry": "e", "add": "a", "exit": "x", "target": "t", "stop": "k"}
+MARKET_TAC = {"kind": "market"}
 
 DEFAULT_CFG = {
     "enabled": False,               # False: новых эпизодов нет, открытые сопровождаются и закрываются по сигналу
     "symbol": "BTCUSDT",
     "slots": ["system", "432"],
-    "base_usd": 500.0,              # база: позиция = база × вес движка
-    "cap_usd": 1200.0,              # потолок номинала всех эпизодов исполнителя
+    "base_usd": 500.0,              # база: позиция = база × вес движка (× усиление 432, strategy.boost_432)
+    "cap_usd": 1200.0,              # потолок номинала всех эпизодов (позиции + брони входа и добора), по цене исполнения
     "prefix": "b7x",
     "max_signal_age_s": 1800,       # сигнал старше — эпизод пропускается (с сообщением)
     "emergency_pct": 12.0,          # аварийный стоп от средней входа (за 3 года худший ход против: 10.6% / 9.5%)
     "add_follow_signal": True,      # движок засчитал добор, а стоп на бирже не сработал → добрать рыночным
-    "unknown_grace_s": 120,         # заявка с потерянным ответом и «нет такой» дольше — считается не вставшей
+    "unknown_grace_s": 180,         # заявка с потерянным ответом и «нет такой» дольше — решение ABSENT / UNRESOLVED
+    "absent_recheck_s": 3600,       # лимит/стоп в ABSENT ещё столько перепроверяется
+    "shared_account": False,        # True — на счёте чужие сделки (WEEX: сетки, ручные): потерянный рыночный → UNRESOLVED
     "allowed_sides": ["LONG", "SHORT"],  # WEEX: BTC SHORT передан оператору (release_sides) — там только ["LONG"]
-    "max_rejects": 3,               # столько отказов биржи подряд на одну роль — роль встаёт, сообщение
+    "max_rejects": 3,               # столько отказов биржи подряд на одну роль — пауза роли, сообщение раз в час
+    "reject_backoff_s": 600,        # пауза роли после max_rejects отказов; потом одна новая попытка (стоп без паузы навсегда не остаётся)
     "entry": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
     "exit": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
 }
@@ -50,7 +63,7 @@ TACTICS = ("market", "chase", "limit")
 
 
 class Halt(RuntimeError):
-    """Битый конфиг или учёт — исполнитель стоит, пока человек не разберётся."""
+    """Битый конфиг или учёт, второй экземпляр — исполнитель стоит, пока человек не разберётся."""
 
 
 def validate_config(cfg: dict) -> dict:
@@ -62,19 +75,20 @@ def validate_config(cfg: dict) -> dict:
             raise Halt(f"конфиг: неизвестный ключ {k!r}")
         out[k] = v
     try:
-        assert isinstance(out["enabled"], bool)
+        assert isinstance(out["enabled"], bool) and isinstance(out["shared_account"], bool)
         assert isinstance(out["symbol"], str) and out["symbol"]
         assert set(out["slots"]) <= {"system", "432"} and out["slots"]
-        for k in ("base_usd", "cap_usd", "emergency_pct", "max_signal_age_s", "unknown_grace_s"):
+        for k in ("base_usd", "cap_usd", "emergency_pct", "max_signal_age_s", "unknown_grace_s", "absent_recheck_s", "reject_backoff_s"):
             assert isinstance(out[k], (int, float)) and math.isfinite(out[k]) and out[k] > 0, k
         assert 1.0 <= out["emergency_pct"] <= 50.0
+        assert out["unknown_grace_s"] >= 60, "unknown_grace_s"
         assert out["prefix"].isalnum() and 1 <= len(out["prefix"]) <= 6
         assert out["allowed_sides"] and set(out["allowed_sides"]) <= {LONG, SHORT}, "allowed_sides"
         assert isinstance(out["max_rejects"], int) and 1 <= out["max_rejects"] <= 20, "max_rejects"
         for k in ("entry", "exit"):
             t = out[k]
             assert t["kind"] in TACTICS, f"{k}.kind"
-            for kk in ("wait_s", "reprice_s", "max_orders"):
+            for kk in ("wait_s", "reprice_s", "max_orders", "offset_bps"):
                 assert isinstance(t.get(kk, 1), (int, float)) and t.get(kk, 1) >= 0, f"{k}.{kk}"
     except AssertionError as e:
         raise Halt(f"конфиг: неверное значение {e}") from None
@@ -86,10 +100,30 @@ class Executor:
         self.ex = ex
         self.cfg = validate_config(cfg)
         self.sym = self.cfg["symbol"]
-        self.inst = ex.instrument(self.sym)
         self.state_path, self.journal_path = Path(state_path), Path(journal_path)
         self.notify = notify or (lambda text: None)
+        self._lock_fd = self._lock()
+        self.inst = ex.instrument(self.sym)
         self.st = self._load()
+
+    # ------------------------------------------------------------------ один процесс на учёт
+    def _lock(self):
+        p = self.state_path.with_suffix(".lock")
+        fd = open(p, "a+")
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fd.close()
+            raise Halt(f"учёт {self.state_path} уже ведёт другой процесс (блокировка {p})") from None
+        return fd
+
+    def close(self) -> None:
+        if self._lock_fd:
+            try:
+                fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._lock_fd.close()
+                self._lock_fd = None
 
     # ------------------------------------------------------------------ учёт
     def _load(self) -> dict:
@@ -97,12 +131,16 @@ class Executor:
             if self.journal_path.exists() and self.journal_path.stat().st_size > 0:
                 # журнал есть, учёта нет — учёт пропал: на бирже могут стоять наши заявки и позиция, начинать с нуля нельзя
                 raise Halt(f"учёт {self.state_path} пропал при живом журнале {self.journal_path} — разобрать руками")
-            return {"version": 1, "seq": 0, "orders": {}, "slots": {s: {"ep": None, "done": []} for s in ("system", "432")}, "audit_bad": 0}
+            return {"version": 1, "seq": 0, "orders": {}, "slots": {s: {"ep": None, "done": []} for s in ("system", "432")},
+                    "audit_bad": {LONG: 0, SHORT: 0}, "closing": False}
         try:
             st = json.loads(self.state_path.read_text())
             assert st.get("version") == 1 and isinstance(st["orders"], dict) and isinstance(st["slots"], dict)
             for s in ("system", "432"):
                 st["slots"].setdefault(s, {"ep": None, "done": []})
+            if not isinstance(st.get("audit_bad"), dict):
+                st["audit_bad"] = {LONG: 0, SHORT: 0}
+            st.setdefault("closing", False)
             return st
         except Exception as e:  # noqa: BLE001
             raise Halt(f"учёт {self.state_path}: {e!r}") from None
@@ -128,6 +166,9 @@ class Executor:
         self.st["seq"] += 1
         return f"{self.cfg['prefix']}{SLOT_CODE[slot]}{ROLE_CODE[role]}{_b36(self.st['seq'])}{_b36(int(self.ex.now()) % 36 ** 5)}"
 
+    def _eps(self) -> list[dict]:
+        return [S["ep"] for S in self.st["slots"].values() if S["ep"]]
+
     def _orders(self, ep: dict, roles=None, live_only=False) -> list[dict]:
         out = [r for r in self.st["orders"].values() if r["ep"] == ep["id"] and (roles is None or r["role"] in roles)]
         return [r for r in out if r["status"] not in DONE] if live_only else out
@@ -143,12 +184,21 @@ class Executor:
         q = sum(r["filled"] for r in rs)
         return sum(r["filled"] * r["avg"] for r in rs) / q if q else 0.0
 
+    def _side_own(self, pos_side: str) -> float:
+        return sum(self.qty(e) for e in self._eps() if e["pos_side"] == pos_side)
+
     def _send(self, ep: dict, role: str, kind: str, side: str, qty: float, price: float | None = None, trigger: float | None = None,
               post_only: bool = False, reduce_only: bool = False) -> dict:
         req = OrderReq(cid=self._cid(ep["slot"], role), symbol=self.sym, side=side, pos_side=ep["pos_side"], kind=kind, qty=qty,
                        price=price, trigger=trigger, post_only=post_only, reduce_only=reduce_only)
-        rec = {"cid": req.cid, "ep": ep["id"], "role": role, "kind": kind, "side": side, "qty": qty, "price": price, "trigger": trigger,
-               "status": "SENDING", "filled": 0.0, "avg": 0.0, "fee": 0.0, "oid": "", "t_sent": self.ex.now(), "t_done": None}
+        rec = {"cid": req.cid, "ep": ep["id"], "role": role, "kind": kind, "side": side, "pos_side": ep["pos_side"], "qty": qty, "price": price,
+               "trigger": trigger, "status": "SENDING", "filled": 0.0, "avg": 0.0, "fee": 0.0, "oid": "", "t_sent": self.ex.now(), "t_done": None}
+        if kind == "MARKET":                            # снимок для решения о потерянном ответе (вопрос 2 разбора)
+            rec["own_before"] = self._side_own(ep["pos_side"])
+            try:
+                rec["pos_before"] = float(self.ex.position(self.sym).get(ep["pos_side"], 0.0))
+            except Exception:  # noqa: BLE001
+                rec["pos_before"] = None
         self.st["orders"][req.cid] = rec
         self.save()                                     # намерение на диск до отправки
         try:
@@ -174,20 +224,66 @@ class Executor:
             rec["t_done"] = self.ex.now()
 
     def _refresh(self, rec: dict) -> None:
-        if rec["status"] in DONE:
+        st, now = rec["status"], self.ex.now()
+        if st in FINAL:
             return
+        if st == "ABSENT":                              # лимит/стоп «не встал» — ещё час проверяем, не нашёлся ли
+            if rec["kind"] == "MARKET" or now - (rec["t_done"] or now) > self.cfg["absent_recheck_s"] or now - rec.get("t_recheck", 0) < 60:
+                return
+            rec["t_recheck"] = now
         try:
             info = self.ex.order(self.sym, rec["cid"], rec["kind"], rec.get("oid", ""), rec["t_sent"])
         except (Incomplete, Unknown, ExchangeError, OSError) as e:
             rec["last_lookup_error"] = str(e)[:200]
             return
         if info is None:
-            if rec["status"] in WAITING and self.ex.now() - rec["t_sent"] > self.cfg["unknown_grace_s"]:
-                rec.update(status="ABSENT", t_done=self.ex.now())   # биржа точно не знает заявку — не встала
-                self.save()                                          # учёт до журнала
-                self._jr({"kind": "заявка не встала", "cid": rec["cid"], "role": rec["role"]})
+            if st in WAITING and now - rec["t_sent"] > self.cfg["unknown_grace_s"]:
+                if self._absent_verdict(rec):
+                    rec.update(status="ABSENT", t_done=now)
+                    self.save()                         # учёт до журнала
+                    self._jr({"kind": "заявка не встала", "cid": rec["cid"], "role": rec["role"]})
+                elif st != "UNRESOLVED":
+                    rec["status"] = "UNRESOLVED"
+                    self.save()
+                    self._jr({"kind": "исход неизвестен", "cid": rec["cid"], "role": rec["role"], "pos_before": rec.get("pos_before")})
+                    self._say(f"⛔ заявка {rec['cid']} ({rec['role']}, {rec['kind']} {rec['qty']:g}): биржа её не знает, а позиция "
+                              f"изменилась — исход неизвестен. Работа стоит. Проверить на бирже и выполнить --resolve {rec['cid']} absent|filled")
             return
+        if st == "ABSENT":
+            self._jr({"kind": "заявка нашлась", "cid": rec["cid"], "role": rec["role"], "status": info.status, "filled": info.filled})
+            self._say(f"⚠️ заявка {rec['cid']} ({rec['role']}) считалась не вставшей, но нашлась: {info.status}, исполнено {info.filled:g}")
         self._apply(rec, info)
+
+    def _absent_verdict(self, rec: dict) -> bool:
+        """True — заявки точно нет (можно ставить новую). Лимит и стоп: да (ещё час перепроверяются). Рыночная: да, только
+        если позиция стороны изменилась ровно на наши известные исполнения (на общем счёте — никогда)."""
+        if rec["kind"] != "MARKET":
+            return True
+        if self.cfg["shared_account"] or rec.get("pos_before") is None:
+            return False
+        try:
+            pos_now = float(self.ex.position(self.sym).get(rec["pos_side"], 0.0))
+        except Exception:  # noqa: BLE001
+            return False
+        d_exch = pos_now - rec["pos_before"]
+        d_own = self._side_own(rec["pos_side"]) - rec["own_before"]
+        return abs(d_exch - d_own) < max(rec["qty"] / 2, self.inst.lot / 2)
+
+    def resolve(self, cid: str, verdict: str, qty: float = 0.0, px: float = 0.0) -> None:
+        """Решение оператора по UNRESOLVED: absent — заявки не было; filled — исполнилась qty по px (с биржи)."""
+        rec = self.st["orders"].get(cid)
+        if not rec or rec["status"] not in WAITING:
+            raise Halt(f"{cid}: нет такой неразрешённой заявки")
+        if verdict == "absent":
+            rec.update(status="ABSENT", t_done=self.ex.now())
+        elif verdict == "filled":
+            if not (0 < qty <= rec["qty"] + 1e-12 and px > 0):
+                raise Halt("filled: нужны объём (не больше заявки) и цена")
+            rec.update(status="FILLED", filled=qty, avg=px, t_done=self.ex.now(), fee_incomplete=True)
+        else:
+            raise Halt(f"решение {verdict!r}: absent | filled")
+        self.save()
+        self._jr({"kind": "решение оператора", "cid": cid, "verdict": verdict, "qty": qty, "px": px})
 
     def _cancel(self, rec: dict) -> None:
         if rec["status"] in DONE or rec["status"] in WAITING:
@@ -201,10 +297,30 @@ class Executor:
             rec["cancel_error"] = str(e)[:200]
         self._refresh(rec)
 
+    # ------------------------------------------------------------------ потолок
+    def _reserved(self, ep: dict) -> float:
+        """Позиция по себестоимости + недобранный вход (пока идёт вход) + недобранный добор (пока не закрыт)."""
+        q = max(self.qty(ep), 0.0)
+        r = q * (self._avg(ep, IN_ROLES) or ep["sig_px"])
+        if ep["phase"] == "entering":
+            r += max(ep["goal_main"] - self._filled(ep, ("entry",)), 0.0) * ep["sig_px"]
+        if ep["phase"] != "exiting" and ep.get("goal_add") and not ep.get("add_closed"):
+            r += max(ep["goal_add"] - self._filled(ep, ("add",)), 0.0) * (ep.get("add_lv") or ep["sig_px"])
+        return r
+
+    def _allowance(self, ep: dict, role: str) -> float:
+        """Сколько номинала ещё можно добавить этой работе: потолок − брони других эпизодов − своя позиция − своя бронь добора
+        (для входа)."""
+        others = sum(self._reserved(e) for e in self._eps() if e["id"] != ep["id"])
+        own = max(self.qty(ep), 0.0) * (self._avg(ep, IN_ROLES) or ep["sig_px"])
+        if role == "entry" and ep.get("goal_add") and not ep.get("add_closed"):
+            own += max(ep["goal_add"] - self._filled(ep, ("add",)), 0.0) * (ep.get("add_lv") or ep["sig_px"])
+        return max(float(self.cfg["cap_usd"]) - others - own, 0.0)
+
     # ------------------------------------------------------------------ шаг
     def step(self, desired: dict | None, events: list[dict] | None = None) -> None:
         """desired: {слот: Desired|None} по свежим данным; None — данные несвежие: новых входов и выходов по сигналу нет,
-        защита и начатые работы продолжаются."""
+        защита (стоп, последняя подтверждённая цель) и начатые работы продолжаются."""
         for rec in list(self.st["orders"].values()):
             self._refresh(rec)
         for slot in self.cfg["slots"]:
@@ -224,7 +340,7 @@ class Executor:
         S = self.st["slots"][slot]
         ep = S["ep"]
         if ep is None:
-            if not (fresh and d and self.cfg["enabled"]) or d.entry_t in S["done"]:
+            if not (fresh and d and self.cfg["enabled"]) or self.st.get("closing") or d.entry_t in S["done"]:
                 return
             ep = self._start(slot, d)
             if ep is None:
@@ -234,15 +350,18 @@ class Executor:
             gone = ep["phase"] == "open" and self.qty(ep) <= self.inst.lot / 2
             head = "на бирже уже закрыто (цель или стоп), движок: " if gone else "сигнал выхода: "
             self._to_exit(ep, head + (ex_ev["why"] if ex_ev else "позиции нет"), ex_ev)
+        if ep["phase"] in ("entering", "open") and self._filled(ep, ("stop",)) > 0:
+            self._to_exit(ep, "аварийный стоп сработал", None, urgent=True)
         if ep["phase"] == "entering":
-            if self._work(ep, "entry", lambda: ep["goal_main"] - self._filled(ep, ("entry",)), self._open_side(ep), False, self.cfg["entry"]):
-                ep["phase"] = "open"
-                self._opened(ep)
+            if not self._protect_stop(ep):              # стоп на уже исполненный объём во время входа (P1-4)
+                if self._work(ep, "entry", lambda: ep["goal_main"] - self._filled(ep, ("entry",)), self._open_side(ep), False, self.cfg["entry"]):
+                    ep["phase"] = "open"
+                    self._opened(ep)
         if ep["phase"] == "open":
-            if self.qty(ep) <= self.inst.lot / 2 and not self._orders(ep, IN_ROLES, live_only=True):
-                self._to_exit(ep, "позиция закрыта стопом, целью или извне", None)
+            if self.qty(ep) <= self.inst.lot / 2:
+                self._to_exit(ep, "позиция закрыта целью, стопом или извне", None, urgent=True)
             else:
-                self._protect(ep, d if (fresh and d and d.entry_t == ep["entry_t"]) else None)
+                self._protect(ep, d if (fresh and d and d.entry_t == ep["entry_t"]) else None, fresh)
         if ep["phase"] == "exiting":
             self._exiting(ep)
 
@@ -260,13 +379,17 @@ class Executor:
             self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": f"сторона {side} не разрешена конфигом"})
             self._say(f"ℹ️ {slot}: {d.tag} {d.sig_px:.0f} не исполняю — сторона {side} не разрешена (allowed_sides)")
             return None
+        if self.cfg["shared_account"] and (d.target is not None or d.tag == "под жёлтой"):
+            # разбор aadc2a4: цель и аварийный стоп — две reduceOnly на одной стороне; на общем счёте вторая, исполнившись до
+            # снятия, закроет чужие контракты. Без биржевого OCO такой эпизод только на отдельном счёте
+            S["done"].append(d.entry_t)
+            self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": "цель + стоп на общем счёте"})
+            self._say(f"ℹ️ {slot}: {d.tag} не исполняю на общем счёте — цель и стоп могут закрыть чужое")
+            return None
         base = float(self.cfg["base_usd"])
         goal = self.inst.floor_qty(base * d.main_frac / d.sig_px)
         add = self.inst.floor_qty(base * d.add_frac / d.add_lv) if d.add_lv else 0.0
-        # занято = позиции эпизодов + всё, что ещё может исполниться на вход (входы, доборы, неясные постановки)
-        used = sum(self.qty(e) * (self._avg(e, IN_ROLES) or e["sig_px"]) + self._live_in_notional(e) + self._pending_add_notional(e)
-                   for e in (self.st["slots"][s]["ep"] for s in self.st["slots"]) if e)
-        room = float(self.cfg["cap_usd"]) - used
+        room = float(self.cfg["cap_usd"]) - sum(self._reserved(e) for e in self._eps())
         if goal * d.sig_px + add * (d.add_lv or 0.0) > room:
             add = 0.0                                      # сначала без добора
             if goal * d.sig_px > room:
@@ -276,51 +399,14 @@ class Executor:
             self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": f"объём {goal} меньше минимума или нет места под потолком (свободно ${room:.0f})"})
             self._say(f"⚠️ {slot}: вход {d.tag} пропущен — нет места под потолком (свободно ${room:.0f})")
             return None
-        ep = {"id": f"{slot}:{d.entry_t}", "slot": slot, "entry_t": d.entry_t, "side": d.side, "tag": d.tag, "pos_side": LONG if d.side > 0 else SHORT,
-              "w": d.w, "sig_px": d.sig_px, "goal_main": goal, "goal_add": add if add >= self.inst.min_qty else 0.0, "add_lv": d.add_lv,
-              "phase": "entering", "work": None, "t_start": now, "exit_reason": None, "exit_sig_px": None, "engine_res": None}
+        ep = {"id": f"{slot}:{d.entry_t}", "slot": slot, "entry_t": d.entry_t, "side": d.side, "tag": d.tag, "pos_side": side,
+              "w": d.w, "boost": getattr(d, "boost", 1.0), "sig_px": d.sig_px, "goal_main": goal, "goal_add": add if add >= self.inst.min_qty else 0.0,
+              "add_lv": d.add_lv, "phase": "entering", "work": None, "t_start": now, "exit_reason": None, "exit_sig_px": None, "engine_res": None}
         S["ep"] = ep
         self.save()
         self._jr({"kind": "эпизод", "slot": slot, "entry_t": d.entry_t, "side": d.side, "tag": d.tag, "sig_px": d.sig_px, "goal_main": goal,
-                  "goal_add": ep["goal_add"], "w": d.w, "delay_s": round(now - d.entry_t, 1)})
+                  "goal_add": ep["goal_add"], "w": d.w, "boost": ep["boost"], "delay_s": round(now - d.entry_t, 1)})
         return ep
-
-    def _live_in_notional(self, ep: dict) -> float:
-        return sum((r["qty"] - r["filled"]) * (r["price"] or r["trigger"] or ep["sig_px"]) for r in self._orders(ep, IN_ROLES, live_only=True))
-
-    def _pending_add_notional(self, ep: dict) -> float:
-        """Добор, который ещё может встать (стоп не выставлен или ждёт решения движка) — место держится заранее."""
-        if not ep.get("goal_add") or ep.get("add_closed") or ep["phase"] == "exiting":
-            return 0.0
-        done = self._filled(ep, ("add",)) + sum(r["qty"] - r["filled"] for r in self._orders(ep, ("add",), live_only=True))
-        return max(ep["goal_add"] - done, 0.0) * (ep.get("add_lv") or ep["sig_px"])
-
-    def _rejected(self, ep: dict, role: str, kinds: tuple | None = None) -> int:
-        """Отказы биржи подряд по роли (с последней заявки, которая встала или исполнилась). kinds — учитывать только эти
-        типы (у тактики догона отказ post-only при пересечении стакана — норма, считаются только рыночные)."""
-        n = 0
-        rs = [r for r in self._orders(ep, (role,)) if kinds is None or r["kind"] in kinds]
-        for r in sorted(rs, key=lambda r: r["t_sent"], reverse=True):
-            if r["status"] in ("REJECTED", "ABSENT") and not r["filled"]:
-                n += 1
-            else:
-                break
-        return n
-
-    def _blocked(self, ep: dict, role: str, kinds: tuple | None = None) -> bool:
-        """Роль встала после max_rejects отказов подряд — без бесконечных повторов; сообщение раз в час."""
-        n = self._rejected(ep, role, kinds)
-        if n < self.cfg["max_rejects"]:
-            return False
-        last = ep.setdefault("alerts", {}).get(role, 0)
-        if self.ex.now() - last > 3600:
-            ep["alerts"][role] = self.ex.now()
-            note = next((r.get("note") for r in sorted(self._orders(ep, (role,)), key=lambda r: -r["t_sent"]) if r.get("note")), "")
-            self._jr({"kind": "роль встала", "slot": ep["slot"], "role": role, "rejects": n, "note": note})
-            what = {"stop": "АВАРИЙНОГО СТОПА НЕТ", "exit": "ВЫХОД НЕ ИСПОЛНЯЕТСЯ", "entry": "вход отменён", "add": "добора не будет",
-                    "target": "цели на бирже нет"}.get(role, role)
-            self._say(f"⛔ {ep['slot']} {ep['tag']}: биржа {n} раз отказала ({role}) — {what}. {note}"[:400])
-        return True
 
     def _open_side(self, ep: dict) -> str:
         return BUY if ep["side"] > 0 else SELL
@@ -328,40 +414,55 @@ class Executor:
     def _close_side(self, ep: dict) -> str:
         return SELL if ep["side"] > 0 else BUY
 
-    def _to_exit(self, ep: dict, why: str, ev: dict | None) -> None:
-        ep.update(phase="exiting", exit_reason=why, work=None, t_exit=self.ex.now())
+    def _to_exit(self, ep: dict, why: str, ev: dict | None, urgent: bool = False) -> None:
+        if ep["phase"] == "exiting":
+            ep["urgent"] = ep.get("urgent") or urgent
+            return
+        ep.update(phase="exiting", exit_reason=why, work=None, t_exit=self.ex.now(), urgent=urgent)
         if ev:
             ep.update(exit_sig_px=ev["px"], engine_res=ev.get("res"), exit_sig_t=ev["t"])
-        self._jr({"kind": "выход начат", "slot": ep["slot"], "entry_t": ep["entry_t"], "why": why, "qty": self.qty(ep)})
+        self.save()
+        self._jr({"kind": "выход начат", "slot": ep["slot"], "entry_t": ep["entry_t"], "why": why, "qty": self.qty(ep), "urgent": urgent})
 
     # ------------------------------------------------------------------ тактики
     def _work(self, ep: dict, role: str, remaining_fn, side: str, reduce: bool, tac: dict) -> bool:
-        """Довести работу (вход, выход, рыночный добор) до конца: True — сделано. Одна живая заявка на работу за раз."""
+        """Довести работу (вход, выход, рыночный добор) до конца: True — сделано. Одна живая заявка роли за раз — по реестру."""
         w = ep.get("work")
         now = self.ex.now()
         if not w or w["role"] != role:
             w = ep["work"] = {"role": role, "t0": now, "n": 0, "cur": None}
-        cur = self.st["orders"].get(w["cur"]) if w["cur"] else None
-        if cur and cur["status"] not in DONE:
-            if cur["status"] in WAITING:
-                return False                               # исход неизвестен — ждём поиска, новой заявки нет
-            if cur["kind"] == "LIMIT":
+        urgent = role == "exit" and ep.get("urgent")
+        live = self._orders(ep, (role,), live_only=True)   # из реестра: переживает падение процесса (P1-1)
+        if any(r["status"] in WAITING for r in live):
+            return False                                   # исход неизвестен — ждём поиска, новой заявки нет
+        if live:
+            for cur in live:
+                if cur["kind"] != "LIMIT":
+                    continue
                 too_long = now - w["t0"] >= tac.get("wait_s", 0)
                 stale = tac["kind"] == "chase" and now - cur["t_sent"] >= tac.get("reprice_s", 20) and self._off_best(cur)
-                if too_long or stale:
+                if urgent or too_long or stale:
                     self._cancel(cur)
             return False
         rem = remaining_fn()
         q = self.inst.floor_qty(rem)
+        px_now = None
+        if role in IN_ROLES and q >= self.inst.min_qty:   # потолок по цене исполнения (P1-5)
+            bid, ask = self.ex.book(self.sym)
+            px_now = ask if side == BUY else bid
+            allow = self.inst.floor_qty(self._allowance(ep, role) / px_now)
+            if allow < q:
+                self._jr({"kind": "потолок режет объём", "slot": ep["slot"], "role": role, "want": q, "allow": allow, "px": px_now})
+                q = allow
         if q < self.inst.min_qty:
             if rem > self.inst.lot / 2:
-                self._jr({"kind": "остаток меньше минимума", "slot": ep["slot"], "role": role, "qty": rem})
+                self._jr({"kind": "остаток меньше минимума или потолка", "slot": ep["slot"], "role": role, "qty": rem})
             ep["work"] = None
             return True
-        market = tac["kind"] == "market" or now - w["t0"] >= tac.get("wait_s", 0) or w["n"] >= tac.get("max_orders", 20)
+        market = urgent or tac["kind"] == "market" or now - w["t0"] >= tac.get("wait_s", 0) or w["n"] >= tac.get("max_orders", 20)
         if market and self._blocked(ep, role, ("MARKET",)):
             if role == "entry":                            # вход не берётся (маржа, лимиты) — эпизод закрываем тем, что налилось
-                self._to_exit(ep, f"вход: биржа {self._rejected(ep, role, ('MARKET',))} раз отказала", None)
+                self._to_exit(ep, f"вход: биржа {self._rejected(ep, role, ('MARKET',))} раз отказала", None, urgent=True)
                 return False
             if role == "add":
                 ep["add_closed"] = True
@@ -393,51 +494,97 @@ class Executor:
         best = bid if rec["side"] == BUY else ask
         return abs(best - rec["price"]) >= self.inst.tick / 2
 
-    # ------------------------------------------------------------------ защита открытого эпизода
-    def _protect(self, ep: dict, d: Desired | None) -> None:
+    def _rejected(self, ep: dict, role: str, kinds: tuple | None = None) -> int:
+        """Отказы биржи подряд по роли (с последней заявки, которая встала или исполнилась). kinds — учитывать только эти
+        типы (у тактики догона отказ post-only при пересечении стакана — норма, считаются только рыночные)."""
+        n = 0
+        rs = [r for r in self._orders(ep, (role,)) if kinds is None or r["kind"] in kinds]
+        for r in sorted(rs, key=lambda r: r["t_sent"], reverse=True):
+            if r["status"] in ("REJECTED", "ABSENT") and not r["filled"]:
+                n += 1
+            else:
+                break
+        return n
+
+    def _blocked(self, ep: dict, role: str, kinds: tuple | None = None) -> bool:
+        """После max_rejects отказов подряд роль ждёт reject_backoff_s с последней попытки, потом одна новая попытка —
+        без долбёжки биржи и без вечной блокировки (имитатор 12.11: при 30% сбоев цель вставала до конца эпизода); сообщение
+        раз в час."""
+        n = self._rejected(ep, role, kinds)
+        if n < self.cfg["max_rejects"]:
+            return False
+        rs = [r for r in self._orders(ep, (role,)) if kinds is None or r["kind"] in kinds]
+        if rs and self.ex.now() - max(r["t_sent"] for r in rs) >= self.cfg["reject_backoff_s"]:
+            return False
+        last = ep.setdefault("alerts", {}).get(role, 0)
+        if self.ex.now() - last > 3600:
+            ep["alerts"][role] = self.ex.now()
+            note = next((r.get("note") for r in sorted(self._orders(ep, (role,)), key=lambda r: -r["t_sent"]) if r.get("note")), "")
+            self._jr({"kind": "роль встала", "slot": ep["slot"], "role": role, "rejects": n, "note": note})
+            what = {"stop": "АВАРИЙНОГО СТОПА НЕТ", "exit": "ВЫХОД НЕ ИСПОЛНЯЕТСЯ", "entry": "вход отменён", "add": "добора не будет",
+                    "target": "цели на бирже нет"}.get(role, role)
+            self._say(f"⛔ {ep['slot']} {ep['tag']}: биржа {n} раз отказала ({role}) — {what}. {note}"[:400])
+        return True
+
+    # ------------------------------------------------------------------ защита
+    def _protect_stop(self, ep: dict) -> bool:
+        """Аварийный стоп на фактически исполненный объём (и во время входа). True — уровень пройден, эпизод ушёл в выход."""
         q = self.qty(ep)
-        cs = self._close_side(ep)
-        # добор
-        if ep["goal_add"] > 0:
+        stops = self._orders(ep, ("stop",), live_only=True)
+        if q < self.inst.min_qty:
+            for r in stops:
+                if r["status"] not in WAITING:
+                    self._cancel(r)
+            return False
+        avg = self._avg(ep, IN_ROLES) or ep["sig_px"]
+        trg = self.inst.round_px(avg * (1 - ep["side"] * self.cfg["emergency_pct"] / 100), "down" if ep["side"] > 0 else "up")
+        bid, ask = self.ex.book(self.sym)
+        breached = (ep["side"] > 0 and bid <= trg) or (ep["side"] < 0 and ask >= trg)
+        if stops:
+            for r in stops:
+                if r["status"] not in WAITING and (abs(r["qty"] - q) > self.inst.lot / 2 or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
+                    self._cancel(r)
+            return False
+        if breached:
+            # стопа нет, а уровень пройден (снят на замене, отказ, гэп) — стоп встал бы сразу: выходим сами, рыночным (P1-4)
+            self._to_exit(ep, f"аварийный уровень {trg:.1f} пройден, стопа на бирже нет", None, urgent=True)
+            return True
+        if not self._blocked(ep, "stop", ("STOP",)):
+            self._send(ep, "stop", "STOP", self._close_side(ep), self.inst.floor_qty(q), trigger=trg, reduce_only=True)
+        return False
+
+    def _protect(self, ep: dict, d: Desired | None, fresh: bool) -> None:
+        if self._protect_stop(ep):
+            return
+        # добор — остаток goal_add − исполнено (P1-5), в пределах потолка
+        if ep["goal_add"] > 0 and not ep.get("add_closed"):
             got = self._filled(ep, ("add",))
+            rem = ep["goal_add"] - got
             live = self._orders(ep, ("add",), live_only=True)
             waiting = any(r["status"] in WAITING for r in live)
-            if got >= ep["goal_add"] - self.inst.lot / 2 or ep.get("add_closed"):
-                pass
+            if rem < self.inst.min_qty and not live:
+                ep["add_closed"] = True
             elif d is not None and d.add_done and self.cfg["add_follow_signal"]:
-                stops = [r for r in live if r["kind"] == "STOP"]
+                stops = [r for r in live if r["kind"] == "STOP" and r["status"] not in WAITING]
                 if stops:
                     for r in stops:
                         self._cancel(r)
                 elif not waiting:
-                    if self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, {"kind": "market"}):
+                    if self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, MARKET_TAC):
                         ep["add_closed"] = True
             elif not live and ep["add_lv"] and not self._blocked(ep, "add", ("STOP",)):
                 bid, ask = self.ex.book(self.sym)
                 trg = self.inst.round_px(ep["add_lv"], "up" if ep["side"] > 0 else "down")
                 beyond = (ep["side"] > 0 and ask >= trg) or (ep["side"] < 0 and bid <= trg)
-                if not beyond:                             # цена уже за уровнем — ждём решения движка на закрытии часа
-                    self._send(ep, "add", "STOP", self._open_side(ep), ep["goal_add"], trigger=trg)
+                q = min(self.inst.floor_qty(rem), self.inst.floor_qty(self._allowance(ep, "add") / trg))
+                if not beyond and q >= self.inst.min_qty:  # цена уже за уровнем — ждём решения движка на закрытии часа
+                    self._send(ep, "add", "STOP", self._open_side(ep), q, trigger=trg)
         q = self.qty(ep)
-        # аварийный стоп на весь объём эпизода
-        stops = self._orders(ep, ("stop",), live_only=True)
-        avg = self._avg(ep, IN_ROLES) or ep["sig_px"]
-        trg = self.inst.round_px(avg * (1 - ep["side"] * self.cfg["emergency_pct"] / 100), "down" if ep["side"] > 0 else "up")
-        if stops:
-            for r in stops:
-                if r["status"] not in WAITING and (abs(r["qty"] - q) > self.inst.lot / 2 or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
-                    self._cancel(r)
-        elif q >= self.inst.min_qty:
-            bid, ask = self.ex.book(self.sym)
-            if (ep["side"] > 0 and bid <= trg) or (ep["side"] < 0 and ask >= trg):
-                # аварийный уровень уже пройден (стоп снят на замене, пропуск, гэп) — стоп встал бы сразу: выходим сами
-                self._to_exit(ep, f"аварийный уровень {trg:.1f} пройден, стопа на бирже нет", None)
-                return
-            if not self._blocked(ep, "stop", ("STOP",)):
-                self._send(ep, "stop", "STOP", cs, self.inst.floor_qty(q), trigger=trg, reduce_only=True)
-        # цель шорта под жёлтой
+        # цель шорта под жёлтой: при несвежих данных держится последняя подтверждённая (разбор: step(None) снимал цель)
+        if fresh:
+            ep["last_target"] = self.inst.round_px(d.target, "up" if ep["side"] < 0 else "down") if (d is not None and d.target) else None
+        want = ep.get("last_target")
         tg = self._orders(ep, ("target",), live_only=True)
-        want = self.inst.round_px(d.target, "up" if ep["side"] < 0 else "down") if (d is not None and d.target) else None
         if tg:
             for r in tg:
                 if r["status"] in WAITING:
@@ -445,18 +592,17 @@ class Executor:
                 if want is None or abs(r["price"] - want) >= self.inst.tick / 2 or abs(r["qty"] - (r["filled"] + q)) > self.inst.lot / 2:
                     self._cancel(r)
         elif want is not None and q >= self.inst.min_qty and not self._blocked(ep, "target", ("LIMIT",)):
-            self._send(ep, "target", "LIMIT", cs, self.inst.floor_qty(q), price=want, reduce_only=True)
+            self._send(ep, "target", "LIMIT", self._close_side(ep), self.inst.floor_qty(q), price=want, reduce_only=True)
 
     # ------------------------------------------------------------------ выход
     def _exiting(self, ep: dict) -> None:
-        live_other = [r for r in self._orders(ep, live_only=True) if r["role"] != "exit"]
-        for r in live_other:
+        for r in [r for r in self._orders(ep, live_only=True) if r["role"] != "exit"]:
             self._cancel(r)
         if [r for r in self._orders(ep, live_only=True) if r["role"] != "exit"]:
-            return                                         # ждём, пока стопы, цель и вход станут конечными
+            return                                         # ждём, пока стопы, цель, вход и добор станут конечными
         q = self.qty(ep)
         if q > self.inst.lot / 2:
-            self._work(ep, "exit", lambda: self.qty(ep), self._close_side(ep), True, self.cfg["exit"])
+            self._work(ep, "exit", lambda: self.qty(ep), self._close_side(ep), True, MARKET_TAC if ep.get("urgent") else self.cfg["exit"])
             return
         if self._orders(ep, live_only=True):
             return
@@ -467,8 +613,9 @@ class Executor:
         slip = ep["side"] * (avg / ep["sig_px"] - 1) * 10000 if avg else 0.0
         fee = sum(r["fee"] for r in self._orders(ep, ("entry",)))
         self._jr({"kind": "вход исполнен", "slot": ep["slot"], "entry_t": ep["entry_t"], "qty": q, "avg": avg, "sig_px": ep["sig_px"], "slip_bps": round(slip, 2),
-                  "fee": fee, "delay_s": round(self.ex.now() - ep["entry_t"], 1)})
-        self._say(f"{'🟢' if ep['side'] > 0 else '🔴'} {ep['slot']} {ep['tag']}: вход {q:g} по {avg:.1f} (сигнал {ep['sig_px']:.1f}, {slip:+.1f} б.п.), "
+                  "fee": fee, "boost": ep.get("boost", 1.0), "delay_s": round(self.ex.now() - ep["entry_t"], 1)})
+        boost = f", усиление 432 ×{ep['boost']:g}" if ep.get("boost", 1.0) != 1.0 else ""
+        self._say(f"{'🟢' if ep['side'] > 0 else '🔴'} {ep['slot']} {ep['tag']}: вход {q:g} по {avg:.1f} (сигнал {ep['sig_px']:.1f}, {slip:+.1f} б.п.){boost}, "
                   f"комиссия ${fee:.2f}, через {int(self.ex.now() - ep['entry_t'])} с после закрытия 4ч")
 
     def _finish(self, ep: dict) -> None:
@@ -479,7 +626,7 @@ class Executor:
         fee = sum(r["fee"] for r in ins + outs)
         q_in = sum(r["filled"] for r in ins)
         pnl = ep["side"] * (v_out - v_in) - fee
-        rec = {"kind": "сделка", "slot": ep["slot"], "entry_t": ep["entry_t"], "tag": ep["tag"], "side": ep["side"], "qty": q_in,
+        rec = {"kind": "сделка", "slot": ep["slot"], "entry_t": ep["entry_t"], "tag": ep["tag"], "side": ep["side"], "qty": q_in, "boost": ep.get("boost", 1.0),
                "avg_in": v_in / q_in if q_in else None, "avg_out": v_out / q_in if q_in else None, "sig_in": ep["sig_px"], "sig_out": ep.get("exit_sig_px"),
                "fee": round(fee, 4), "pnl_usd": round(pnl, 4), "engine_res_pct": ep.get("engine_res"),
                "engine_usd": round(ep["engine_res"] / 100 * self.cfg["base_usd"], 4) if ep.get("engine_res") is not None else None,
@@ -495,67 +642,84 @@ class Executor:
 
     # ------------------------------------------------------------------ сверка и уборка
     def _audit(self) -> None:
-        """Позиция счёта меньше своего учёта два прохода подряд — кто-то закрыл наши контракты: учёт уменьшается
-        записью «извне» по текущей цене, сообщение. Больше — чужие сделки (ручные, другие боты): не наше дело."""
+        """Позиция стороны меньше своего учёта два прохода подряд (счётчик ПО СТОРОНЕ) — кто-то закрыл наши контракты: учёт
+        уменьшается записью «извне» по текущей цене. Больше — чужие сделки: не наше дело."""
         if not getattr(self.ex, "hedge", True):
             return
-        eps = [S["ep"] for S in self.st["slots"].values() if S["ep"]]
+        eps = self._eps()
         if not eps or any(r["status"] in WAITING for r in self.st["orders"].values()):
             return
         try:
             pos = self.ex.position(self.sym)
         except Exception:  # noqa: BLE001
             return
-        bad = False
+        bad = self.st["audit_bad"]
         for side in (LONG, SHORT):
-            own = sum(self.qty(e) for e in eps if e["pos_side"] == side)
-            short = own - float(pos.get(side, 0.0))
+            short = self._side_own(side) - float(pos.get(side, 0.0))
             if short > self.inst.lot / 2:
-                bad = True
-                if self.st.get("audit_bad", 0) >= 1:
+                bad[side] = bad.get(side, 0) + 1
+                if bad[side] >= 2:
                     self._external(eps, side, short)
-        self.st["audit_bad"] = self.st.get("audit_bad", 0) + 1 if bad else 0
+                    bad[side] = 0
+            else:
+                bad[side] = 0
 
     def _external(self, eps: list[dict], side: str, short: float) -> None:
         bid, ask = self.ex.book(self.sym)
         px = (bid + ask) / 2
+        notes = []
         for ep in sorted((e for e in eps if e["pos_side"] == side), key=lambda e: -self.qty(e)):
             take = min(short, self.qty(ep))
             if take <= 0:
                 continue
-            cid = f"ext{ep['slot'][0]}{_b36(self.st['seq'] + 1)}"
             self.st["seq"] += 1
-            self.st["orders"][cid] = {"cid": cid, "ep": ep["id"], "role": "external", "kind": "EXTERNAL", "side": self._close_side(ep), "qty": take, "price": px,
-                                      "trigger": None, "status": "FILLED", "filled": take, "avg": px, "fee": 0.0, "oid": "", "t_sent": self.ex.now(),
-                                      "t_done": self.ex.now()}
+            cid = f"ext{ep['slot'][0]}{_b36(self.st['seq'])}"
+            self.st["orders"][cid] = {"cid": cid, "ep": ep["id"], "role": "external", "kind": "EXTERNAL", "side": self._close_side(ep), "pos_side": side,
+                                      "qty": take, "price": px, "trigger": None, "status": "FILLED", "filled": take, "avg": px, "fee": 0.0, "oid": "",
+                                      "t_sent": self.ex.now(), "t_done": self.ex.now()}
             short -= take
+            notes.append((ep, take))
+        self.save()                                         # учёт до журнала (разбор: _external писал журнал первым)
+        for ep, take in notes:
             self._jr({"kind": "закрыто извне", "slot": ep["slot"], "qty": take, "px": px})
             self._say(f"⚠️ {ep['slot']}: на бирже {side} меньше учёта на {take:g} — закрыто не мной, учёт уменьшен по {px:.1f}")
-        self.st["audit_bad"] = 0
 
     def _gc(self) -> None:
         """Конечные заявки закрытых эпизодов старше суток — из реестра (журнал хранит всё)."""
-        live_eps = {S["ep"]["id"] for S in self.st["slots"].values() if S["ep"]}
+        live_eps = {e["id"] for e in self._eps()}
         now = self.ex.now()
         for cid in [c for c, r in self.st["orders"].items() if r["ep"] not in live_eps and r["status"] in DONE and now - (r["t_done"] or now) > 86400]:
             del self.st["orders"][cid]
 
     # ------------------------------------------------------------------ команды
     def close_all(self, why: str = "команда: закрыть всё") -> None:
-        for S in self.st["slots"].values():
-            if S["ep"] and S["ep"]["phase"] != "exiting":
-                self._to_exit(S["ep"], why, None)
+        """Новые входы запрещены до reopen(); открытые эпизоды — в выход рыночным."""
+        self.st["closing"] = True
+        for ep in self._eps():
+            self._to_exit(ep, why, None, urgent=True)
         self.save()
+        self._jr({"kind": "закрыть всё", "why": why})
+
+    def reopen(self) -> None:
+        self.st["closing"] = False
+        self.save()
+        self._jr({"kind": "входы разрешены"})
+
+    def flat(self) -> bool:
+        """Эпизодов нет и ни одной незавершённой своей заявки."""
+        return not self._eps() and not any(r["status"] not in DONE for r in self.st["orders"].values())
 
     def status(self) -> dict:
-        out = {}
+        out = {"closing": self.st.get("closing", False)}
         for slot, S in self.st["slots"].items():
             ep = S["ep"]
             if not ep:
                 out[slot] = None
                 continue
             out[slot] = {"phase": ep["phase"], "side": ep["side"], "tag": ep["tag"], "qty": self.qty(ep), "avg": self._avg(ep, IN_ROLES), "sig_px": ep["sig_px"],
+                         "boost": ep.get("boost", 1.0),
                          "live": [(r["role"], r["kind"], r["price"] or r["trigger"], r["status"]) for r in self._orders(ep, live_only=True)]}
+        out["unresolved"] = [c for c, r in self.st["orders"].items() if r["status"] == "UNRESOLVED"]
         return out
 
 

@@ -77,9 +77,13 @@ class BybitExchange(Exchange):
         try:
             r = self._http(method, url, h, data)
         except urllib.error.HTTPError as e:
-            if 400 <= e.code < 500 and e.code not in (408, 429):
-                raise Rejected(f"bybit HTTP {e.code}") from None
-            raise Unknown(f"bybit HTTP {e.code}") from None
+            # код — из тела; тело без retCode — исход неизвестен, не отказ (разбор aadc2a4, P1-2 — то же правило, что для OKX)
+            try:
+                r = json.loads(e.read().decode())
+            except Exception:  # noqa: BLE001
+                raise Unknown(f"bybit HTTP {e.code} без разбираемого тела") from None
+            if not isinstance(r, dict) or "retCode" not in r:
+                raise Unknown(f"bybit HTTP {e.code}: {str(r)[:120]}") from None
         except Exception as e:  # noqa: BLE001 — таймаут, сеть: исход неизвестен
             raise Unknown(f"bybit {path}: {e!r}") from None
         if not isinstance(r, dict) or "retCode" not in r:
@@ -169,7 +173,16 @@ def parse_order(x: dict) -> OrderInfo:
         raise Incomplete(f"bybit: неизвестный статус {x.get('orderStatus')}")
     filled = float(x.get("cumExecQty") or 0)
     avg = float(x.get("avgPrice") or 0) if filled else 0.0
-    return OrderInfo(cid=x.get("orderLinkId", ""), status=st, filled=filled, avg=avg, fee=float(x.get("cumExecFee") or 0), oid=str(x.get("orderId", "")), raw=x)
+    # комиссия: актуальное поле cumFeeDetail {"USDT": …}, устаревшее cumExecFee — запасное; нет ни того ни другого при
+    # исполнении — комиссия не дочитана (разбор aadc2a4)
+    detail = x.get("cumFeeDetail") if isinstance(x.get("cumFeeDetail"), dict) else {}
+    if "USDT" in detail:
+        fee, known = float(detail["USDT"] or 0), True
+    elif x.get("cumExecFee") not in (None, ""):
+        fee, known = float(x["cumExecFee"]), True
+    else:
+        fee, known = 0.0, filled == 0
+    return OrderInfo(cid=x.get("orderLinkId", ""), status=st, filled=filled, avg=avg, fee=fee, oid=str(x.get("orderId", "")), raw=x, fee_known=known)
 
 
 def sign(secret: str, payload: str) -> str:

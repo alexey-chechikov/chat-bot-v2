@@ -31,12 +31,27 @@ class Desired:
     target: float | None  # цель шорта под жёлтой на следующий час (лимитка reduceOnly)
     exit_by_t: int | None
     exit_text: str
+    boost: float = 1.0    # усиление 432: main_frac и add_frac уже умножены на него
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
-def _system(pos: dict | None, a: dict) -> Desired | None:
+def q432_long_at(ev432: list[dict], pos432: dict | None, t: int) -> bool:
+    """432 в лонге на закрытии часа t: вошёл на этом закрытии или раньше и ещё не вышел (выход на t — уже не в лонге).
+    Только по событиям не позже t — без заглядывания."""
+    entry = None
+    for e in ev432:
+        if e["t"] > t:
+            break
+        if e["kind"] == "вход":
+            entry = e["t"]
+        elif e["kind"] == "выход":
+            entry = None
+    return entry is not None
+
+
+def _system(pos: dict | None, a: dict, boost: float = 1.0) -> Desired | None:
     if not pos:
         return None
     main = pos["tag"] in en.MAIN
@@ -51,9 +66,9 @@ def _system(pos: dict | None, a: dict) -> Desired | None:
     else:
         ex = f"2 закрытия 4ч над зелёной ({a['f_G'][-1]:.0f})"
     return Desired(slot=SYSTEM, entry_t=int(pos["entry_t"]), side=int(pos["side"]), tag=pos["tag"], w=float(pos["w"]), sig_px=float(pos["entry"]),
-                   main_frac=float(pos["w"]) * (en.FIRST if main else 1.0), add_lv=float(pos["add_lv"]) if main else None,
-                   add_frac=float(pos["w"]) * en.ADD if main else 0.0, add_done=bool(pos["add_done"]) if main else False,
-                   target=target, exit_by_t=None, exit_text=ex)
+                   main_frac=float(pos["w"]) * (en.FIRST if main else 1.0) * boost, add_lv=float(pos["add_lv"]) if main else None,
+                   add_frac=float(pos["w"]) * en.ADD * boost if main else 0.0, add_done=bool(pos["add_done"]) if main else False,
+                   target=target, exit_by_t=None, exit_text=ex, boost=boost)
 
 
 def _q432(pos: dict | None, lv: dict) -> Desired | None:
@@ -64,18 +79,28 @@ def _q432(pos: dict | None, lv: dict) -> Desired | None:
                    exit_text=f"закрытие 4ч ниже {lv['next_lo30']:.0f} или по времени")
 
 
-def evaluate(t, o, h, l, c, slots=(SYSTEM, Q432)) -> dict:
-    """Часы (t — закрытие часа) → {"t": последний час, "desired": {слот: Desired|None}, "events": события последнего часа}."""
+def evaluate(t, o, h, l, c, slots=(SYSTEM, Q432), boost_432: float = 1.0) -> dict:
+    """Часы (t — закрытие часа) → {"t": последний час, "desired": {слот: Desired|None}, "events": события последнего часа}.
+
+    boost_432 (поручение оператора 12.11): если на закрытии 4ч входа системы 432 в лонге (вошёл тем же закрытием или раньше),
+    целевой объём этого эпизода (первый лот и добор) × boost_432. 432 только лонг — шорты системы не усиливаются. Решение
+    фиксируется по времени входа и не меняется до конца эпизода. Замер 12.11 (research/sigexec_20261112/NOTES.md): за
+    2018–26 такие входы лучше прочих, за последние 2 года — хуже (9 сделок), поэтому по умолчанию 1.0 (выключено)."""
+    if not (isinstance(boost_432, (int, float)) and 1.0 <= boost_432 <= 3.0):
+        raise ValueError(f"boost_432 {boost_432!r}: допустимо 1.0–3.0")
     a, lay = lines.build(t, o, h, l, c, i0_t=int(np.asarray(t)[0]))
     out = {"t": int(a["t"][-1]), "desired": {}, "events": [], "levels": {}}
     t_last = int(a["t"][-1])
+    ev4 = pos4 = lv = None
+    if Q432 in slots or boost_432 != 1.0:
+        ev4, pos4, lv = en.simulate432(a)
     if SYSTEM in slots:
         ev, pos = en.simulate(a, lay)
-        out["desired"][SYSTEM] = _system(pos, a)
+        boost = boost_432 if (pos and pos["side"] == 1 and boost_432 != 1.0 and q432_long_at(ev4, pos4, int(pos["entry_t"]))) else 1.0
+        out["desired"][SYSTEM] = _system(pos, a, boost)
         out["events"] += [_ev(e, SYSTEM) for e in ev if e["t"] == t_last]
         out["levels"][SYSTEM] = {"G": float(a["f_G"][-1]), "Y": float(a["f_Y"][-1]), "R": float(a["f_R"][-1]), "B": float(a["f_B"][-1])}
     if Q432 in slots:
-        ev4, pos4, lv = en.simulate432(a)
         out["desired"][Q432] = _q432(pos4, lv)
         out["events"] += [_ev(e, Q432) for e in ev4 if e["t"] == t_last]
         out["levels"][Q432] = lv
