@@ -10,6 +10,8 @@
 // 432 (09.11.2026, отдельная стратегия, только лонг, фиолетовым): закрытие 4ч выше максимума 30 прошлых свечей 4ч на ≥0.5 ATR14, ADX14 ≥22, выше синей;
 //   выход — закрытие 4ч ниже минимума 30 прошлых свечей или через 20 свечей 4ч; $1000 целиком, без добора. Как services/btc_signals/engine.simulate432
 //   (116 из 116 сделок совпали с research/chart_walk_20261105/btc_vs_432.py). BTC 2018–26: +326; вместе с системой +863 / −52 против +556 / −34.
+// 432 ансамблем (12.11.2026, research/sigexec_20261112/NOTES.md §6б, как services/sigexec ENSEMBLE_432): шесть частей по 1/6 базы, окна 20/25/30/35/40/45,
+//   остальные правила те же. При той же просадке, что у окна 30: Binance spot 3 года +$1 388 против +$788, перп Bybit +$996 против +$591.
 // Линии: зелёная TEMA50, жёлтая TEMA100, красная TEMA200, голубая EMA200, 4ч и 1ч. Значение 4ч на часе — последняя ЗАКРЫТАЯ свеча 4ч.
 // Сигнал и вход — по закрытию часа, цель и стоп — по уровню или открытию часа. Итог — % от номинала сделки, издержка 0.068% на сторону (как ledger.py), БЕЗ фандинга.
 // Сверять с Python надо на BINANCE:BTCUSDT 1ч: Bybit и другие биржи дают другие цены, значит и другие сделки.
@@ -35,6 +37,7 @@ pyrAdd = input.float(0.5, "Добор", minval=0.25, step=0.25, group=grpP)
 pyrX = input.float(2.0, "Добор на ходе, ATR 4ч", minval=0.5, step=0.5, group=grpP)
 
 grpQ = "432 (пробой 4ч)"
+q432Ens = input.bool(true, "432 ансамблем окон 20–45 (по 1/6)", group=grpQ, tooltip="Шесть частей по 1/6 базы с окнами 20/25/30/35/40/45 свечей 4ч, остальные правила 432 те же. Выключено — одно окно 30, как раньше. При той же просадке ансамбль за 3 года: Binance spot +$1 388 против +$788, перп Bybit +$996 против +$591.")
 on432 = input.bool(true, "Показывать 432", group=grpQ, tooltip="Отдельная стратегия, только лонг, графики 1ч и 4ч. Вход: закрытие 4ч выше максимума 30 прошлых свечей на 0.5 ATR и больше, ADX ≥22, выше синей. Выход: закрытие ниже минимума 30 свечей или через 20 свечей 4ч. BTC 2018–26: 116 сделок, +326 на $1000; вместе с системой +863 / −52.")
 
 grpO = "Вариант A (только 1ч)"
@@ -123,6 +126,9 @@ f_432() =>
 // Час, на котором закрылась свеча 4ч, берёт её итог. Остальные часы — последнюю закрытую, без перерисовки.
 [c4a, g4a, y4a, r4a, b4a, t4a, rka, mda, pca] = request.security(syminfo.tickerid, "240", f_4h(), lookahead=barmerge.lookahead_off)
 [qHi, qLo, qAdx, qHiN, qLoN] = request.security(syminfo.tickerid, "240", f_432(), lookahead=barmerge.lookahead_off)
+f_432e() =>
+    [ta.highest(high, 20)[1], ta.lowest(low, 20)[1], ta.highest(high, 25)[1], ta.lowest(low, 25)[1], ta.highest(high, 30)[1], ta.lowest(low, 30)[1], ta.highest(high, 35)[1], ta.lowest(low, 35)[1], ta.highest(high, 40)[1], ta.lowest(low, 40)[1], ta.highest(high, 45)[1], ta.lowest(low, 45)[1]]
+[e20h, e20l, e25h, e25l, e30h, e30l, e35h, e35l, e40h, e40l, e45h, e45l] = request.security(syminfo.tickerid, "240", f_432e(), lookahead=barmerge.lookahead_off)
 [c4b, g4b, y4b, r4b, b4b, t4b, rkb, mdb, pcb] = request.security(syminfo.tickerid, "240", f_4h_prev(), lookahead=barmerge.lookahead_on)
 new4 = time_close % H4_MS == 0
 fc   = new4 ? c4a : c4b
@@ -435,7 +441,7 @@ var float qAtrNow = na
 var float qB4Now = na
 int qFlag = 0
 
-if barstate.isconfirmed and on432 and (isH1 or isH4) and new4
+if barstate.isconfirmed and on432 and not q432Ens and (isH1 or isH4) and new4
     qHiNow := qHiN
     qLoNow := qLoN
     qAdxNow := qAdx
@@ -477,7 +483,67 @@ if barstate.isconfirmed and on432 and (isH1 or isH4) and new4
             label.new(bar_index, low, "432 L" + (labelMode == "Подробно" ? "\n" + qIn : ""), style=label.style_label_up, color=color.new(C_Q, 15), textcolor=color.white, size=size.small, tooltip=str.format_time(time_close, "dd.MM.yyyy HH:mm", "UTC") + " UTC\nвход " + str.tostring(close, format.mintick) + "\n" + qIn + "\nвыход: ниже минимума 30 свечей или через 20 свечей 4ч")
         alert(syminfo.ticker + " bot7: 432 ЛОНГ по " + str.tostring(close, format.mintick) + ", " + qIn + ", выход: ниже минимума 30 свечей 4ч или через 20 свечей", alert.freq_once_per_bar_close)
 
+// ── 432 ансамблем окон 20–45: шесть частей по 1/6 базы, у каждой своё окно, своя позиция, свой выход (как services/sigexec)
+var array<int> qeSide = array.new_int(6, 0)
+var array<float> qeEntry = array.new_float(6, na)
+var array<int> qeBars = array.new_int(6, 0)
+var array<int> qeTime = array.new_int(6, 0)
+var int qeK = 0
+var int qeN = 0
+var float qeSum = 0.0
+var string qeLast = "—"
+int qeFlag = 0
+qeHi = array.from(e20h, e25h, e30h, e35h, e40h, e45h)
+qeLo = array.from(e20l, e25l, e30l, e35l, e40l, e45l)
+
+if barstate.isconfirmed and on432 and q432Ens and (isH1 or isH4) and new4
+    qAdxNow := qAdx
+    qAtrNow := t4a
+    qB4Now := b4a
+    int nIn = 0
+    int nOut = 0
+    float outSum = 0.0
+    for i = 0 to 5
+        float hiI = array.get(qeHi, i)
+        float loI = array.get(qeLo, i)
+        if array.get(qeSide, i) == 1
+            array.set(qeBars, i, array.get(qeBars, i) + 1)
+            if c4a < loI or array.get(qeBars, i) >= Q_HOLD
+                float eI = array.get(qeEntry, i)
+                float net = (close / eI - 1) * 100 - SIDE_COST - SIDE_COST * (close / eI)
+                if array.get(qeTime, i) >= statsFrom
+                    qeN += 1
+                    qeSum += net / 6
+                outSum += net / 6
+                nOut += 1
+                array.set(qeSide, i, 0)
+        else if not na(hiI) and not na(t4a) and c4a > hiI and qAdx >= Q_ADX and c4a > b4a and (c4a - hiI) / t4a >= Q_BRK
+            array.set(qeSide, i, 1)
+            array.set(qeEntry, i, close)
+            array.set(qeBars, i, 0)
+            array.set(qeTime, i, time_close)
+            nIn += 1
+    int k = 0
+    for i = 0 to 5
+        k += array.get(qeSide, i)
+    qeK := k
+    if nOut > 0
+        qeFlag := -1
+        qeLast := str.format_time(time_close, "dd.MM.yy HH:mm", "UTC") + ": закрыто частей " + str.tostring(nOut) + ", " + str.tostring(outSum, "+0.00;-0.00") + "% базы"
+        if showLabels
+            label.new(bar_index, close, "432 −" + str.tostring(nOut) + " → " + str.tostring(k) + "/6 · " + str.tostring(outSum, "+0.00;-0.00") + "% базы" + (outSum >= 0 ? " +$" : " −$") + str.tostring(math.abs(outSum) * 10, "0.0") + " на $1000", style=label.style_none, textcolor=C_Q, size=size.small, tooltip="432 ансамбль: частей закрыто " + str.tostring(nOut) + ", их итог " + str.tostring(outSum, "+0.00;-0.00") + "% базы (каждая 1/6)")
+        alert(syminfo.ticker + " bot7: 432 ансамбль — закрыто частей " + str.tostring(nOut) + ", в лонге " + str.tostring(k) + "/6, итог " + str.tostring(outSum, "+0.00;-0.00") + "% базы, цена " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+    if nIn > 0
+        qeFlag := 1
+        if showLabels
+            label.new(bar_index, low, "432 +" + str.tostring(nIn) + " → " + str.tostring(k) + "/6", style=label.style_label_up, color=color.new(C_Q, 15), textcolor=color.white, size=size.small, tooltip=str.format_time(time_close, "dd.MM.yyyy HH:mm", "UTC") + " UTC\nвход частей " + str.tostring(nIn) + " по " + str.tostring(close, format.mintick) + ", каждая 1/6 базы\nв лонге " + str.tostring(k) + " из 6")
+        alert(syminfo.ticker + " bot7: 432 ансамбль — вошло частей " + str.tostring(nIn) + " по " + str.tostring(close, format.mintick) + ", в лонге " + str.tostring(k) + "/6 (каждая 1/6 базы)", alert.freq_once_per_bar_close)
+
+bgcolor(on432 and q432Ens and qeK > 0 and (isH1 or isH4) ? color.new(C_Q, 97 - qeK) : na, title="432 ансамбль: частей в лонге")
+
 // ── оповещения: те же события, что и alert() выше, для обычного окна создания оповещения
+alertcondition(qeFlag == 1, title="bot7: 432 ансамбль — части вошли", message="{{ticker}} bot7: 432 ансамбль — части вошли, цена {{close}}")
+alertcondition(qeFlag == -1, title="bot7: 432 ансамбль — части закрыты", message="{{ticker}} bot7: 432 ансамбль — части закрыты, цена {{close}}")
 alertcondition(qFlag == 1, title="bot7: 432 вход в лонг", message="{{ticker}} bot7: 432 вход в лонг, цена {{close}}")
 alertcondition(qFlag == -1, title="bot7: 432 закрыть лонг", message="{{ticker}} bot7: 432 закрыть лонг, цена {{close}}")
 alertcondition(entryFlag == 1 and side == 1, title="bot7: вход в лонг", message="{{ticker}} bot7: вход в лонг, цена {{close}}")
@@ -592,6 +658,9 @@ if barstate.islast and tableMode != "Скрыть"
         volTxt = "Волатильность: ранг " + (na(rk4) ? "нет данных" : str.tostring(rk4, "#") + "%") + ", шорт " + (shortOk ? "разрешён" : "запрещён") + ", размер новой сделки ×" + str.tostring(sizeNow, "0.00") + (side != 0 ? ", открытой ×" + str.tostring(entrySize, "0.00") : "")
         qTxt = qSide == 1 ? "432: ЛОНГ с " + str.format_time(qEntryTime, "dd.MM HH:mm", "UTC") + ", вход " + str.tostring(qEntry, "#") + ", сейчас " + str.tostring((close / qEntry - 1) * 100, "+0.00;-0.00") + "%, выход: закрытие 4ч ниже " + str.tostring(qLoNow, "#") + " или через " + str.tostring(Q_HOLD - qBars) + " свечей 4ч" : "432: позиции нет; вход — закрытие 4ч выше ≈" + str.tostring(qHiNow + Q_BRK * qAtrNow, "#") + ", ADX " + str.tostring(qAdxNow, "#") + (qAdxNow >= Q_ADX ? " ✓" : " (нужно ≥22)") + (close > qB4Now ? ", над синей ✓" : ", под синей")
         qSumTxt = "432 закрытых с " + str.format_time(statsFrom, "dd.MM.yyyy", "UTC") + ": " + str.tostring(qN) + ", итог " + str.tostring(qSum, "+0.0;-0.0") + "% · последняя: " + qLast
+        if q432Ens
+            qTxt := "432 ансамбль 20–45: в лонге " + str.tostring(qeK) + " из 6 частей (каждая 1/6 базы); ADX " + str.tostring(qAdxNow, "#") + (qAdxNow >= Q_ADX ? " ✓" : " (нужно ≥22)") + (close > qB4Now ? ", над синей ✓" : ", под синей")
+            qSumTxt := "432 ансамбль, закрытых частей с " + str.format_time(statsFrom, "dd.MM.yyyy", "UTC") + ": " + str.tostring(qeN) + ", итог " + str.tostring(qeSum, "+0.0;-0.0") + "% базы · последнее: " + qeLast
         if tableMode == "Коротко"
             f_span(tb, 0, headTxt)
             f_span(tb, 1, posTxt)

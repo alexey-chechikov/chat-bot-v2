@@ -142,7 +142,7 @@ def bars4(a: dict) -> dict:
             "c": np.asarray(a["c"], float)[last], "last_i": last, "done": t[last] % H4 == 0, "close_t": (k[first] + 1) * H4}
 
 
-def ind432(b: dict) -> dict:
+def ind432(b: dict, ch: int = CH432) -> dict:
     h, l, c = b["h"], b["l"], b["c"]
     pc = np.r_[c[0], c[:-1]]
     tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
@@ -155,20 +155,20 @@ def ind432(b: dict) -> dict:
     adx = rma(np.where(np.isfinite(dx), dx, np.nan), 14)
     n = len(c)
     hi30, lo30 = np.full(n, np.nan), np.full(n, np.nan)
-    for k in range(CH432, n):
-        hi30[k], lo30[k] = h[k - CH432:k].max(), l[k - CH432:k].min()
-    nxt_hi = np.array([h[max(k - CH432 + 1, 0):k + 1].max() for k in range(n)])
-    nxt_lo = np.array([l[max(k - CH432 + 1, 0):k + 1].min() for k in range(n)])
+    for k in range(ch, n):
+        hi30[k], lo30[k] = h[k - ch:k].max(), l[k - ch:k].min()
+    nxt_hi = np.array([h[max(k - ch + 1, 0):k + 1].max() for k in range(n)])
+    nxt_lo = np.array([l[max(k - ch + 1, 0):k + 1].min() for k in range(n)])
     return {"atr": atr, "adx": adx, "e200": ema(c, 200), "hi30": hi30, "lo30": lo30, "next_hi30": nxt_hi, "next_lo30": nxt_lo}
 
 
-def simulate432(a: dict) -> tuple[list[dict], dict | None, dict]:
+def simulate432(a: dict, ch: int = CH432) -> tuple[list[dict], dict | None, dict]:
     """432 (research/btc432_20261103, btc_vs_432.s432), только лонг, по закрытым свечам 4ч.
     Вход: закрытие выше максимума 30 прошлых свечей, пробой ≥0.5 ATR14, ADX14 ≥22, закрытие выше EMA200 4ч.
     Выход: закрытие ниже минимума 30 прошлых свечей или 20 свечей с сигнала. Одна позиция, размер 1.0 базы.
     Цена — закрытие свечи 4ч (в разборе — открытие следующей, это та же минута). → (события, позиция, уровни последней свечи)."""
     b = bars4(a)
-    x = ind432(b)
+    x = ind432(b, ch)
     c, atr, adx, e200, hi30, lo30 = b["c"], x["atr"], x["adx"], x["e200"], x["hi30"], x["lo30"]
     t = np.asarray(a["t"], np.int64)
     with np.errstate(invalid="ignore", divide="ignore"):

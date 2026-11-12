@@ -15,15 +15,14 @@ from services.btc_signals import engine as en
 from . import lines
 from .exchange.sim import SimExchange
 from .executor import Executor
-from .strategy import Q432, SYSTEM, Desired
+from .strategy import Q432, SYSTEM, Desired, q432_window
 
 
-def desired_by_hour(a: dict, ev: list[dict], ev432: list[dict]) -> tuple[dict, dict]:
-    """→ ({час: {слот: Desired|None}}, {час: [события часа]}) — только часы, где что-то меняется, плюс соседние."""
-    t = a["t"]
-    out: dict[int, dict] = {}
+def desired_by_hour(a: dict, ev: list[dict], ev432: list[dict], extra: list | None = None) -> tuple[dict, dict]:
+    """→ ({слот: {час: (что, позиция)}}, {час: [события часа]}). extra — [(слот, события)] частей ансамбля окон 432."""
+    out: dict[str, dict] = {}
     evs: dict[int, list] = {}
-    for slot, E in ((SYSTEM, ev), (Q432, ev432)):
+    for slot, E in [(SYSTEM, ev), (Q432, ev432)] + list(extra or []):
         cur = None
         add_done_i = None
         for e in E:
@@ -42,11 +41,12 @@ def desired_by_hour(a: dict, ev: list[dict], ev432: list[dict]) -> tuple[dict, d
     return out, evs
 
 
-def to_desired(slot: str, p: dict | None, a: dict, i: int) -> Desired | None:
+def to_desired(slot: str, p: dict | None, a: dict, i: int, n_parts: int = 1) -> Desired | None:
     if p is None:
         return None
-    if slot == Q432:
-        return Desired(slot=Q432, entry_t=int(p["entry_t"]), side=1, tag=en.TAG432, w=1.0, sig_px=float(p["entry"]), main_frac=1.0, add_lv=None, add_frac=0.0,
+    if q432_window(slot):
+        return Desired(slot=slot, entry_t=int(p["entry_t"]), side=1, tag=en.TAG432, w=1.0, sig_px=float(p["entry"]),
+                       main_frac=1.0 if slot == Q432 else 1.0 / n_parts, add_lv=None, add_frac=0.0,
                        add_done=False, target=None, exit_by_t=int(p["exit_by_t"]), exit_text="")
     main = p["tag"] in en.MAIN
     target = None
@@ -69,7 +69,9 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
     a, lay = lines.build(t, o, h, l, c, i0_t=int(t[0]))
     ev, _ = en.simulate(a, lay)
     ev4, _, _ = en.simulate432(a)
-    marks, evs = desired_by_hour(a, ev if SYSTEM in slots else [], ev4 if Q432 in slots else [])
+    parts = [s for s in slots if s != Q432 and q432_window(s)]
+    extra = [(s, en.simulate432(a, ch=q432_window(s))[0]) for s in parts]
+    marks, evs = desired_by_hour(a, ev if SYSTEM in slots else [], ev4 if Q432 in slots else [], extra)
     i0 = int(np.searchsorted(a["t"], t_from))
     # позиция на старте окна
     state = {s: None for s in slots}
@@ -94,7 +96,7 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
             if i in marks.get(s, {}):
                 kind, p = marks[s][i]
                 state[s] = None if kind == "flat" else p
-        desired = {s: to_desired(s, state[s], a, i) for s in slots}
+        desired = {s: to_desired(s, state[s], a, i, max(len(parts), 1)) for s in slots}
         ex._t = float(a["t"][i]) + 5
         ex.move(float(a["c"][i]))
         for k in range(steps):
@@ -112,5 +114,7 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
         ex.bar(float(a["o"][nb]), float(a["h"][nb]), float(a["l"][nb]), float(a["c"][nb]))
     import json
     trades = [json.loads(x) for x in (workdir / "jr.jsonl").read_text().splitlines() if '"сделка"' in x]
-    eng = [e for e in ev + ev4 if e["kind"] == "выход" and e["pos"]["entry_t"] >= t_from and e["t"] < a["t"][-1]]
-    return {"trades": [x for x in trades if x["kind"] == "сделка"], "engine": eng, "sim": ex, "exe": exe}
+    ok = lambda e: e["kind"] == "выход" and e["pos"]["entry_t"] >= t_from and e["t"] < a["t"][-1]  # noqa: E731
+    eng = [e for e in ev + ev4 if ok(e)]
+    by_slot = {SYSTEM: [e for e in ev if ok(e)], Q432: [e for e in ev4 if ok(e)], **{s: [e for e in E if ok(e)] for s, E in extra}}
+    return {"trades": [x for x in trades if x["kind"] == "сделка"], "engine": eng, "engine_by_slot": by_slot, "parts": len(parts), "sim": ex, "exe": exe}

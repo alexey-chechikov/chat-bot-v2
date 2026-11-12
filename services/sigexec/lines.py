@@ -101,14 +101,19 @@ def layer(t: np.ndarray, h, l, c, n: int = 100) -> tuple[np.ndarray, np.ndarray]
     return rk[idx], w[idx]
 
 
-def build(t: np.ndarray, o, h, l, c, i0_t: int = I0_DEFAULT) -> tuple[dict, tuple[np.ndarray, np.ndarray]]:
-    """→ (a, lay) в форме services/btc_signals/engine: simulate(a, lay) и simulate432(a)."""
+LENS = (50, 100, 200, 200)  # зелёная TEMA, жёлтая TEMA, красная TEMA, синяя EMA — длины системы оператора
+
+
+def build(t: np.ndarray, o, h, l, c, i0_t: int = I0_DEFAULT, lens: tuple = LENS) -> tuple[dict, tuple[np.ndarray, np.ndarray]]:
+    """→ (a, lay) в форме services/btc_signals/engine: simulate(a, lay) и simulate432(a).
+    lens — длины линий (по умолчанию как у системы); другие длины — для ансамбля скоростей (research/sigexec_20261112)."""
     t = np.asarray(t, np.int64)
     o, h, l, c = (np.asarray(x, float) for x in (o, h, l, c))
     check_hours(t, o, h, l, c)
     b = bars4(t, o, h, l, c)
     C4 = b["c"]
-    G, Y, R, B = tema(C4, 50), tema(C4, 100), tema(C4, 200), ema(C4, 200)
+    gl, yl, rl, bl = (int(x) for x in lens)
+    G, Y, R, B = tema(C4, gl), tema(C4, yl), tema(C4, rl), ema(C4, bl)
     pc = np.r_[C4[0], C4[:-1]]
     tr = np.maximum(b["h"] - b["l"], np.maximum(np.abs(b["h"] - pc), np.abs(b["l"] - pc)))
     atr = rma(tr, 14)

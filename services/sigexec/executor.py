@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import fcntl
+import re
 import json
 import logging
 import math
@@ -37,6 +38,12 @@ OUT_ROLES = ("exit", "target", "stop", "external")
 DONE = frozenset(FINAL | {"ABSENT"})
 WAITING = frozenset({"SENDING", "UNKNOWN", "UNRESOLVED"})
 SLOT_CODE = {"system": "s", "432": "q"}
+SLOT_RE = re.compile(r"^(system|432|432w[0-9]{2})$")
+
+
+def slot_code(slot: str) -> str:
+    """Код слота в cid: system → s, 432 → q, часть ансамбля 432wNN → qNN."""
+    return SLOT_CODE.get(slot) or ("q" + slot[4:])
 ROLE_CODE = {"entry": "e", "add": "a", "exit": "x", "target": "t", "stop": "k"}
 MARKET_TAC = {"kind": "market"}
 
@@ -77,7 +84,7 @@ def validate_config(cfg: dict) -> dict:
     try:
         assert isinstance(out["enabled"], bool) and isinstance(out["shared_account"], bool)
         assert isinstance(out["symbol"], str) and out["symbol"]
-        assert set(out["slots"]) <= {"system", "432"} and out["slots"]
+        assert out["slots"] and all(isinstance(s, str) and SLOT_RE.match(s) for s in out["slots"]) and len(set(out["slots"])) == len(out["slots"]), "slots"
         for k in ("base_usd", "cap_usd", "emergency_pct", "max_signal_age_s", "unknown_grace_s", "absent_recheck_s", "reject_backoff_s"):
             assert isinstance(out[k], (int, float)) and math.isfinite(out[k]) and out[k] > 0, k
         assert 1.0 <= out["emergency_pct"] <= 50.0
@@ -131,19 +138,23 @@ class Executor:
             if self.journal_path.exists() and self.journal_path.stat().st_size > 0:
                 # журнал есть, учёта нет — учёт пропал: на бирже могут стоять наши заявки и позиция, начинать с нуля нельзя
                 raise Halt(f"учёт {self.state_path} пропал при живом журнале {self.journal_path} — разобрать руками")
-            return {"version": 1, "seq": 0, "orders": {}, "slots": {s: {"ep": None, "done": []} for s in ("system", "432")},
+            return {"version": 1, "seq": 0, "orders": {}, "slots": {s: {"ep": None, "done": []} for s in self.cfg["slots"]},
                     "audit_bad": {LONG: 0, SHORT: 0}, "closing": False}
         try:
             st = json.loads(self.state_path.read_text())
             assert st.get("version") == 1 and isinstance(st["orders"], dict) and isinstance(st["slots"], dict)
-            for s in ("system", "432"):
+            for s in self.cfg["slots"]:
                 st["slots"].setdefault(s, {"ep": None, "done": []})
             if not isinstance(st.get("audit_bad"), dict):
                 st["audit_bad"] = {LONG: 0, SHORT: 0}
             st.setdefault("closing", False)
-            return st
         except Exception as e:  # noqa: BLE001
             raise Halt(f"учёт {self.state_path}: {e!r}") from None
+        orphan = [s for s, S in st["slots"].items() if S.get("ep") and s not in self.cfg["slots"]]
+        if orphan:
+            # слот убран из конфига при открытом эпизоде — позиция осталась бы без стопа и выхода
+            raise Halt(f"в учёте открыты эпизоды слотов {orphan}, а в конфиге их нет — вернуть слоты или закрыть эпизоды")
+        return st
 
     def save(self) -> None:
         tmp = self.state_path.with_suffix(".tmp")
@@ -164,7 +175,7 @@ class Executor:
     # ------------------------------------------------------------------ заявки
     def _cid(self, slot: str, role: str) -> str:
         self.st["seq"] += 1
-        return f"{self.cfg['prefix']}{SLOT_CODE[slot]}{ROLE_CODE[role]}{_b36(self.st['seq'])}{_b36(int(self.ex.now()) % 36 ** 5)}"
+        return f"{self.cfg['prefix']}{slot_code(slot)}{ROLE_CODE[role]}{_b36(self.st['seq'])}{_b36(int(self.ex.now()) % 36 ** 5)}"
 
     def _eps(self) -> list[dict]:
         return [S["ep"] for S in self.st["slots"].values() if S["ep"]]
