@@ -63,8 +63,10 @@ FAULTS = (("place", "reject"), ("place", "unknown_placed"), ("place", "unknown_l
 
 
 def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slots=(SYSTEM, Q432), chaos: float = 0.0, seed: int = 0,
-           steps: int = 3, dt: float = 2.0) -> dict:
-    """chaos — вероятность сбоя биржи перед каждым проходом (FAULTS); steps × dt — проходов и секунд внутри часа."""
+           steps: int = 3, dt: float = 2.0, exposure_at=None, hedge_k: float = 1.0) -> dict:
+    """chaos — вероятность сбоя биржи перед каждым проходом (FAULTS); steps × dt — проходов и секунд внутри часа.
+    exposure_at(t) — страховка сеток (sizing="hedge", 14.11): позиция лонг-сеток в $ на момент t (сек UTC); тогда слот
+    только system, только шорт, без цели — как в живом конфиге страховки."""
     rng = np.random.default_rng(seed)
     a, lay = lines.build(t, o, h, l, c, i0_t=int(t[0]))
     ev, _ = en.simulate(a, lay)
@@ -83,10 +85,17 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
     ex._t = float(a["t"][i0 - 1]) + 5
     cfg = {"enabled": True, "base_usd": base, "cap_usd": base * 10, "slots": list(slots), "max_signal_age_s": 1800, "entry": {"kind": "market"}, "exit": {"kind": "market"},
            "emergency_pct": 12.0}
+    clock = {"t": float(a["t"][i0 - 1])}
+    exposure = None
+    if exposure_at is not None:
+        if list(slots) != [SYSTEM]:
+            raise ValueError("страховка: slots=('system',)")
+        cfg.update(sizing="hedge", hedge_k=hedge_k, use_target=False, allowed_sides=["SHORT"], cap_usd=1e7)
+        exposure = lambda: exposure_at(clock["t"])  # noqa: E731
     workdir.mkdir(parents=True, exist_ok=True)
     for f in ("st.json", "jr.jsonl"):
         (workdir / f).unlink(missing_ok=True)
-    exe = Executor(ex, cfg, workdir / "st.json", workdir / "jr.jsonl")
+    exe = Executor(ex, cfg, workdir / "st.json", workdir / "jr.jsonl", exposure=exposure)
     # эпизоды, открытые до окна, исполнитель не подхватывает (сигнал старый) — сравнение только по входам внутри окна
     for s in slots:
         if state[s]:
@@ -98,6 +107,7 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
                 state[s] = None if kind == "flat" else p
         desired = {s: to_desired(s, state[s], a, i, max(len(parts), 1)) for s in slots}
         ex._t = float(a["t"][i]) + 5
+        clock["t"] = float(a["t"][i])
         ex.move(float(a["c"][i]))
         for k in range(steps):
             ex.faults.clear()                              # сбой действует только на следующий проход — без накопления в очереди

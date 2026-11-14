@@ -53,14 +53,24 @@ def state_tag(cfg: dict) -> str:
     acc = str(xc.get("account", "main"))
     if not acc.replace("-", "").isalnum():
         raise Halt(f"account {acc!r}: буквы, цифры, дефис")
-    return f"{xc['name']}-{env_of(xc)}-{acc}-{xc.get('symbol', 'BTCUSDT')}"
+    hedge = "-hedge" if cfg.get("executor", {}).get("sizing") == "hedge" else ""   # страховка и лонги системы — разные учёты
+    return f"{xc['name']}-{env_of(xc)}-{acc}-{xc.get('symbol', 'BTCUSDT')}{hedge}"
 
 
 def check_executor_cfg(cfg: dict) -> dict:
-    """WEEX: стороны BTCUSDT общие с сетками и ручными сделками, SHORT — оператора (release_sides): только LONG и общий счёт."""
+    """WEEX: стороны BTCUSDT общие с сетками и ручными сделками, SHORT — оператора (release_sides): только LONG и общий счёт.
+    Страховка сеток (executor.sizing="hedge", 14.11) — наоборот, только SHORT, и только если оператор сам разрешил делить
+    с ним сторону SHORT: exchange.share_short_with_operator=true (его решение, по умолчанию нет)."""
     xc, ecfg = cfg["exchange"], dict(cfg["executor"], symbol=cfg["exchange"].get("symbol", "BTCUSDT"))
     if xc["name"] == "weex" and env_of(xc) == "live":
-        if set(ecfg.get("allowed_sides", ["LONG", "SHORT"])) != {"LONG"}:
+        sides = set(ecfg.get("allowed_sides", ["LONG", "SHORT"]))
+        if ecfg.get("sizing") == "hedge":
+            if sides != {"SHORT"}:
+                raise Halt("WEEX живой, страховка: allowed_sides должен быть [\"SHORT\"]")
+            if xc.get("share_short_with_operator") is not True:
+                raise Halt("WEEX живой, страховка: сторона BTC SHORT — оператора; нужен exchange.share_short_with_operator=true "
+                           "(его решение)")
+        elif sides != {"LONG"}:
             raise Halt("WEEX живой: allowed_sides должен быть [\"LONG\"] — BTC SHORT за оператором")
         ecfg["shared_account"] = True
     return ecfg
@@ -94,7 +104,7 @@ def notifier(enabled: bool):
 
 
 class Runner:
-    def __init__(self, cfg: dict, state_dir: Path, exchange=None, feed=None, notify=None):
+    def __init__(self, cfg: dict, state_dir: Path, exchange=None, feed=None, notify=None, exposure=None):
         self.cfg = cfg
         self.state_dir = Path(state_dir)
         xc = cfg["exchange"]
@@ -106,7 +116,14 @@ class Runner:
         self.ex = exchange or make_exchange(xc, self.state_dir)
         self.feed = feed or HourFeed(self.state_dir / f"sigexec_hours_{cfg['feed'].get('symbol', 'BTCUSDT')}.csv", BinanceSpotHours(cfg["feed"].get("symbol", "BTCUSDT")))
         self.say = notify or notifier(cfg.get("telegram", False))
-        self.exe = Executor(self.ex, ecfg, self.state_dir / f"sigexec_{self.tag}_state.json", self.state_dir / f"sigexec_{self.tag}_journal.jsonl", self.say)
+        if exposure is None and ecfg.get("sizing") == "hedge":
+            from services.sigexec import hedge
+            try:
+                exposure = hedge.make(cfg.get("hedge"))
+            except ValueError as e:
+                raise Halt(f"страховка: {e}") from None
+        self.exe = Executor(self.ex, ecfg, self.state_dir / f"sigexec_{self.tag}_state.json", self.state_dir / f"sigexec_{self.tag}_journal.jsonl", self.say,
+                            exposure=exposure)
         self.ev: dict | None = None
         self.feed_err_t = 0.0
 

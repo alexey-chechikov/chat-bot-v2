@@ -65,8 +65,19 @@ DEFAULT_CFG = {
     "reject_backoff_s": 600,        # пауза роли после max_rejects отказов; потом одна новая попытка (стоп без паузы навсегда не остаётся)
     "entry": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
     "exit": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
+    # Страховка лонг-сеток (14.11, research/grid_hedge_20261114, оператор «готовь код и давай на ревью GPT»):
+    # sizing="hedge" — шорт системы размером hedge_k × HEDGE_LEG × позиция лонг-сеток счёта в $ (exposure() на входе
+    # эпизода) на входе и столько же на доборе; вес движка и усиление 432 не применяются — как в замере. Только шорт и
+    # только слот system; цель под жёлтой не ставится (use_target=false): выход по сигналу движка на закрытии часа, как в
+    # замере, и на общем счёте нет второй reduceOnly рядом с аварийным стопом.
+    "sizing": "base",
+    "hedge_k": 1.0,
+    "use_target": True,
 }
 TACTICS = ("market", "chase", "limit")
+SIZINGS = ("base", "hedge")
+HEDGE_LEG = 0.5                     # доля страховки на вход и на добор (замер: 0.5 + 0.5 позиции сеток)
+HEDGE_MIN_USD = 1.0                 # позиция сеток меньше — страховать нечего
 
 
 class Halt(RuntimeError):
@@ -97,15 +108,28 @@ def validate_config(cfg: dict) -> dict:
             assert t["kind"] in TACTICS, f"{k}.kind"
             for kk in ("wait_s", "reprice_s", "max_orders", "offset_bps"):
                 assert isinstance(t.get(kk, 1), (int, float)) and t.get(kk, 1) >= 0, f"{k}.{kk}"
+        assert out["sizing"] in SIZINGS, "sizing"
+        assert isinstance(out["use_target"], bool), "use_target"
+        k = out["hedge_k"]
+        assert isinstance(k, (int, float)) and not isinstance(k, bool) and math.isfinite(k) and 0 < k <= 2.0, "hedge_k (0; 2]"
+        if out["sizing"] == "hedge":
+            assert out["allowed_sides"] == [SHORT], "страховка: allowed_sides только [\"SHORT\"]"
+            assert out["slots"] == ["system"], "страховка: slots только [\"system\"] (у 432 шортов нет)"
+            assert out["use_target"] is False, "страховка: use_target=false (выход по сигналу, как в замере)"
     except AssertionError as e:
         raise Halt(f"конфиг: неверное значение {e}") from None
     return out
 
 
 class Executor:
-    def __init__(self, ex: Exchange, cfg: dict, state_path: Path, journal_path: Path, notify=None):
+    def __init__(self, ex: Exchange, cfg: dict, state_path: Path, journal_path: Path, notify=None, exposure=None):
+        """exposure — для sizing="hedge": функция без аргументов → позиция лонг-сеток счёта в $ (services/sigexec/hedge.py);
+        исключение или негодное число = «неизвестно» (не ноль): эпизод не начинается, повтор на следующем проходе."""
         self.ex = ex
         self.cfg = validate_config(cfg)
+        if self.cfg["sizing"] == "hedge" and exposure is None:
+            raise Halt("страховка: нет источника позиции сеток (exposure)")
+        self.exposure = exposure
         self.sym = self.cfg["symbol"]
         self.state_path, self.journal_path = Path(state_path), Path(journal_path)
         self.notify = notify or (lambda text: None)
@@ -390,16 +414,23 @@ class Executor:
             self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": f"сторона {side} не разрешена конфигом"})
             self._say(f"ℹ️ {slot}: {d.tag} {d.sig_px:.0f} не исполняю — сторона {side} не разрешена (allowed_sides)")
             return None
-        if self.cfg["shared_account"] and (d.target is not None or d.tag == "под жёлтой"):
+        if self.cfg["shared_account"] and self.cfg["use_target"] and (d.target is not None or d.tag == "под жёлтой"):
             # разбор aadc2a4: цель и аварийный стоп — две reduceOnly на одной стороне; на общем счёте вторая, исполнившись до
             # снятия, закроет чужие контракты. Без биржевого OCO такой эпизод только на отдельном счёте
             S["done"].append(d.entry_t)
             self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": "цель + стоп на общем счёте"})
             self._say(f"ℹ️ {slot}: {d.tag} не исполняю на общем счёте — цель и стоп могут закрыть чужое")
             return None
-        base = float(self.cfg["base_usd"])
-        goal = self.inst.floor_qty(base * d.main_frac / d.sig_px)
-        add = self.inst.floor_qty(base * d.add_frac / d.add_lv) if d.add_lv else 0.0
+        hedge = None
+        if self.cfg["sizing"] == "hedge":
+            hedge = self._hedge_size(slot, d)
+            if hedge is None:
+                return None
+            base, main_frac, add_frac = hedge["base_usd"], hedge["main_frac"], hedge["add_frac"]
+        else:
+            base, main_frac, add_frac = float(self.cfg["base_usd"]), d.main_frac, d.add_frac
+        goal = self.inst.floor_qty(base * main_frac / d.sig_px)
+        add = self.inst.floor_qty(base * add_frac / d.add_lv) if d.add_lv else 0.0
         room = float(self.cfg["cap_usd"]) - sum(self._reserved(e) for e in self._eps())
         if goal * d.sig_px + add * (d.add_lv or 0.0) > room:
             add = 0.0                                      # сначала без добора
@@ -413,11 +444,40 @@ class Executor:
         ep = {"id": f"{slot}:{d.entry_t}", "slot": slot, "entry_t": d.entry_t, "side": d.side, "tag": d.tag, "pos_side": side,
               "w": d.w, "boost": getattr(d, "boost", 1.0), "sig_px": d.sig_px, "goal_main": goal, "goal_add": add if add >= self.inst.min_qty else 0.0,
               "add_lv": d.add_lv, "phase": "entering", "work": None, "t_start": now, "exit_reason": None, "exit_sig_px": None, "engine_res": None}
+        if hedge:
+            ep["hedge"] = hedge                            # размер зафиксирован на входе: позже позиция сеток его не меняет
         S["ep"] = ep
         self.save()
         self._jr({"kind": "эпизод", "slot": slot, "entry_t": d.entry_t, "side": d.side, "tag": d.tag, "sig_px": d.sig_px, "goal_main": goal,
-                  "goal_add": ep["goal_add"], "w": d.w, "boost": ep["boost"], "delay_s": round(now - d.entry_t, 1)})
+                  "goal_add": ep["goal_add"], "w": d.w, "boost": ep["boost"], "delay_s": round(now - d.entry_t, 1), "hedge": hedge})
         return ep
+
+    def _hedge_size(self, slot: str, d: Desired) -> dict | None:
+        """База страховки = hedge_k × позиция лонг-сеток счёта ($) сейчас; вход HEDGE_LEG базы, добор (если у тега он есть)
+        ещё HEDGE_LEG. Неизвестная позиция — None без отметки «сделано» (повтор, пока сигнал свежий; сообщение раз в час);
+        позиции нет — эпизод пропускается."""
+        S = self.st["slots"][slot]
+        now = self.ex.now()
+        try:
+            expo = self.exposure()
+            if isinstance(expo, bool) or not isinstance(expo, (int, float)) or not math.isfinite(expo) or expo < 0:
+                raise ValueError(f"позиция сеток {expo!r}")
+            expo = float(expo)
+        except Exception as e:  # noqa: BLE001 — любой сбой источника = «неизвестно», не ноль
+            if now - float(S.get("hedge_err_t") or 0) > 3600:
+                S["hedge_err_t"] = now
+                self.save()
+                self._jr({"kind": "размер страховки неизвестен", "slot": slot, "entry_t": d.entry_t, "error": repr(e)[:200]})
+                self._say(f"⚠️ {slot}: шорт {d.tag} {d.sig_px:.0f} жду — позиция сеток не прочиталась ({e!r})"[:300])
+            return None
+        if expo < HEDGE_MIN_USD:
+            S["done"].append(d.entry_t)
+            self._jr({"kind": "сигнал пропущен", "slot": slot, "entry_t": d.entry_t, "why": f"страховать нечего: позиция сеток ${expo:.2f}"})
+            self._say(f"ℹ️ {slot}: шорт {d.tag} {d.sig_px:.0f} не открываю — лонгов сеток нет")
+            return None
+        k = float(self.cfg["hedge_k"])
+        return {"exposure_usd": round(expo, 2), "k": k, "base_usd": round(k * expo, 2), "main_frac": HEDGE_LEG,
+                "add_frac": HEDGE_LEG if d.add_lv else 0.0}
 
     def _open_side(self, ep: dict) -> str:
         return BUY if ep["side"] > 0 else SELL
@@ -593,7 +653,8 @@ class Executor:
         q = self.qty(ep)
         # цель шорта под жёлтой: при несвежих данных держится последняя подтверждённая (разбор: step(None) снимал цель)
         if fresh:
-            ep["last_target"] = self.inst.round_px(d.target, "up" if ep["side"] < 0 else "down") if (d is not None and d.target) else None
+            use = self.cfg["use_target"] and d is not None and d.target
+            ep["last_target"] = self.inst.round_px(d.target, "up" if ep["side"] < 0 else "down") if use else None
         want = ep.get("last_target")
         tg = self._orders(ep, ("target",), live_only=True)
         if tg:
@@ -626,6 +687,10 @@ class Executor:
         self._jr({"kind": "вход исполнен", "slot": ep["slot"], "entry_t": ep["entry_t"], "qty": q, "avg": avg, "sig_px": ep["sig_px"], "slip_bps": round(slip, 2),
                   "fee": fee, "boost": ep.get("boost", 1.0), "delay_s": round(self.ex.now() - ep["entry_t"], 1)})
         boost = f", усиление 432 ×{ep['boost']:g}" if ep.get("boost", 1.0) != 1.0 else ""
+        if ep.get("hedge"):
+            h = ep["hedge"]
+            boost += f", страховка: позиция сеток ${h['exposure_usd']:,.0f} × {h['k']:g} × {h['main_frac']:g}" + (
+                f", добор {ep['goal_add']:g} на {ep['add_lv']:.1f}" if ep.get("goal_add") else "")
         self._say(f"{'🟢' if ep['side'] > 0 else '🔴'} {ep['slot']} {ep['tag']}: вход {q:g} по {avg:.1f} (сигнал {ep['sig_px']:.1f}, {slip:+.1f} б.п.){boost}, "
                   f"комиссия ${fee:.2f}, через {int(self.ex.now() - ep['entry_t'])} с после закрытия 4ч")
 
@@ -640,8 +705,9 @@ class Executor:
         rec = {"kind": "сделка", "slot": ep["slot"], "entry_t": ep["entry_t"], "tag": ep["tag"], "side": ep["side"], "qty": q_in, "boost": ep.get("boost", 1.0),
                "avg_in": v_in / q_in if q_in else None, "avg_out": v_out / q_in if q_in else None, "sig_in": ep["sig_px"], "sig_out": ep.get("exit_sig_px"),
                "fee": round(fee, 4), "pnl_usd": round(pnl, 4), "engine_res_pct": ep.get("engine_res"),
-               "engine_usd": round(ep["engine_res"] / 100 * self.cfg["base_usd"], 4) if ep.get("engine_res") is not None else None,
-               "why": ep.get("exit_reason"), "fee_incomplete": any(r.get("fee_incomplete") for r in ins + outs),
+               "engine_usd": (round(ep["engine_res"] / 100 * self.cfg["base_usd"], 4)
+                              if ep.get("engine_res") is not None and not ep.get("hedge") else None),   # у страховки размер не base_usd
+               "hedge": ep.get("hedge"), "why": ep.get("exit_reason"), "fee_incomplete": any(r.get("fee_incomplete") for r in ins + outs),
                "orders": [r["cid"] for r in ins + outs]}
         S["done"] = (S["done"] + [ep["entry_t"]])[-50:]
         S["ep"] = None
@@ -728,8 +794,8 @@ class Executor:
                 out[slot] = None
                 continue
             out[slot] = {"phase": ep["phase"], "side": ep["side"], "tag": ep["tag"], "qty": self.qty(ep), "avg": self._avg(ep, IN_ROLES), "sig_px": ep["sig_px"],
-                         "boost": ep.get("boost", 1.0),
-                         "live": [(r["role"], r["kind"], r["price"] or r["trigger"], r["status"]) for r in self._orders(ep, live_only=True)]}
+                         "boost": ep.get("boost", 1.0), "hedge": ep.get("hedge"),
+                         "live":[(r["role"], r["kind"], r["price"] or r["trigger"], r["status"]) for r in self._orders(ep, live_only=True)]}
         out["unresolved"] = [c for c, r in self.st["orders"].items() if r["status"] == "UNRESOLVED"]
         return out
 

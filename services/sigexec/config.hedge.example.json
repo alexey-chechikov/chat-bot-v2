@@ -1,0 +1,24 @@
+{
+ "_note": "Страховка лонг-сеток WEEX шортом системы (research/grid_hedge_20261114): шорт BTC, пока система в шорте (под синей / под жёлтой), размером hedge_k × 0.5 × позиция лонгов BTC+ETH счёта на входе и столько же на доборе, выход — по сигналу системы, аварийный стоп +emergency_pct. Копию положить в state/sigexec_hedge_config.json. paper=true — бумага на ценах WEEX (позиция сеток читается с биржи — только чтение). Живой (paper=false) — только по слову оператора: сторона BTC SHORT его, нужен share_short_with_operator=true. Учёт отдельный: sigexec_weex-<среда>-<account>-BTCUSDT-hedge_state.json.",
+ "exchange": {"name": "weex", "symbol": "BTCUSDT", "paper": true, "testnet": false, "hedge": true, "account": "main",
+              "share_short_with_operator": false},
+ "feed": {"symbol": "BTCUSDT"},
+ "hedge": {"source": "weex", "symbols": ["BTCUSDT", "ETHUSDT"], "max_usd": 30000},
+ "executor": {
+  "enabled": false,
+  "slots": ["system"],
+  "sizing": "hedge",
+  "hedge_k": 1.0,
+  "use_target": false,
+  "allowed_sides": ["SHORT"],
+  "cap_usd": 15000.0,
+  "prefix": "b7h",
+  "max_signal_age_s": 1800,
+  "emergency_pct": 12.0,
+  "add_follow_signal": true,
+  "entry": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
+  "exit": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20}
+ },
+ "telegram": false,
+ "poll_s": 5
+}
