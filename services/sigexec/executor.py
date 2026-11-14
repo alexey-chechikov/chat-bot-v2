@@ -87,6 +87,7 @@ HEDGE_LEG = 0.5                     # доля страховки на вход 
 HEDGE_MIN_USD = 1.0                 # позиция сеток меньше — страховать нечего
 TRIM_CHECK_S = 60.0                 # как часто сверять страховку с текущими лонгами (разбор ead2ca4)
 TRIM_TOL = 0.05                     # урезать, если шорт больше предела больше чем на 5%
+MARGIN_BUF = 1.5                    # запас свободной маржи на увеличение (×маржа нового объёма)
 
 
 class Halt(RuntimeError):
@@ -707,6 +708,11 @@ class Executor:
             if allow < q:
                 self._jr({"kind": "потолок режет объём", "slot": ep["slot"], "role": role, "want": q, "allow": allow, "px": px_now})
                 q = allow
+            if q >= self.inst.min_qty:
+                m = self._margin_cap(ep, role, q, px_now)
+                if m is None:
+                    return False                           # маржа не прочиталась или её не хватает — ждём, вход не «сделан»
+                q = m
         if q < self.inst.min_qty:
             if rem > self.inst.lot / 2:
                 self._jr({"kind": "остаток меньше минимума или потолка", "slot": ep["slot"], "role": role, "qty": rem})
@@ -741,10 +747,42 @@ class Executor:
                     q = allow
                 if q < self.inst.min_qty:
                     return False
+                m = self._margin_cap(ep, role, q, px)
+                if m is None:
+                    return False
+                q = m
             rec = self._send(ep, role, "LIMIT", side, q, price=px, post_only=True, reduce_only=reduce)
         w["n"] += 1
         w["cur"] = rec["cid"]
         return False
+
+    def _margin_cap(self, ep: dict, role: str, q: float, px: float) -> float | None:
+        """Перед увеличением — свободная маржа (разбор b056816, «Не сделано»): новый объём × цена / плечо × MARGIN_BUF не больше
+        свободной. Не хватает — объём урезается до того, что помещается; не помещается и минимум или маржа не прочиталась —
+        None (ждём проход; сообщение раз в час). Биржа без проверки (margin_free → None) — объём как есть."""
+        try:
+            m = self.ex.margin_free(self.sym)
+        except Exception as e:  # noqa: BLE001 — неизвестно ≠ «можно»
+            self._margin_note(ep, f"свободная маржа не прочиталась ({e!r})")
+            return None
+        if m is None:
+            return q
+        free, lev = m
+        allow = self.inst.floor_qty(free * lev / (px * MARGIN_BUF)) if px > 0 else 0.0
+        if allow >= q:
+            return q
+        if allow < self.inst.min_qty:
+            self._margin_note(ep, f"свободной маржи ${free:,.0f} при плече {lev:g} не хватает даже на минимум ({role})")
+            return None
+        self._jr({"kind": "маржа режет объём", "slot": ep["slot"], "role": role, "want": q, "allow": allow, "free": free, "lev": lev})
+        return allow
+
+    def _margin_note(self, ep: dict, text: str) -> None:
+        now = self.ex.now()
+        if now - float(ep.get("margin_note_t") or 0) > 3600:
+            ep["margin_note_t"] = now
+            self._jr({"kind": "маржа: увеличение ждёт", "slot": ep["slot"], "why": text[:200]})
+            self._say(f"⚠️ {ep['slot']} {ep['tag']}: увеличение ждёт — {text}"[:300])
 
     def _off_best(self, rec: dict) -> bool:
         try:

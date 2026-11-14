@@ -68,6 +68,13 @@ class SimExchange(Exchange):
     def position(self, symbol: str) -> dict[str, float]:
         return dict(self.pos)
 
+    def margin_free(self, symbol: str):
+        """Имитатор: margin = None — без проверки (по умолчанию); (свободно $, плечо) — проверка; исключение — «не прочиталось»."""
+        m = getattr(self, "margin", None)
+        if isinstance(m, Exception):
+            raise m
+        return m
+
     def position_ids(self, symbol: str) -> dict[str, str | None]:
         return {s: (f"sim-pos-{e}" if e else None) for s, e in self.epoch.items()}
 

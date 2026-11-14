@@ -27,7 +27,7 @@ SC = 0.00068
 MM = 0.005
 H = 365 * 24
 
-z = np.load(HERE / "grid_hourly2.npz")
+z = np.load(HERE / __import__("os").environ.get("GRID_NPZ", "grid_hourly2.npz"))   # GRID_NPZ=grid_hourly2_fixed.npz — чувствительность
 T, CB, CE = z["t"], z["cb"], z["ce"]
 EQB, EQE, QB, QE = z["eqb"], z["eqe"], z["qb"], z["qe"]
 EQ = EQB + EQE

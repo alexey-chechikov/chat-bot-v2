@@ -82,6 +82,30 @@ def check_executor_cfg(cfg: dict) -> dict:
     return ecfg
 
 
+LOCK_DIR = Path.home() / ".bot7_locks"
+
+
+def account_lock(key: str | None, venue: str, env: str, symbol: str, mode: str, lock_dir: Path | None = None):
+    """Блокировка живого/демо счёта по ОТПЕЧАТКУ КЛЮЧА API (разбор b056816: имя account и state-dir меняли путь блокировки
+    учёта при тех же ключах — два процесса могли вести одну сторону). Ключ нигде не пишется, только sha256[:16].
+    Нет ключа (адаптер не отдаёт) — None, блокировки нет. Занято — Halt."""
+    if not key:
+        return None
+    import fcntl
+    import hashlib
+    d = lock_dir or LOCK_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    h = hashlib.sha256(key.encode()).hexdigest()[:16]
+    p = d / f"sigexec_{venue}_{env}_{h}_{symbol}_{mode}.lock"
+    fd = open(p, "a+")
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fd.close()
+        raise Halt(f"счёт {venue}/{env} с этими ключами ({h}) по {symbol} [{mode}] уже ведёт другой процесс ({p})") from None
+    return fd
+
+
 def make_exchange(xc: dict, state_dir: Path, tag: str | None = None):
     name = xc["name"]
     env = env_of(xc)
@@ -133,6 +157,11 @@ class Runner:
         if not 1.0 <= self.boost <= 3.0:
             raise Halt(f"strategy.boost_432 {self.boost}: допустимо 1.0–3.0")
         self.ex = exchange or make_exchange(xc, self.state_dir, self.tag)
+        self.acct_lock = None
+        if env_of(xc) != "paper":
+            key = getattr(getattr(self.ex, "c", None), "_key", None)
+            self.acct_lock = account_lock(key, xc["name"], env_of(xc), xc.get("symbol", "BTCUSDT"),
+                                          "hedge" if ecfg.get("sizing") == "hedge" else "base")
         self.feed = feed or HourFeed(self.state_dir / f"sigexec_hours_{cfg['feed'].get('symbol', 'BTCUSDT')}.csv", BinanceSpotHours(cfg["feed"].get("symbol", "BTCUSDT")))
         self.say = notify or notifier(cfg.get("telegram", False), head_of(cfg))
         self.conflicts = []

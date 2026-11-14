@@ -59,6 +59,24 @@ class WeexExchange(Exchange):
                 out[p["side"]] += float(p.get("size") or 0)
         return out
 
+    def margin_free(self, symbol: str) -> tuple[float, float]:
+        """Свободная маржа (availableBalance USDT, /capi/v3/account/balance) и кросс-плечо символа (crossLeverage,
+        /capi/v3/account/symbolConfig; чтение 14.11: BTCUSDT CROSSED, 100). Только кросс-маржа; иначе ExchangeError."""
+        bal = self.c.futures_balance()
+        row = next((b for b in bal if isinstance(b, dict) and b.get("asset") == "USDT"), None) if isinstance(bal, list) else None
+        cfg = self.c.get(FUTURES, "/capi/v3/account/symbolConfig", {"symbol": symbol})
+        sc = cfg[0] if isinstance(cfg, list) and cfg and isinstance(cfg[0], dict) else None
+        try:
+            free = float(row["availableBalance"])
+            if sc["marginType"] != "CROSSED":
+                raise ExchangeError(f"weex {symbol}: маржа {sc['marginType']} — проверка только для кросс")
+            lev = float(sc["crossLeverage"])
+        except (TypeError, KeyError, ValueError) as e:
+            raise ExchangeError(f"weex маржа: ответ не разобран ({e!r})") from None
+        if not (free >= 0 and lev >= 1):
+            raise ExchangeError(f"weex маржа: свободно {free}, плечо {lev}")
+        return free, lev
+
     def position_ids(self, symbol: str) -> dict[str, str | None]:
         """Номер позиции стороны (поле id; чтение 14.11: новый после закрытия стороны до нуля — у ETH с 05.11). Две строки
         на сторону или строка без id — ExchangeError (неясно)."""
