@@ -34,6 +34,9 @@ class SimExchange(Exchange):
         self.faults: list[tuple[str, str]] = []
         self._partial: list[float] = []
         self.calls: list[tuple[str, str]] = []
+        # номер позиции стороны (как id у WEEX): новый, когда сторона открывается с нуля; 0 — позиции нет
+        self.epoch = {LONG: 0, SHORT: 0}
+        self._epoch_seq = 0
 
     # ---------- служебное
     def now(self) -> float:
@@ -64,6 +67,9 @@ class SimExchange(Exchange):
 
     def position(self, symbol: str) -> dict[str, float]:
         return dict(self.pos)
+
+    def position_ids(self, symbol: str) -> dict[str, str | None]:
+        return {s: (f"sim-pos-{e}" if e else None) for s, e in self.epoch.items()}
 
     def place(self, req: OrderReq) -> OrderInfo:
         self.calls.append(("place", req.cid))
@@ -169,6 +175,9 @@ class SimExchange(Exchange):
         d = 1 if side == LONG else -1
         q0 = self.pos[side]
         if dq > 0:
+            if q0 <= 1e-12:                                 # сторона открывается с нуля — новая позиция, новый номер
+                self._epoch_seq += 1
+                self.epoch[side] = self._epoch_seq
             self.avg[side] = (self.avg[side] * q0 + price * dq) / (q0 + dq)
             self.pos[side] = q0 + dq
         else:
@@ -177,6 +186,7 @@ class SimExchange(Exchange):
             self.pos[side] = round(q0 - q, 12)
             if self.pos[side] <= 1e-12:
                 self.pos[side], self.avg[side] = 0.0, 0.0
+                self.epoch[side] = 0
 
     def _info(self, cid: str) -> OrderInfo:
         o = self.orders[cid]
@@ -186,7 +196,8 @@ class SimExchange(Exchange):
     # ---------- сохранение (бумажный прогон переживает перезапуск)
     def dump(self, path: Path) -> None:
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"px": self.px, "orders": self.orders, "pos": self.pos, "avg": self.avg, "realized": self.realized, "fees": self.fees}))
+        tmp.write_text(json.dumps({"px": self.px, "orders": self.orders, "pos": self.pos, "avg": self.avg, "realized": self.realized, "fees": self.fees,
+                                   "epoch": self.epoch, "epoch_seq": self._epoch_seq}))
         tmp.replace(path)
 
     def load(self, path: Path) -> None:
@@ -195,3 +206,5 @@ class SimExchange(Exchange):
         d = json.loads(path.read_text())
         self.px, self.orders, self.pos, self.avg = d["px"], d["orders"], d["pos"], d["avg"]
         self.realized, self.fees = d["realized"], d["fees"]
+        self.epoch = d.get("epoch") or {s: (1 if q > 0 else 0) for s, q in self.pos.items()}
+        self._epoch_seq = int(d.get("epoch_seq") or max(self.epoch.values()))

@@ -243,8 +243,8 @@ def test_hedge_has_no_resting_add_and_add_sized_at_add_hour(tmp_path):
     ex.move(68000.0)
     run(e, ex, {"system": d_blue(add_done=True)}, n=2)
     ep = e.st["slots"]["system"]["ep"]
-    assert ep["goal_add"] == pytest.approx(0.0514, abs=1e-4)   # 0.5 × $7 000 / 68 000 (на f1049c9 — 0.1029)
-    assert ex.pos[SHORT] == pytest.approx(0.1514, abs=1e-4)
+    assert ep["goal_add"] == pytest.approx(0.0029, abs=1e-4)   # не больше предела: 1 × $7 000 / 68 000 − 0.10 (b056816; на f1049c9 — 0.1029)
+    assert ex.pos[SHORT] == pytest.approx(0.1029, abs=1e-4)    # страховка = k × текущие лонги, не больше
 
 
 def test_emergency_stop_then_no_reopen_by_add(tmp_path):

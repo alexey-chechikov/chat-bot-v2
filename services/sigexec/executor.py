@@ -77,6 +77,9 @@ DEFAULT_CFG = {
     # ead2ca4: аварийный стоп закрыл шорт, а висящий стоп добора открыл его снова до следующего прохода; в замере добор —
     # по закрытию часа добора)
     "add_resting": True,
+    # страховка на общей стороне (разбор GPT b056816): новый эпизод — только когда на стороне нет чужого объёма (ручных
+    # шортов). В режиме COMBINED код не может гарантировать сохранность ручного объёма при гонках стопа и проходов
+    "require_empty_side": False,
 }
 TACTICS = ("market", "chase", "limit")
 SIZINGS = ("base", "hedge")
@@ -117,6 +120,7 @@ def validate_config(cfg: dict) -> dict:
         assert out["sizing"] in SIZINGS, "sizing"
         assert isinstance(out["use_target"], bool), "use_target"
         assert isinstance(out["add_resting"], bool) and isinstance(out["add_follow_signal"], bool), "add_resting / add_follow_signal"
+        assert isinstance(out["require_empty_side"], bool), "require_empty_side"
         k = out["hedge_k"]
         assert isinstance(k, (int, float)) and not isinstance(k, bool) and math.isfinite(k) and 0 < k <= 2.0, "hedge_k (0; 2]"
         if out["sizing"] == "hedge":
@@ -140,6 +144,8 @@ class Executor:
             raise Halt("страховка: нет источника позиции сеток (exposure)")
         self.exposure = exposure
         self._doubt = {LONG: False, SHORT: False}      # сторона не сходится с учётом (общий счёт) — без увеличений
+        self._side_pos: dict[str, float] = {}           # позиция стороны на начале прохода (_guard)
+        self.block_increase = None                      # причина (str): увеличения запрещены снаружи (Runner: живая SB)
         self.sym = self.cfg["symbol"]
         self.state_path, self.journal_path = Path(state_path), Path(journal_path)
         self.notify = notify or (lambda text: None)
@@ -307,9 +313,13 @@ class Executor:
     def _absent_verdict(self, rec: dict) -> bool:
         """True — заявки точно нет (можно ставить новую). Лимит и стоп: да (ещё час перепроверяются). Рыночная: да, только
         если позиция стороны изменилась ровно на наши известные исполнения (на общем счёте — никогда)."""
+        if self.cfg["shared_account"]:
+            # разбор b056816: на общем счёте «заявки нет» не выводится ни для какого типа — устаревший или неполный
+            # снимок давал ABSENT, и второй стоп рядом с живым закрывал ручное. Решает человек (--resolve)
+            return False
         if rec["kind"] != "MARKET":
             return True
-        if self.cfg["shared_account"] or rec.get("pos_before") is None:
+        if rec.get("pos_before") is None:
             return False
         try:
             pos_now = float(self.ex.position(self.sym).get(rec["pos_side"], 0.0))
@@ -404,13 +414,38 @@ class Executor:
             self._doubt = {LONG: True, SHORT: True}
             self._jr({"kind": "позиция не прочиталась", "error": repr(e)[:200]})
             return
+        try:
+            ids = self.ex.position_ids(self.sym) or None
+        except Exception as e:  # noqa: BLE001 — номер позиции не прочитался: сомнение, эпоху не судим
+            ids = None
+            self._doubt = {LONG: True, SHORT: True}
+            self._jr({"kind": "номер позиции не прочитался", "error": repr(e)[:200]})
         tol = self.inst.lot / 2
         fg = self.st.setdefault("foreign", {})
+        self._side_pos = {}
         for side in (LONG, SHORT):
             S = float(pos.get(side, 0.0))
             O = self._side_own(side)
             F = S - O
+            self._side_pos[side] = S
             G = fg.setdefault(side, {"base": None, "cand": None, "n": 0})
+            waiting = any(r["status"] in WAITING for r in self.st["orders"].values() if r["pos_side"] == side)
+            if ids is not None:
+                pid = ids.get(side)
+                if O > tol and G.get("pid") and pid != G["pid"] and not waiting:
+                    # разбор b056816: сторону закрыли до нуля (и, может быть, открыли заново) между проходами — номер позиции
+                    # другой. Свой объём прежней позиции закрыт вместе со стороной; всё, что на стороне сейчас, — чужое.
+                    # Закрывающих заявок по нему нет; эпизод уходит в выход (стоп снимается — он резал бы чужое)
+                    eps = [e for e in self._eps() if e["pos_side"] == side]
+                    self._external(eps, side, O)
+                    for ep in eps:
+                        self._to_exit(ep, f"позиция {side} закрыта до нуля не мной (номер {G['pid']} → {pid}) — мой объём закрыт с ней",
+                                      None, urgent=True)
+                    G.update(base=round(max(S, 0.0), 12), cand=None, n=0, pid=pid)
+                    self._say(f"⚠️ {side}: позицию закрыли до нуля не я (сейчас на стороне {S:g} — считаю всё чужим). "
+                              f"Мой объём {O:g} считаю закрытым, свой стоп снимаю, ничего не закрываю.")
+                    continue
+                G["pid"] = pid
             if G["base"] is None:
                 G["base"] = round(max(F, 0.0), 12)
                 if F < -tol:                                # своего на бирже меньше учёта уже при первом взгляде
@@ -420,7 +455,7 @@ class Executor:
                 G["cand"], G["n"] = None, 0
                 continue
             self._doubt[side] = True
-            if any(r["status"] in WAITING for r in self.st["orders"].values() if r["pos_side"] == side):
+            if waiting:
                 continue                                    # свой исход неизвестен — подтверждать нечем
             if G["cand"] is not None and abs(F - G["cand"]) <= tol:
                 G["n"] += 1
@@ -433,6 +468,10 @@ class Executor:
             if dev > 0:
                 self._jr({"kind": "чужой объём вырос", "side": side, "from": G["base"], "to": F})
                 G["base"] = round(F, 12)
+                if self.cfg["require_empty_side"] and O > tol:
+                    self._say(f"⚠️ {side}: при открытой страховке на стороне появился ручной объём {F:g}. Закрываю только своё "
+                              f"(не ниже {F:g}), но между проходами стоп может задеть ручное — пока страховка открыта, ручные "
+                              f"сделки на этой стороне лучше не делать.")
             else:
                 short = G["base"] - F
                 own_ext = min(short, O)
@@ -470,8 +509,19 @@ class Executor:
         if ep is None:
             if not (fresh and d and self.cfg["enabled"]) or self.st.get("closing") or d.entry_t in S["done"]:
                 return
-            if self._doubt.get(LONG if d.side > 0 else SHORT):
+            side = LONG if d.side > 0 else SHORT
+            if self._doubt.get(side):
                 return                                      # разбор ead2ca4: сторона не сходится с учётом — эпизод позже
+            if self.cfg["require_empty_side"] and self.cfg["shared_account"] and side in self.cfg["allowed_sides"]:
+                foreign = (self._side_pos.get(side) if side in self._side_pos else None)
+                if foreign is None or foreign - self._side_own(side) > self.inst.lot / 2:
+                    now = self.ex.now()
+                    if now - float(S.get("empty_note_t") or 0) > 3600:
+                        S["empty_note_t"] = now
+                        self._jr({"kind": "сторона не пустая — эпизод не начинаю", "slot": slot, "entry_t": d.entry_t, "side_pos": foreign})
+                        self._say(f"ℹ️ {slot}: {d.tag} {d.sig_px:.0f} не открываю — на стороне {side} чужой объём "
+                                  f"{foreign if foreign is not None else 'не прочитан'} (страховка только на пустой стороне)")
+                    return                                  # не «сделано»: сторона опустеет, пока сигнал свежий, — войдём
             ep = self._start(slot, d)
             if ep is None:
                 return
@@ -591,7 +641,9 @@ class Executor:
             return False
         px = bid if ep["side"] < 0 else ask
         h = ep["hedge"]
-        goal = self.inst.floor_qty(h["k"] * h["add_frac"] * float(expo) / px) if px > 0 else 0.0
+        goal = h["k"] * h["add_frac"] * float(expo) / px if px > 0 else 0.0
+        room = h["k"] * float(expo) / px - self.qty(ep) if px > 0 else 0.0     # разбор b056816: с добором не больше предела
+        goal = self.inst.floor_qty(max(min(goal, room), 0.0))
         ep["goal_add"] = goal if goal >= self.inst.min_qty else 0.0
         ep["add_sized"] = {"exposure_usd": round(float(expo), 2), "px": px, "goal_add": ep["goal_add"]}
         self.save()
@@ -634,7 +686,7 @@ class Executor:
                 if urgent or too_long or stale:
                     self._cancel(cur)
             return False
-        if role in IN_ROLES and self._doubt.get(ep["pos_side"]):
+        if role in IN_ROLES and (self._doubt.get(ep["pos_side"]) or self.block_increase):
             return False                                   # разбор ead2ca4: сторона не сходится с учётом — не увеличиваем
         rem = remaining_fn()
         q = self.inst.floor_qty(rem)
@@ -753,12 +805,21 @@ class Executor:
         want = self.inst.floor_qty(min(q, self._closable(ep["pos_side"])))
         if stops:
             for r in stops:
-                if r["status"] not in WAITING and (abs(r["qty"] - want) > self.inst.lot / 2 or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
+                if r["status"] not in WAITING and (ep.get("trim_pending") or abs(r["qty"] - want) > self.inst.lot / 2
+                                                   or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
                     self._cancel(r)
+            if self._filled(ep, ("stop",)) > 0:
+                # разбор b056816: старый стоп исполнился во время замены — не ставить новый на прежний размер, а выходить
+                self._to_exit(ep, "аварийный стоп сработал (при замене)", None, urgent=True)
+                return True
             stops = self._orders(ep, ("stop",), live_only=True)
             if stops:
                 return False                               # старый ещё жив или исход неизвестен — второй стоп не ставим
-            # снят подтверждённо — новый в этом же проходе (разбор ead2ca4: окно без стопа до следующего прохода)
+            # снят подтверждённо — новый в этом же проходе по ПЕРЕСЧИТАННОМУ объёму (разбор ead2ca4 / b056816)
+            q = self.qty(ep)
+            want = self.inst.floor_qty(min(q, self._closable(ep["pos_side"])))
+        if ep.get("trim_pending"):
+            return False                                   # урезание идёт без стопа рядом; новый стоп — после него
         if breached:
             # стопа нет, а уровень пройден (снят на замене, отказ, гэп) — стоп встал бы сразу: выходим сами, рыночным (P1-4)
             self._to_exit(ep, f"аварийный уровень {trg:.1f} пройден, стопа на бирже нет", None, urgent=True)
@@ -772,8 +833,12 @@ class Executor:
         встречного лонга). Раз в TRIM_CHECK_S читается позиция сеток; шорт больше предела на TRIM_TOL — урезается рыночным
         reduceOnly (пол чужого объёма соблюдается в _work), обратно не наращивается. Позиция не прочиталась — пропуск.
         Замер hedge_variants.py E: −$250 за 9 лет / −$23 за 2 года к страховке без предела, чистый шорт 4.9% часов → 0."""
-        if self._orders(ep, ("trim",), live_only=True):
-            self._work(ep, "trim", lambda: ep.get("trim_to_close", 0.0) - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+        if ep.get("trim_pending"):
+            # разбор b056816: урезание и стоящий стоп — две reduceOnly на общей стороне; стоп снимается и его конечный исход
+            # подтверждается ДО урезания, новый стоп ставится после (_protect_stop ждёт, пока trim_pending)
+            if self._orders(ep, ("stop",), live_only=True):
+                return                                     # снятие стопа ещё не подтверждено
+            self._trim_step(ep)
             return
         now = self.ex.now()
         if now - float(ep.get("trim_check_t") or 0) < TRIM_CHECK_S:
@@ -795,11 +860,31 @@ class Executor:
         cut = self.inst.floor_qty(q - lim)
         if cut < self.inst.min_qty:
             return
-        ep["trim_to_close"], ep["trim_base"] = cut, self._filled(ep, ("trim",))
+        ep["trim_to_close"], ep["trim_base"], ep["trim_pending"] = cut, self._filled(ep, ("trim",)), True
         self.save()
         self._jr({"kind": "страховка больше лонгов — урезаю", "slot": ep["slot"], "qty": q, "limit": round(lim, 6), "cut": cut,
                   "exposure_usd": round(float(expo), 2)})
-        self._work(ep, "trim", lambda: ep["trim_to_close"] - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+        for r in self._orders(ep, ("stop",), live_only=True):
+            if r["status"] not in WAITING:
+                self._cancel(r)                            # сначала снять стоп; урезание — со следующего прохода или сразу,
+        if self._filled(ep, ("stop",)) > 0:                # если снятие подтвердилось
+            self._to_exit(ep, "аварийный стоп сработал (перед урезанием)", None, urgent=True)
+            return
+        if not self._orders(ep, ("stop",), live_only=True):
+            self._trim_step(ep)
+
+    def _trim_step(self, ep: dict) -> None:
+        """Рыночное урезание; исполнилось сразу — урезание закрыто и стоп на новый объём ставится в этом же проходе."""
+        done = self._work(ep, "trim", lambda: ep["trim_to_close"] - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+        if not done:
+            for r in self._orders(ep, ("trim",), live_only=True):
+                self._refresh(r)
+            if not self._orders(ep, ("trim",), live_only=True):
+                done = self._work(ep, "trim", lambda: ep["trim_to_close"] - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+        if done:
+            ep["trim_pending"] = False
+            self.save()
+            self._protect_stop(ep)
 
     def _filled_since(self, ep: dict) -> float:
         return self._filled(ep, ("trim",)) - float(ep.get("trim_base") or 0.0)
@@ -827,8 +912,16 @@ class Executor:
                         return                             # позиция сеток на часе добора не прочиталась — ждём
                     if ep["goal_add"] - self._filled(ep, ("add",)) < self.inst.min_qty:
                         ep["add_closed"] = True
-                    elif self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, MARKET_TAC):
-                        ep["add_closed"] = True
+                    else:
+                        # разбор b056816: стоп мог исполниться после сверки в начале прохода — перед рыночным добором его
+                        # состояние читается заново; исполнился — выход, не добор
+                        for r in self._orders(ep, ("stop",), live_only=True):
+                            self._refresh(r)
+                        if self._filled(ep, ("stop",)) > 0:
+                            self._to_exit(ep, "аварийный стоп сработал (перед добором)", None, urgent=True)
+                            return
+                        if self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, MARKET_TAC):
+                            ep["add_closed"] = True
             elif not live and ep["add_lv"] and self.cfg["add_resting"] and not self._doubt.get(ep["pos_side"]) \
                     and not self._blocked(ep, "add", ("STOP",)):
                 bid, ask = self.ex.book(self.sym)

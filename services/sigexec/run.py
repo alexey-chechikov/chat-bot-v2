@@ -71,6 +71,8 @@ def check_executor_cfg(cfg: dict) -> dict:
         if ecfg.get("sizing") == "hedge":
             if sides != {"SHORT"}:
                 raise Halt("WEEX живой, страховка: allowed_sides должен быть [\"SHORT\"]")
+            if not cfg.get("hedge", {}).get("block_if_live"):
+                raise Halt("WEEX живой, страховка: нужен hedge.block_if_live — конфиги сеток на той же стороне (SB)")
             if xc.get("share_short_with_operator") is not True:
                 raise Halt("WEEX живой, страховка: сторона BTC SHORT — оператора; нужен exchange.share_short_with_operator=true "
                            "(его решение)")
@@ -159,6 +161,8 @@ class Runner:
                 c = json.loads(Path(p).read_text(encoding="utf-8"))
             except (OSError, ValueError) as e:
                 return f"{Path(p).name} не читается ({e!r})"
+            if not isinstance(c, dict):                     # разбор b056816: «[]» ронял проход
+                return f"{Path(p).name}: не объект конфига"
             if c.get("enabled") is not False and c.get("dry_run") is not True:
                 return f"{Path(p).name}: сетка на той же стороне живая"
         return None
@@ -167,6 +171,7 @@ class Runner:
         now = time.time() if now is None else now
         why = self.conflict() if self.conflicts else None
         self.exe.cfg["enabled"] = self.enabled_cfg and why is None   # новых эпизодов нет, открытые сопровождаются
+        self.exe.block_increase = why                                # и увеличений начатого нет (разбор b056816)
         if why and now - self.conflict_note_t > 3600:
             self.conflict_note_t = now
             self.say(f"⏸ новых входов страховки нет: {why}")

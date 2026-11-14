@@ -150,8 +150,11 @@ def make(hcfg: dict | None, live: bool = False):
             raise ValueError(f"hedge.source {src!r}")
         return lambda: val
     if src == "weex":
-        if live and not hcfg.get("grid_states"):
-            raise ValueError("живая страховка: нужен hedge.grid_states — сверка позиции биржи с учётом сеток")
+        if live:
+            gs, syms = hcfg.get("grid_states"), hcfg.get("symbols", list(DEFAULT_SYMBOLS))
+            # разбор b056816: grid_states только для ETH пропускал BTC мимо сверки
+            if not isinstance(gs, dict) or not isinstance(syms, (list, tuple)) or set(gs) != set(syms):
+                raise ValueError("живая страховка: hedge.grid_states — учёт сеток для КАЖДОЙ монеты из symbols")
         from services.weex_api.client import WeexClient
         try:
             return WeexExposure(WeexClient(), hcfg.get("symbols", list(DEFAULT_SYMBOLS)), hcfg.get("max_usd", DEFAULT_MAX_USD),

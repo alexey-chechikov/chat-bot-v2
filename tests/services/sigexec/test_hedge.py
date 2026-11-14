@@ -215,7 +215,7 @@ def test_hedge_without_exposure_source_halts(tmp_path):
 
 def _rcfg(**xc):
     return {"exchange": {"name": "weex", "symbol": "BTCUSDT", "paper": False, "testnet": False, **xc},
-            "executor": dict(HCFG), "feed": {"symbol": "BTCUSDT"}}
+            "executor": dict(HCFG), "feed": {"symbol": "BTCUSDT"}, "hedge": {"block_if_live": ["state/weex_grid_sb_config.json"]}}
 
 
 def test_weex_live_hedge_needs_operator_permission():

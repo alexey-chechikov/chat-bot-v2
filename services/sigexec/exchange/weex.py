@@ -59,6 +59,22 @@ class WeexExchange(Exchange):
                 out[p["side"]] += float(p.get("size") or 0)
         return out
 
+    def position_ids(self, symbol: str) -> dict[str, str | None]:
+        """Номер позиции стороны (поле id; чтение 14.11: новый после закрытия стороны до нуля — у ETH с 05.11). Две строки
+        на сторону или строка без id — ExchangeError (неясно)."""
+        rows = self.c.futures_positions()
+        if not isinstance(rows, list):
+            raise ExchangeError(f"weex позиции: не список ({str(rows)[:120]})")
+        out: dict[str, str | None] = {"LONG": None, "SHORT": None}
+        for p in rows:
+            if not isinstance(p, dict) or p.get("symbol") != symbol or p.get("side") not in out:
+                continue
+            if out[p["side"]] is not None or not p.get("id"):
+                raise ExchangeError(f"weex позиции {symbol} {p.get('side')}: две строки или нет id")
+            if float(p.get("size") or 0) > 0:
+                out[p["side"]] = str(p["id"])
+        return out
+
     def place(self, req: OrderReq) -> OrderInfo:
         inst = self.instrument(req.symbol)
         q = inst.fmt_qty(req.qty)
@@ -124,7 +140,7 @@ class WeexExchange(Exchange):
                 row = self.c.order_info(oid)
                 row = row if isinstance(row, dict) and row.get("status") else None
             if row is None:
-                row = next((x for x in self.c.open_orders(symbol) if x.get("clientOrderId") == cid), None)
+                row = next((x for x in _rows(self.c.open_orders(symbol), "orderId", "openOrders") if x.get("clientOrderId") == cid), None)
             if row is None:
                 t = placed_at or time.time()
                 row, complete = self._history(symbol, cid, int((t - WINDOW_MS / 1000) * 1000), int((t + WINDOW_MS / 1000) * 1000), [BUDGET])
@@ -139,14 +155,21 @@ class WeexExchange(Exchange):
             raise Incomplete(f"weex поиск: {e}") from None
 
     def _parse(self, x: dict) -> OrderInfo:
+        if not isinstance(x, dict):                     # разбор b056816: null / список из order_info ронял проход
+            raise Incomplete(f"weex: ордер не словарь ({str(x)[:80]})")
         st = x.get("status", "")
         status = LIVE.get(st) or DONE.get(st)
         if status is None:
             raise Incomplete(f"weex: неизвестный статус {st!r}")
         if status in ("FILLED", "CANCELED") and x.get("executedQty") is None:
             raise Incomplete("weex: конечный статус без executedQty")
-        filled = float(x.get("executedQty") or 0)
-        avg = float(x.get("avgPrice") or 0) if filled else 0.0
+        if not isinstance(x, dict):
+            raise Incomplete(f"weex: ордер не словарь ({str(x)[:80]})")
+        try:
+            filled = float(x.get("executedQty") or 0)
+            avg = float(x.get("avgPrice") or 0) if filled else 0.0
+        except (TypeError, ValueError):
+            raise Incomplete(f"weex: executedQty/avgPrice не числа ({str(x)[:120]})") from None
         fee, known = 0.0, True
         if filled:
             try:
@@ -158,9 +181,7 @@ class WeexExchange(Exchange):
         return OrderInfo(cid=x.get("clientOrderId", ""), status=status, filled=filled, avg=avg, fee=abs(fee), oid=str(x.get("orderId", "")), raw=x, fee_known=known)
 
     def _algo(self, symbol: str, cid: str, placed_at: float) -> OrderInfo | None:
-        rows = self.c.open_algo_orders(symbol)
-        if not isinstance(rows, list) or not all(isinstance(x, dict) for x in rows):
-            raise Incomplete(f"weex openAlgoOrders: не список словарей ({str(rows)[:120]})")
+        rows = _rows(self.c.open_algo_orders(symbol), "algoId", "openAlgoOrders")   # «[{}]» — Incomplete (разбор b056816)
         a = next((x for x in rows if x.get("clientAlgoId") == cid), None)
         if a is not None:
             return OrderInfo(cid=cid, status="UNTRIGGERED", oid=str(a.get("algoId", "")), raw=a)
@@ -170,7 +191,7 @@ class WeexExchange(Exchange):
         # (чтение 14.11): {"hasMore": bool, "orders": [...]} — иначе Incomplete, отсутствие не доказано
         r = self.c.get(FUTURES, "/capi/v3/allAlgoOrders", {"symbol": symbol, "limit": 500, "startTime": int((t - 600) * 1000)})
         if not (isinstance(r, dict) and isinstance(r.get("orders"), list) and isinstance(r.get("hasMore"), bool)
-                and all(isinstance(x, dict) for x in r["orders"])):
+                and all(isinstance(x, dict) and x.get("algoId") for x in r["orders"])):
             raise Incomplete(f"weex allAlgoOrders: ответ не {{hasMore: bool, orders: [..]}} ({str(r)[:120]})")
         hist, more = r["orders"], r["hasMore"]
         a = next((x for x in hist if x.get("clientAlgoId") == cid), None)
@@ -186,7 +207,7 @@ class WeexExchange(Exchange):
         child = a.get("actualOrderId")
         if not child:
             raise Incomplete(f"weex: алгоритм {st} без actualOrderId")
-        o = self._parse(self.c.order_info(child))
+        o = self._parse(self.c.order_info(child))       # не словарь / не числа — Incomplete (разбор b056816)
         return OrderInfo(cid=cid, status=o.status, filled=o.filled, avg=o.avg or float(a.get("actualPrice") or 0), fee=o.fee, oid=str(a.get("algoId", "")),
                          raw={**a, "child": o.raw}, fee_known=o.fee_known)
 
@@ -195,7 +216,7 @@ class WeexExchange(Exchange):
             return None, False
         budget[0] -= 1
         rows = self.c.order_history(sym, limit=100, page=0, start_ms=a, end_ms=b)
-        o = next((x for x in rows if isinstance(x, dict) and x.get("clientOrderId") == cid), None)
+        o = next((x for x in _rows(rows, "orderId", "order/history") if x.get("clientOrderId") == cid), None)
         if o is not None:
             return o, True
         if len(rows) < 100:
@@ -212,3 +233,9 @@ class WeexExchange(Exchange):
         return None, complete
 
 
+def _rows(rows, id_key: str, what: str) -> list[dict]:
+    """Список строк ордеров: каждая — словарь с номером биржи (разбор GPT b056816: «[{}]» проходил проверку типа, а строку
+    без номера нельзя отнести ни к одному ордеру — отсутствие своего не доказано). Иначе Incomplete."""
+    if not isinstance(rows, list) or not all(isinstance(x, dict) and x.get(id_key) for x in rows):
+        raise Incomplete(f"weex {what}: строка без {id_key} или не список ({str(rows)[:120]})")
+    return rows

@@ -120,6 +120,11 @@ class Exchange(ABC):
     def position(self, symbol: str) -> dict[str, float]:
         """{"LONG": монет, "SHORT": монет} — вся позиция счёта (свои + чужие сделки)."""
 
+    def position_ids(self, symbol: str) -> dict[str, str | None]:
+        """{"LONG": номер позиции | None, "SHORT": ...} — номер меняется, когда сторону закрыли до нуля и открыли заново
+        (WEEX: id позиции; разбор GPT b056816). Биржа без такого номера — {} (проверка эпохи не делается)."""
+        return {}
+
     @abstractmethod
     def place(self, req: OrderReq) -> OrderInfo:
         """→ состояние сразу после постановки. Rejected — отказ; Unknown — исход неизвестен."""
