@@ -236,6 +236,15 @@ def test_weex_live_rules_for_long_executor_unchanged():
     assert rn.check_executor_cfg(cfg)["shared_account"] is True
 
 
+def test_message_head_says_paper_and_hedge():
+    cfg = _rcfg()
+    cfg["exchange"]["paper"] = True
+    assert rn.head_of(cfg) == "🛡 страховка сеток (sigexec) · БУМАГА — заявки на биржу не уходят"
+    cfg["exchange"]["paper"] = False
+    assert rn.head_of(cfg) == "🛡 страховка сеток (sigexec)"
+    assert rn.head_of(dict(cfg, executor={"enabled": True})) == "🤖 sigexec"
+
+
 def test_hedge_state_file_separate_from_long_executor():
     cfg = _rcfg(share_short_with_operator=True)
     long_cfg = dict(cfg, executor={"enabled": True, "allowed_sides": ["LONG"]})

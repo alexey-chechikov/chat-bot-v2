@@ -95,12 +95,23 @@ def make_exchange(xc: dict, state_dir: Path):
     raise Halt(f"биржа {name!r} не поддерживается")
 
 
-def notifier(enabled: bool):
+def head_of(cfg: dict) -> str:
+    """Шапка сообщений: что это и в какой среде — бумажный «вход 0.1 по …» не должен читаться как живой (14.11)."""
+    head = "🛡 страховка сеток (sigexec)" if cfg.get("executor", {}).get("sizing") == "hedge" else "🤖 sigexec"
+    env = env_of(cfg["exchange"])
+    if env == "paper":
+        head += " · БУМАГА — заявки на биржу не уходят"
+    elif env == "demo":
+        head += " · ДЕМО-счёт"
+    return head
+
+
+def notifier(enabled: bool, head: str = "🤖 sigexec"):
     if not enabled:
         return lambda text: print(text, flush=True)
     from services.telegram_alert_client import TelegramAlertClient
     cl = TelegramAlertClient.instance()
-    return lambda text: cl.send("🤖 sigexec\n" + text)
+    return lambda text: cl.send(head + "\n" + text)
 
 
 class Runner:
@@ -115,7 +126,7 @@ class Runner:
             raise Halt(f"strategy.boost_432 {self.boost}: допустимо 1.0–3.0")
         self.ex = exchange or make_exchange(xc, self.state_dir)
         self.feed = feed or HourFeed(self.state_dir / f"sigexec_hours_{cfg['feed'].get('symbol', 'BTCUSDT')}.csv", BinanceSpotHours(cfg["feed"].get("symbol", "BTCUSDT")))
-        self.say = notify or notifier(cfg.get("telegram", False))
+        self.say = notify or notifier(cfg.get("telegram", False), head_of(cfg))
         if exposure is None and ecfg.get("sizing") == "hedge":
             from services.sigexec import hedge
             try:
