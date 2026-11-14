@@ -5,7 +5,7 @@
 Позиция сеток в $ — из grid_hourly2.npz (grid_sim2.py: BTC + ETH, общий потолок $15 000): на момент сигнала берётся
 час, закончившийся к этому моменту. Расчёт «как в исследовании» по каждой сделке: вход k·0.5·E/цена входа по цене
 события, добор k·0.5·E/уровень добора по цене события добора, выход по цене события выхода, издержка 0.068%/сторону;
-E — позиция сеток на входе (у исполнителя размер фиксируется на входе; в overlay2 добор брал позицию на часе добора).
+E — позиция сеток на входе, у добора — на часе добора (исполнитель после разбора ead2ca4: добор по сигналу рыночным).
 
     .venv/bin/python3 research/grid_hedge_20261114/replay_hedge.py
 """
@@ -36,8 +36,12 @@ TZ, EXPO = z["t"], z["qb"] * z["cb"] + z["qe"] * z["ce"]
 
 
 def exposure_at(ts: float) -> float:
-    i = int(np.searchsorted(TZ, ts - 3600, side="right")) - 1      # час [TZ[i], TZ[i]+3600) закончился к ts
-    return float(EXPO[max(i, 0)])
+    # метки grid_hourly2 — КОНЕЦ часа (разбор ead2ca4): строка, закончившаяся не позже ts; раньше первой — ошибка
+    # (было max(i, 0): до первого закрытия бралась будущая первая строка)
+    i = int(np.searchsorted(TZ, ts, side="right")) - 1
+    if i < 0:
+        raise ValueError(f"позиция сеток до начала ряда ({ts})")
+    return float(EXPO[i])
 
 
 def main():
@@ -60,7 +64,7 @@ def main():
         if e["kind"] == "вход":
             cur = {"entry_t": int(e["pos"]["entry_t"]), "tag": e["tag"], "px": e["px"], "add": None, "add_lv": e["pos"].get("add_lv")}
         elif e["kind"] == "добор" and cur:
-            cur["add"] = e["px"]
+            cur["add"], cur["add_t"] = e["px"], int(e["t"])
         elif e["kind"] == "выход" and cur:
             cur["exit"] = e["px"]
             if cur["entry_t"] >= t_from and e["t"] < a["t"][-1]:
@@ -73,7 +77,7 @@ def main():
         E = exposure_at(r["entry_t"])
         legs = [(K * 0.5 * E / r["px"], r["px"])]
         if r["add"] is not None:
-            legs.append((K * 0.5 * E / r["add_lv"], r["add"]))
+            legs.append((K * 0.5 * exposure_at(r["add_t"]) / r["add"], r["add"]))   # добор по сигналу, размер на часе добора
         ref = sum(q * (p - r["exit"]) - q * (p + r["exit"]) * SC for q, p in legs)
         x = trades.get(r["entry_t"])
         out.append({"вход": pd.to_datetime(r["entry_t"], unit="s").strftime("%Y-%m-%d %H:%M"), "тег": r["tag"], "позиция сеток $": round(E),

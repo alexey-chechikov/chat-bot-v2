@@ -34,7 +34,7 @@ from .strategy import Desired
 log = logging.getLogger(__name__)
 
 IN_ROLES = ("entry", "add")
-OUT_ROLES = ("exit", "target", "stop", "external")
+OUT_ROLES = ("exit", "target", "stop", "external", "trim")
 DONE = frozenset(FINAL | {"ABSENT"})
 WAITING = frozenset({"SENDING", "UNKNOWN", "UNRESOLVED"})
 SLOT_CODE = {"system": "s", "432": "q"}
@@ -44,7 +44,7 @@ SLOT_RE = re.compile(r"^(system|432|432w[0-9]{2})$")
 def slot_code(slot: str) -> str:
     """Код слота в cid: system → s, 432 → q, часть ансамбля 432wNN → qNN."""
     return SLOT_CODE.get(slot) or ("q" + slot[4:])
-ROLE_CODE = {"entry": "e", "add": "a", "exit": "x", "target": "t", "stop": "k"}
+ROLE_CODE = {"entry": "e", "add": "a", "exit": "x", "target": "t", "stop": "k", "trim": "r"}
 MARKET_TAC = {"kind": "market"}
 
 DEFAULT_CFG = {
@@ -73,11 +73,17 @@ DEFAULT_CFG = {
     "sizing": "base",
     "hedge_k": 1.0,
     "use_target": True,
+    # добор стоп-ордером на бирже заранее (True) или только по сигналу движка рыночным (False). Страховка — False (разбор
+    # ead2ca4: аварийный стоп закрыл шорт, а висящий стоп добора открыл его снова до следующего прохода; в замере добор —
+    # по закрытию часа добора)
+    "add_resting": True,
 }
 TACTICS = ("market", "chase", "limit")
 SIZINGS = ("base", "hedge")
 HEDGE_LEG = 0.5                     # доля страховки на вход и на добор (замер: 0.5 + 0.5 позиции сеток)
 HEDGE_MIN_USD = 1.0                 # позиция сеток меньше — страховать нечего
+TRIM_CHECK_S = 60.0                 # как часто сверять страховку с текущими лонгами (разбор ead2ca4)
+TRIM_TOL = 0.05                     # урезать, если шорт больше предела больше чем на 5%
 
 
 class Halt(RuntimeError):
@@ -110,12 +116,15 @@ def validate_config(cfg: dict) -> dict:
                 assert isinstance(t.get(kk, 1), (int, float)) and t.get(kk, 1) >= 0, f"{k}.{kk}"
         assert out["sizing"] in SIZINGS, "sizing"
         assert isinstance(out["use_target"], bool), "use_target"
+        assert isinstance(out["add_resting"], bool) and isinstance(out["add_follow_signal"], bool), "add_resting / add_follow_signal"
         k = out["hedge_k"]
         assert isinstance(k, (int, float)) and not isinstance(k, bool) and math.isfinite(k) and 0 < k <= 2.0, "hedge_k (0; 2]"
         if out["sizing"] == "hedge":
             assert out["allowed_sides"] == [SHORT], "страховка: allowed_sides только [\"SHORT\"]"
             assert out["slots"] == ["system"], "страховка: slots только [\"system\"] (у 432 шортов нет)"
             assert out["use_target"] is False, "страховка: use_target=false (выход по сигналу, как в замере)"
+            assert out["add_resting"] is False and out["add_follow_signal"] is True, "страховка: добор только по сигналу (add_resting=false)"
+            assert out["exit"]["kind"] == "market", "страховка: выход рыночный (разбор ead2ca4: догон лимиткой держит шорт на росте)"
     except AssertionError as e:
         raise Halt(f"конфиг: неверное значение {e}") from None
     return out
@@ -130,6 +139,7 @@ class Executor:
         if self.cfg["sizing"] == "hedge" and exposure is None:
             raise Halt("страховка: нет источника позиции сеток (exposure)")
         self.exposure = exposure
+        self._doubt = {LONG: False, SHORT: False}      # сторона не сходится с учётом (общий счёт) — без увеличений
         self.sym = self.cfg["symbol"]
         self.state_path, self.journal_path = Path(state_path), Path(journal_path)
         self.notify = notify or (lambda text: None)
@@ -270,6 +280,11 @@ class Executor:
             info = self.ex.order(self.sym, rec["cid"], rec["kind"], rec.get("oid", ""), rec["t_sent"])
         except (Incomplete, Unknown, ExchangeError, OSError) as e:
             rec["last_lookup_error"] = str(e)[:200]
+            # разбор ead2ca4: неполный поиск — не «нет заявки»; работа стоит, человеку — раз в час
+            if st in WAITING and now - rec["t_sent"] > self.cfg["unknown_grace_s"] and now - float(rec.get("t_unk_note") or 0) > 3600:
+                rec["t_unk_note"] = now
+                self._say(f"⛔ заявка {rec['cid']} ({rec['role']}, {rec['kind']} {rec['qty']:g}): исход неизвестен, поиск неполный "
+                          f"({str(e)[:120]}). Новой такой заявки не ставлю — проверить на бирже"[:400])
             return
         if info is None:
             if st in WAITING and now - rec["t_sent"] > self.cfg["unknown_grace_s"]:
@@ -327,7 +342,7 @@ class Executor:
             return
         rec["cancel_sent"] = self.ex.now()
         try:
-            self.ex.cancel(self.sym, rec["cid"], rec["kind"], rec.get("oid", ""))
+            self.ex.cancel(self.sym, rec["cid"], rec["kind"], rec.get("oid", ""), placed_at=rec["t_sent"])
         except (Unknown, ExchangeError, OSError) as e:
             rec["cancel_error"] = str(e)[:200]
         self._refresh(rec)
@@ -358,6 +373,9 @@ class Executor:
         защита (стоп, последняя подтверждённая цель) и начатые работы продолжаются."""
         for rec in list(self.st["orders"].values()):
             self._refresh(rec)
+        self._doubt = {LONG: False, SHORT: False}
+        if self.cfg["shared_account"]:
+            self._guard()
         for slot in self.cfg["slots"]:
             d = desired.get(slot) if desired is not None else None
             try:
@@ -367,9 +385,84 @@ class Executor:
             except Exception as e:  # noqa: BLE001 — один слот не должен ронять второй
                 log.exception("sigexec.slot_failed slot=%s", slot)
                 self._jr({"kind": "ошибка", "slot": slot, "error": repr(e)[:300]})
-        self._audit()
+        if not self.cfg["shared_account"]:
+            self._audit()                                   # на общем счёте сверку ведёт _guard
         self._gc()
         self.save()
+
+    # ------------------------------------------------------------------ общая сторона (разбор ead2ca4)
+    def _guard(self) -> None:
+        """Общий счёт (WEEX COMBINED: свои и ручные контракты одной стороны — одна позиция, reduceOnly режет общую сторону).
+        На стороне — свой объём O (учёт) и чужой F = позиция − O. «Пол» чужого объёма base: закрывающие заявки исполнителя
+        никогда не опускают сторону ниже base (_closable). Отклонение F от base — «сомнение»: увеличений нет (вход, добор,
+        новый эпизод). То же отклонение два прохода подряд при отсутствии своих незавершённых заявок — подтверждено:
+        рост — чужой объём вырос (base = F); падение — считается закрытием СВОЕГО объёма (ручной не трогаем никогда),
+        эпизоды стороны уходят в выход остатком; что сверх своего — уменьшение чужого (base снижается)."""
+        try:
+            pos = self.ex.position(self.sym)
+        except Exception as e:  # noqa: BLE001 — позиция не прочиталась: сомнение на обеих сторонах
+            self._doubt = {LONG: True, SHORT: True}
+            self._jr({"kind": "позиция не прочиталась", "error": repr(e)[:200]})
+            return
+        tol = self.inst.lot / 2
+        fg = self.st.setdefault("foreign", {})
+        for side in (LONG, SHORT):
+            S = float(pos.get(side, 0.0))
+            O = self._side_own(side)
+            F = S - O
+            G = fg.setdefault(side, {"base": None, "cand": None, "n": 0})
+            if G["base"] is None:
+                G["base"] = round(max(F, 0.0), 12)
+                if F < -tol:                                # своего на бирже меньше учёта уже при первом взгляде
+                    G["cand"], G["n"] = F, 0
+            dev = F - G["base"]
+            if abs(dev) <= tol:
+                G["cand"], G["n"] = None, 0
+                continue
+            self._doubt[side] = True
+            if any(r["status"] in WAITING for r in self.st["orders"].values() if r["pos_side"] == side):
+                continue                                    # свой исход неизвестен — подтверждать нечем
+            if G["cand"] is not None and abs(F - G["cand"]) <= tol:
+                G["n"] += 1
+            else:
+                G["cand"], G["n"] = F, 1
+                self._jr({"kind": "сомнение на стороне", "side": side, "pos": S, "own": O, "foreign_base": G["base"], "foreign_now": F})
+                continue
+            if G["n"] < 2:
+                continue
+            if dev > 0:
+                self._jr({"kind": "чужой объём вырос", "side": side, "from": G["base"], "to": F})
+                G["base"] = round(F, 12)
+            else:
+                short = G["base"] - F
+                own_ext = min(short, O)
+                if own_ext > tol:
+                    eps = [e for e in self._eps() if e["pos_side"] == side]
+                    self._external(eps, side, own_ext)
+                    for ep in eps:
+                        self._to_exit(ep, f"сторона {side} уменьшена не мной на {short:g} — считаю это своим объёмом, "
+                                          f"ручной не трогаю; новых увеличений нет", None, urgent=True)
+                    self._say(f"⚠️ {side}: сторона меньше ожидаемого на {short:g} — считаю, что закрыли МОЙ объём ({own_ext:g}); "
+                              f"ручные {G['base']:g} не трогаю. Если закрывал свой ручной — на стороне на {own_ext:g} больше, "
+                              f"чем ты думаешь. Эпизод закрываю остатком.")
+                rest = short - own_ext
+                if rest > tol:
+                    G["base"] = round(max(G["base"] - rest, 0.0), 12)
+                    self._jr({"kind": "чужой объём уменьшился", "side": side, "by": rest, "base": G["base"]})
+            G["cand"], G["n"] = None, 0
+            self._doubt[side] = False
+
+    def _closable(self, side: str) -> float:
+        """Сколько можно закрыть reduceOnly, не задев чужой объём: позиция стороны сейчас − пол чужого. Не общий счёт —
+        без ограничения. Позиция не прочиталась — 0 (лучше подождать проход, чем закрыть ручное)."""
+        if not self.cfg["shared_account"]:
+            return float("inf")
+        try:
+            S = float(self.ex.position(self.sym).get(side, 0.0))
+        except Exception:  # noqa: BLE001
+            return 0.0
+        base = (self.st.get("foreign", {}).get(side) or {}).get("base")
+        return max(S - float(base or 0.0), 0.0)
 
     def _slot(self, slot: str, d: Desired | None, fresh: bool, events: list[dict]) -> None:
         S = self.st["slots"][slot]
@@ -377,6 +470,8 @@ class Executor:
         if ep is None:
             if not (fresh and d and self.cfg["enabled"]) or self.st.get("closing") or d.entry_t in S["done"]:
                 return
+            if self._doubt.get(LONG if d.side > 0 else SHORT):
+                return                                      # разбор ead2ca4: сторона не сходится с учётом — эпизод позже
             ep = self._start(slot, d)
             if ep is None:
                 return
@@ -479,6 +574,30 @@ class Executor:
         return {"exposure_usd": round(expo, 2), "k": k, "base_usd": round(k * expo, 2), "main_frac": HEDGE_LEG,
                 "add_frac": HEDGE_LEG if d.add_lv else 0.0}
 
+    def _hedge_add_size(self, ep: dict) -> bool:
+        """Добор страховки — от позиции сеток на часе добора (как overlay2, разбор ead2ca4: заранее заданный объём добора
+        после тейков лонгов давал шорт без встречного лонга). Объём фиксируется один раз. False — позиция не прочиталась."""
+        now = self.ex.now()
+        try:
+            expo = self.exposure()
+            if isinstance(expo, bool) or not isinstance(expo, (int, float)) or not math.isfinite(expo) or expo < 0:
+                raise ValueError(f"позиция сеток {expo!r}")
+            bid, ask = self.ex.book(self.sym)
+        except Exception as e:  # noqa: BLE001
+            if now - float(ep.get("hedge_add_err_t") or 0) > 3600:
+                ep["hedge_add_err_t"] = now
+                self._jr({"kind": "размер добора страховки неизвестен", "slot": ep["slot"], "error": repr(e)[:200]})
+                self._say(f"⚠️ {ep['slot']}: добор страховки жду — позиция сеток не прочиталась ({e!r})"[:300])
+            return False
+        px = bid if ep["side"] < 0 else ask
+        h = ep["hedge"]
+        goal = self.inst.floor_qty(h["k"] * h["add_frac"] * float(expo) / px) if px > 0 else 0.0
+        ep["goal_add"] = goal if goal >= self.inst.min_qty else 0.0
+        ep["add_sized"] = {"exposure_usd": round(float(expo), 2), "px": px, "goal_add": ep["goal_add"]}
+        self.save()
+        self._jr({"kind": "добор страховки рассчитан", "slot": ep["slot"], **ep["add_sized"]})
+        return True
+
     def _open_side(self, ep: dict) -> str:
         return BUY if ep["side"] > 0 else SELL
 
@@ -515,8 +634,19 @@ class Executor:
                 if urgent or too_long or stale:
                     self._cancel(cur)
             return False
+        if role in IN_ROLES and self._doubt.get(ep["pos_side"]):
+            return False                                   # разбор ead2ca4: сторона не сходится с учётом — не увеличиваем
         rem = remaining_fn()
         q = self.inst.floor_qty(rem)
+        if reduce and q >= self.inst.min_qty:
+            lim = self._closable(ep["pos_side"])            # разбор ead2ca4: ниже пола чужого объёма не закрываем
+            if lim < q:
+                if not w.get("clamp_noted"):
+                    w["clamp_noted"] = True
+                    self._jr({"kind": "закрытие урезано полом чужого объёма", "slot": ep["slot"], "role": role, "want": q, "closable": lim})
+                q = self.inst.floor_qty(lim)
+                if q < self.inst.min_qty:
+                    return False                           # ждём сверки стороны (_guard); ручное не закрываем
         px_now = None
         if role in IN_ROLES and q >= self.inst.min_qty:   # потолок по цене исполнения (P1-5)
             bid, ask = self.ex.book(self.sym)
@@ -552,6 +682,13 @@ class Executor:
                 off = tac.get("offset_bps", 0) / 10000
                 px = min(px, ref * (1 - off)) if side == BUY else max(px, ref * (1 + off))
             px = self.inst.round_px(px, "down" if side == BUY else "up")
+            if role in IN_ROLES:                           # разбор ead2ca4: потолок — по цене самой лимитки, не по стакану
+                allow = self.inst.floor_qty(self._allowance(ep, role) / px)
+                if allow < q:
+                    self._jr({"kind": "потолок режет объём лимитки", "slot": ep["slot"], "role": role, "want": q, "allow": allow, "px": px})
+                    q = allow
+                if q < self.inst.min_qty:
+                    return False
             rec = self._send(ep, role, "LIMIT", side, q, price=px, post_only=True, reduce_only=reduce)
         w["n"] += 1
         w["cur"] = rec["cid"]
@@ -611,22 +748,67 @@ class Executor:
         trg = self.inst.round_px(avg * (1 - ep["side"] * self.cfg["emergency_pct"] / 100), "down" if ep["side"] > 0 else "up")
         bid, ask = self.ex.book(self.sym)
         breached = (ep["side"] > 0 and bid <= trg) or (ep["side"] < 0 and ask >= trg)
+        # объём стопа — не больше того, что можно закрыть, не задев чужое (разбор ead2ca4: стоп на прежний объём после
+        # внешнего сокращения стороны закрывал ручной шорт)
+        want = self.inst.floor_qty(min(q, self._closable(ep["pos_side"])))
         if stops:
             for r in stops:
-                if r["status"] not in WAITING and (abs(r["qty"] - q) > self.inst.lot / 2 or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
+                if r["status"] not in WAITING and (abs(r["qty"] - want) > self.inst.lot / 2 or abs((r["trigger"] or 0) - trg) > max(self.inst.tick, trg * 0.002)):
                     self._cancel(r)
-            return False
+            stops = self._orders(ep, ("stop",), live_only=True)
+            if stops:
+                return False                               # старый ещё жив или исход неизвестен — второй стоп не ставим
+            # снят подтверждённо — новый в этом же проходе (разбор ead2ca4: окно без стопа до следующего прохода)
         if breached:
             # стопа нет, а уровень пройден (снят на замене, отказ, гэп) — стоп встал бы сразу: выходим сами, рыночным (P1-4)
             self._to_exit(ep, f"аварийный уровень {trg:.1f} пройден, стопа на бирже нет", None, urgent=True)
             return True
-        if not self._blocked(ep, "stop", ("STOP",)):
-            self._send(ep, "stop", "STOP", self._close_side(ep), self.inst.floor_qty(q), trigger=trg, reduce_only=True)
+        if want >= self.inst.min_qty and not self._blocked(ep, "stop", ("STOP",)):
+            self._send(ep, "stop", "STOP", self._close_side(ep), want, trigger=trg, reduce_only=True)
         return False
+
+    def _trim_hedge(self, ep: dict) -> None:
+        """Страховка не больше hedge_k × текущие лонги сеток (разбор ead2ca4: после тейков лонгов шорт оставался без
+        встречного лонга). Раз в TRIM_CHECK_S читается позиция сеток; шорт больше предела на TRIM_TOL — урезается рыночным
+        reduceOnly (пол чужого объёма соблюдается в _work), обратно не наращивается. Позиция не прочиталась — пропуск.
+        Замер hedge_variants.py E: −$250 за 9 лет / −$23 за 2 года к страховке без предела, чистый шорт 4.9% часов → 0."""
+        if self._orders(ep, ("trim",), live_only=True):
+            self._work(ep, "trim", lambda: ep.get("trim_to_close", 0.0) - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+            return
+        now = self.ex.now()
+        if now - float(ep.get("trim_check_t") or 0) < TRIM_CHECK_S:
+            return
+        ep["trim_check_t"] = now
+        try:
+            expo = self.exposure()
+            if isinstance(expo, bool) or not isinstance(expo, (int, float)) or not math.isfinite(expo) or expo < 0:
+                raise ValueError(f"позиция сеток {expo!r}")
+            bid, ask = self.ex.book(self.sym)
+        except Exception as e:  # noqa: BLE001
+            self._jr({"kind": "предел страховки не проверен", "slot": ep["slot"], "error": repr(e)[:200]})
+            return
+        px = ask if ep["side"] < 0 else bid
+        lim = float(ep["hedge"]["k"]) * float(expo) / px
+        q = self.qty(ep)
+        if q <= lim * (1 + TRIM_TOL) + self.inst.lot / 2:
+            return
+        cut = self.inst.floor_qty(q - lim)
+        if cut < self.inst.min_qty:
+            return
+        ep["trim_to_close"], ep["trim_base"] = cut, self._filled(ep, ("trim",))
+        self.save()
+        self._jr({"kind": "страховка больше лонгов — урезаю", "slot": ep["slot"], "qty": q, "limit": round(lim, 6), "cut": cut,
+                  "exposure_usd": round(float(expo), 2)})
+        self._work(ep, "trim", lambda: ep["trim_to_close"] - self._filled_since(ep), self._close_side(ep), True, MARKET_TAC)
+
+    def _filled_since(self, ep: dict) -> float:
+        return self._filled(ep, ("trim",)) - float(ep.get("trim_base") or 0.0)
 
     def _protect(self, ep: dict, d: Desired | None, fresh: bool) -> None:
         if self._protect_stop(ep):
             return
+        if ep.get("hedge"):
+            self._trim_hedge(ep)
         # добор — остаток goal_add − исполнено (P1-5), в пределах потолка
         if ep["goal_add"] > 0 and not ep.get("add_closed"):
             got = self._filled(ep, ("add",))
@@ -641,9 +823,14 @@ class Executor:
                     for r in stops:
                         self._cancel(r)
                 elif not waiting:
-                    if self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, MARKET_TAC):
+                    if ep.get("hedge") and not ep.get("add_sized") and not self._hedge_add_size(ep):
+                        return                             # позиция сеток на часе добора не прочиталась — ждём
+                    if ep["goal_add"] - self._filled(ep, ("add",)) < self.inst.min_qty:
                         ep["add_closed"] = True
-            elif not live and ep["add_lv"] and not self._blocked(ep, "add", ("STOP",)):
+                    elif self._work(ep, "add", lambda: ep["goal_add"] - self._filled(ep, ("add",)), self._open_side(ep), False, MARKET_TAC):
+                        ep["add_closed"] = True
+            elif not live and ep["add_lv"] and self.cfg["add_resting"] and not self._doubt.get(ep["pos_side"]) \
+                    and not self._blocked(ep, "add", ("STOP",)):
                 bid, ask = self.ex.book(self.sym)
                 trg = self.inst.round_px(ep["add_lv"], "up" if ep["side"] > 0 else "down")
                 beyond = (ep["side"] > 0 and ask >= trg) or (ep["side"] < 0 and bid <= trg)

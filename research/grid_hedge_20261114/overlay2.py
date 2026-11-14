@@ -32,8 +32,20 @@ T, CB, CE = z["t"], z["cb"], z["ce"]
 EQB, EQE, QB, QE = z["eqb"], z["eqe"], z["qb"], z["qe"]
 EQ = EQB + EQE
 n = len(T)
-pos_of_t = {int(x): i for i, x in enumerate(T)}
-mid = n // 2
+class _Rows:
+    """Событие с меткой t (закрытие часа) → строка часа, закончившегося не позже t; пропуск ряда > 3 ч — None
+    (разбор ead2ca4: точное равенство меток теряло события на пропусках, метка начала часа брала будущий час)."""
+
+    def __init__(self, T):
+        self.T = T
+
+    def get(self, t, default=None):
+        i = int(np.searchsorted(self.T, int(t), side="right")) - 1
+        return i if i >= 0 and int(t) - int(self.T[i]) <= 3 * 3600 else default
+
+
+pos_of_t = _Rows(T)
+mid = int(np.searchsorted(T, (T[0] + T[-1]) / 2))       # половина по времени (разбор ead2ca4)
 y3 = int(np.searchsorted(T, T[-1] - 3 * 365 * 86400))
 y2 = int(np.searchsorted(T, T[-1] - 2 * 365 * 86400))
 
@@ -66,26 +78,27 @@ BASE = {"BTC": QB, "всё": QB + QE * CE / CB}
 
 def hedge(k, base, s=1.0, shift=0):
     """Объём шорта страховки по часам (BTC ≥ 0) и накопленные издержки."""
-    hq = np.zeros(n + 1)
-    cost = np.zeros(n)
+    # разбор ead2ca4: при круговом сдвиге сделки через конец ряда выбрасывались (у настоящих — нет) — теперь сделка
+    # раскладывается на «развёрнутую» шкалу длины 2n и складывается обратно (i mod n): все сделки участвуют
+    hq = np.zeros(2 * n + 1)
+    cost = np.zeros(2 * n + 1)
     if k:
         for a, b, x in TR:
-            a2, b2, x2 = a + shift, (None if b is None else b + shift), x + shift
-            if shift:
-                a2, x2 = a2 % n, x2 % n
-                b2 = None if b2 is None else b2 % n
-                if x2 <= a2 or (b2 is not None and not a2 <= b2 <= x2):
-                    continue
+            a2 = (a + shift) % n if shift else a
+            x2 = a2 + (x - a)
+            b2 = None if b is None else a2 + (b - a)
             for i0 in (a2, b2):
                 if i0 is None:
                     continue
-                q = k * 0.5 * s * BASE[base][i0]
+                q = k * 0.5 * s * BASE[base][i0 % n]
                 hq[i0] += q
                 hq[x2] -= q
-                cost[i0] += q * CB[i0] * SC
-                cost[x2] += q * CB[x2] * SC
-    hq = np.cumsum(hq)[:n]
-    return hq, np.cumsum(cost)
+                cost[i0] += q * CB[i0 % n] * SC
+                cost[x2] += q * CB[x2 % n] * SC
+    full = np.cumsum(hq)[:2 * n]
+    hq = full[:n] + full[n:]
+    c = cost[:n] + cost[n:2 * n]
+    return hq, np.cumsum(c)
 
 
 def total(k, base, s=1.0, shift=0):
@@ -104,14 +117,20 @@ def gross(hq, s):
 
 
 def liq(tot, gr, dep, lo, hi):
+    """Старт раз в сутки ПО ВРЕМЕНИ, горизонт — 365 суток по меткам (разбор ead2ca4: по строкам — пропуски сдвигали окна)."""
     hits, rets = 0, []
-    for st in range(lo, min(hi, n - H), 24):
-        w = tot[st:st + H] - tot[st] + dep
-        if np.any(w <= MM * gr[st:st + H]):
+    st = lo
+    while st < hi:
+        end = int(np.searchsorted(T, T[st] + 365 * 86400, side="right"))
+        if end >= n:
+            break
+        w = tot[st:end] - tot[st] + dep
+        if np.any(w <= MM * gr[st:end]):
             hits += 1
             rets.append(-dep)
         else:
-            rets.append(tot[st + H - 1] - tot[st])
+            rets.append(tot[end - 1] - tot[st])
+        st = int(np.searchsorted(T, T[st] + 86400))
     r = np.array(rets)
     return hits / len(r), float(np.median(r)), float(np.percentile(r, 10)), len(r)
 
@@ -155,8 +174,8 @@ def main():
     print("\nшанс ликвидации за год · медиана года · худшие 10% лет (старт каждый день)")
     lo3 = int(np.searchsorted(T, T[-1] - 4 * 365 * 86400))
     lo2 = int(np.searchsorted(T, T[-1] - 3 * 365 * 86400))
-    windows = (("вся история", 0), (f"старты {pd.to_datetime(T[lo3], unit='s'):%m.%Y}–{pd.to_datetime(T[n - H], unit='s'):%m.%Y}", lo3),
-               (f"старты {pd.to_datetime(T[lo2], unit='s'):%m.%Y}–{pd.to_datetime(T[n - H], unit='s'):%m.%Y}", lo2))
+    windows = (("вся история", 0), (f"старты {pd.to_datetime(T[lo3], unit='s'):%m.%Y}–{pd.to_datetime(T[-1] - 365 * 86400, unit='s'):%m.%Y}", lo3),
+               (f"старты {pd.to_datetime(T[lo2], unit='s'):%m.%Y}–{pd.to_datetime(T[-1] - 365 * 86400, unit='s'):%m.%Y}", lo2))
     for s in (1.0, 0.5):
         for dep in (1200, 3200, 5000):
             print(f"\nсетки ×{s:g}, депозит ${dep:,}:")

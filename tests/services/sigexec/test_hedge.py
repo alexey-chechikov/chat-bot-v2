@@ -16,7 +16,7 @@ from services.sigexec.strategy import Desired
 
 T0 = 1_800_000_000
 HCFG = {"enabled": True, "sizing": "hedge", "hedge_k": 1.0, "use_target": False, "allowed_sides": ["SHORT"], "slots": ["system"],
-        "cap_usd": 15000.0, "prefix": "b7h", "entry": {"kind": "market"}, "exit": {"kind": "market"}}
+        "cap_usd": 15000.0, "prefix": "b7h", "entry": {"kind": "market"}, "exit": {"kind": "market"}, "add_resting": False}
 
 
 class Expo:
@@ -85,7 +85,7 @@ def test_size_from_grid_exposure_not_engine_weight(tmp_path):
     assert ep["goal_add"] == pytest.approx(0.1029)          # 0.5 × $14 000 / 68 000, вниз к шагу 0.0001
     assert ep["hedge"] == {"exposure_usd": 14000.0, "k": 1.0, "base_usd": 14000.0, "main_frac": 0.5, "add_frac": 0.5}
     assert ex.pos[SHORT] == pytest.approx(0.1) and ex.pos[LONG] == 0
-    assert live_roles(e) == [("add", "STOP"), ("stop", "STOP")]
+    assert live_roles(e) == [("stop", "STOP")]                # добор у страховки — только по сигналу, стопа добора нет
     stop = next(r for r in e.st["orders"].values() if r["role"] == "stop")
     assert stop["side"] == "BUY" and stop["trigger"] > 70000 * 1.11      # аварийный стоп шорта — выше входа
 
@@ -104,7 +104,7 @@ def test_size_fixed_at_entry(tmp_path):
     run(e, ex, {"system": d_short()}, n=3)
     ep = e.st["slots"]["system"]["ep"]
     assert ep["goal_main"] == pytest.approx(0.1) and ep["goal_add"] == pytest.approx(0.1029)
-    assert src.calls == 1 and ex.pos[SHORT] == pytest.approx(0.1)
+    assert ex.pos[SHORT] == pytest.approx(0.1)       # рост лонгов не наращивает страховку (читать позицию может проверка предела)
 
 
 def test_cap_trims_hedge(tmp_path):
@@ -253,8 +253,16 @@ def test_hedge_state_file_separate_from_long_executor():
 
 
 # ---------------------------------------------------------------- источник позиции сеток
-ROWS = [{"symbol": "BTCUSDT", "side": "LONG", "size": "0.18"}, {"symbol": "BTCUSDT", "side": "SHORT", "size": "0.05"},
-        {"symbol": "ETHUSDT", "side": "LONG", "size": "1.2"}, {"symbol": "XRPUSDT", "side": "LONG", "size": "100"}]
+def _row(sym, side, size, mark=None):
+    """Строка позиции в форме WEEX (чтение 14.11): openValue + unrealizePnl = size × mark."""
+    r = {"symbol": sym, "side": side, "size": size}
+    if mark is not None:
+        r.update(openValue=str(float(size) * mark * 1.05), unrealizePnl=str(-float(size) * mark * 0.05))
+    return r
+
+
+ROWS = [_row("BTCUSDT", "LONG", "0.18", 68000.5), _row("BTCUSDT", "SHORT", "0.05", 68000.5), _row("ETHUSDT", "LONG", "1.2", 1930.1),
+        _row("XRPUSDT", "LONG", "100", 2.0)]
 BOOKS = {"BTCUSDT": (68000.0, 68001.0), "ETHUSDT": (1930.0, 1930.2)}
 
 
@@ -290,7 +298,7 @@ def test_weex_exposure_reads_book_only_for_held_symbols():
             self.books = []
 
         def futures_positions(self):
-            return [{"symbol": "BTCUSDT", "side": "LONG", "size": "0.1"}]
+            return [_row("BTCUSDT", "LONG", "0.1", 68000.5)]
 
         def book(self, s):
             self.books.append(s)

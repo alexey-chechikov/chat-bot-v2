@@ -9,12 +9,24 @@ import json
 
 import numpy as np
 
-D = "/Users/alexeychechikov/code/bot7/research/grid_hedge_20261114/"
+D = str(__import__("pathlib").Path(__file__).resolve().parent) + "/"
 SC = 0.00068
 z = np.load(D + "grid_hourly.npz")
 T, C, EQ, Q = z["t"], z["c"], z["eq"], z["q"]
 n = len(T)
-pos_of_t = {int(x): i for i, x in enumerate(T)}
+class _Rows:
+    """Событие с меткой t (закрытие часа) → строка часа, закончившегося не позже t; пропуск ряда > 3 ч — None
+    (разбор ead2ca4: точное равенство меток теряло события на пропусках, метка начала часа брала будущий час)."""
+
+    def __init__(self, T):
+        self.T = T
+
+    def get(self, t, default=None):
+        i = int(np.searchsorted(self.T, int(t), side="right")) - 1
+        return i if i >= 0 and int(t) - int(self.T[i]) <= 3 * 3600 else default
+
+
+pos_of_t = _Rows(T)
 mid = n // 2
 t3 = int(np.searchsorted(T, T[-1] - 3 * 365 * 86400))
 

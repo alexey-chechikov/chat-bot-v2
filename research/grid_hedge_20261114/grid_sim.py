@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 FROZEN = "/Users/alexeychechikov/code/bot7/backtests/frozen/"
-OUT = "/Users/alexeychechikov/code/bot7/research/grid_hedge_20261114/grid_hourly.npz"
+OUT = str(__import__("pathlib").Path(__file__).with_name("grid_hourly.npz"))
 MAKER = 0.00016
 GRIDS = [("BTC 0.6/1.4", 0.6, 1.4, 82.0, 12000.0, 50), ("B34", 0.1, 0.34, 41.0, 4462.0, 61),
          ("B49", 0.1, 0.49, 41.0, 4361.0, 59), ("B89", 0.1, 0.89, 41.0, 3709.0, 56)]
@@ -63,11 +63,13 @@ def main():
     fund = 0.0
     rec_t, rec_c, rec_eq, rec_q, rec_qe, rec_real = [], [], [], [], [], []
     t0 = time.time()
+    prev = None
     for i in range(n):
         if i in F:
             fund += sum(g["Q"] for g in G) * o[i] * F[i]
         up = c[i] >= o[i]
         for p in (o[i], l[i] if up else h[i], h[i] if up else l[i], c[i]):
+            pp, prev = prev, p
             tot_qe = sum(g["QE"] for g in G)
             for g in G:
                 lots = g["lots"]
@@ -90,7 +92,7 @@ def main():
                     g["ref"] = max(g["ref"], p)
                 lvl = g["ref"] * (1 - g["g"])
                 if p <= lvl and len(lots) < g["mx"]:
-                    px_in = min(lvl, p)
+                    px_in = lvl if (pp is not None and pp > lvl) else p  # разбор ead2ca4: лимитка входа исполняется по своему уровню, если цена прошла его сверху; ниже уже — по цене точки
                     usd = g["usd"]
                     if max(g["QE"], g["Q"] * p) + usd <= g["cap"] and tot_qe + usd <= SHARED:
                         q = usd / px_in
@@ -103,7 +105,7 @@ def main():
             Q = sum(g["Q"] for g in G)
             QE = sum(g["QE"] for g in G)
             real = sum(g["real"] - g["fee"] for g in G) - fund
-            rec_t.append(hr[i] * 3600)
+            rec_t.append(hr[i] * 3600 + 3600)              # метка — конец часа (разбор ead2ca4)
             rec_c.append(c[i])
             rec_eq.append(real + Q * c[i] - QE)
             rec_q.append(Q)

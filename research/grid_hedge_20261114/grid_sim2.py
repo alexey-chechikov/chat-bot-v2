@@ -25,6 +25,7 @@ FROZEN = "/Users/alexeychechikov/code/bot7/backtests/frozen/"
 OUT = Path(__file__).with_name("grid_hourly2.npz")
 MAKER = 0.00016
 SHARED = 15000.0
+ETH_USD = 38.60                               # 0.020 ETH × 1 929.88 (закрытие 13.11.2026)
 START = 1514764800  # 2018-01-01
 
 
@@ -56,7 +57,7 @@ def main():
     t = d.index.to_numpy(np.int64)
     n = len(t)
     eth_px = float(d["close_e"].iloc[-1])
-    eth_usd = 0.020 * eth_px
+    eth_usd = ETH_USD                         # разбор ead2ca4: константа, а не 0.020 × последняя цена выборки
     print(f"минут {n} (пересечение), {pd.to_datetime(t[0], unit='s')} … {pd.to_datetime(t[-1], unit='s')}; "
           f"ETH {eth_px:,.2f} → ордер ETH ${eth_usd:.2f}", flush=True)
     px = {s: [d[f"{k}_{s}"].to_numpy(float).tolist() for k in ("open", "high", "low", "close")] for s in ("b", "e")}
@@ -72,6 +73,7 @@ def main():
     rec = {k: [] for k in ("t", "cb", "ce", "eqb", "eqe", "qb", "qe", "qeb", "qee")}
     t0 = time.time()
     tot_qe = 0.0
+    prev = {"b": None, "e": None}
     for i in range(n):
         for s in ("b", "e"):
             o, h, l, c = (px[s][k][i] for k in range(4))
@@ -79,6 +81,7 @@ def main():
                 fund[s] += sum(g["Q"] for g in by[s]) * o * F[s][i]
             up = c >= o
             for p in (o, l if up else h, h if up else l, c):
+                pp, prev[s] = prev[s], p
                 for g in by[s]:
                     lots = g["lots"]
                     while lots and p >= lots[-1][1]:
@@ -100,7 +103,7 @@ def main():
                         g["ref"] = max(g["ref"], p)
                     lvl = g["ref"] * (1 - g["g"])
                     if p <= lvl and len(lots) < g["mx"]:
-                        px_in = min(lvl, p)
+                        px_in = lvl if (pp is not None and pp > lvl) else p  # разбор ead2ca4: лимитка входа исполняется по своему уровню, если цена прошла его сверху; ниже уже — по цене точки
                         usd = g["usd"]
                         if max(g["QE"], g["Q"] * p) + usd <= g["cap"] and tot_qe + usd <= SHARED:
                             q = usd / px_in
@@ -110,7 +113,7 @@ def main():
                             g["QE"] += usd
                             tot_qe += usd
         if i + 1 == n or hr[i + 1] != hr[i]:
-            rec["t"].append(hr[i] * 3600)
+            rec["t"].append(hr[i] * 3600 + 3600)        # разбор ead2ca4: метка — КОНЕЦ часа (значения на его закрытии)
             for s in ("b", "e"):
                 c = px[s][3][i]
                 Q = sum(g["Q"] for g in by[s])

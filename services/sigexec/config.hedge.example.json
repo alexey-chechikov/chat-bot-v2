@@ -3,7 +3,10 @@
  "exchange": {"name": "weex", "symbol": "BTCUSDT", "paper": true, "testnet": false, "hedge": true, "account": "main",
               "share_short_with_operator": false},
  "feed": {"symbol": "BTCUSDT"},
- "hedge": {"source": "weex", "symbols": ["BTCUSDT", "ETHUSDT"], "max_usd": 30000},
+ "hedge": {"source": "weex", "symbols": ["BTCUSDT", "ETHUSDT"], "max_usd": 30000,
+           "grid_states": {"BTCUSDT": ["state/weex_grid_state.json", "state/weex_grid_b34_state.json", "state/weex_grid_b49_state.json", "state/weex_grid_b89_state.json"],
+                           "ETHUSDT": ["state/weex_grid_eth_state.json"]},
+           "block_if_live": ["state/weex_grid_sb_config.json"]},
  "executor": {
   "enabled": false,
   "slots": ["system"],
@@ -16,8 +19,9 @@
   "max_signal_age_s": 1800,
   "emergency_pct": 12.0,
   "add_follow_signal": true,
+  "add_resting": false,
   "entry": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20},
-  "exit": {"kind": "chase", "wait_s": 300, "reprice_s": 20, "max_orders": 20}
+  "exit": {"kind": "market"}
  },
  "telegram": false,
  "poll_s": 5

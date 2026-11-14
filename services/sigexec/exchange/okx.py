@@ -150,7 +150,7 @@ class OkxExchange(Exchange):
             raise Unknown(f"okx place {s_code}: {d.get('sMsg') or r.get('msg')}")
         raise Rejected(f"okx place {s_code}: {d.get('sMsg') or r.get('msg')}")
 
-    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
+    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "", placed_at: float = 0.0) -> None:
         if kind == "STOP":
             info = self.order(symbol, cid, kind)
             if info is None or info.final:

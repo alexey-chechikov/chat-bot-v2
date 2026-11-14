@@ -125,7 +125,7 @@ class Exchange(ABC):
         """→ состояние сразу после постановки. Rejected — отказ; Unknown — исход неизвестен."""
 
     @abstractmethod
-    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
+    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "", placed_at: float = 0.0) -> None:
         """Снять. Уже конечный — не ошибка. Unknown — не знаем, снят ли (проверить order())."""
 
     @abstractmethod

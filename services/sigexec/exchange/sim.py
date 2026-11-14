@@ -93,7 +93,7 @@ class SimExchange(Exchange):
             raise Unknown(f"sim: ответ потерян, ордер стоит {req.cid}")
         return self._info(req.cid)
 
-    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
+    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "", placed_at: float = 0.0) -> None:
         self.calls.append(("cancel", cid))
         f = self._fault("cancel")
         o = self.orders.get(cid)

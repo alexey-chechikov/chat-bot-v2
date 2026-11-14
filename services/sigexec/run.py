@@ -62,6 +62,10 @@ def check_executor_cfg(cfg: dict) -> dict:
     Страховка сеток (executor.sizing="hedge", 14.11) — наоборот, только SHORT, и только если оператор сам разрешил делить
     с ним сторону SHORT: exchange.share_short_with_operator=true (его решение, по умолчанию нет)."""
     xc, ecfg = cfg["exchange"], dict(cfg["executor"], symbol=cfg["exchange"].get("symbol", "BTCUSDT"))
+    if ecfg.get("sizing") == "hedge":
+        # разбор ead2ca4: ETHUSDT как инструмент исполнения с BTC-сигналом проходил — страховка только BTCUSDT по BTC
+        if xc.get("symbol", "BTCUSDT") != "BTCUSDT" or cfg.get("feed", {}).get("symbol", "BTCUSDT") != "BTCUSDT":
+            raise Halt("страховка: инструмент и фид — только BTCUSDT")
     if xc["name"] == "weex" and env_of(xc) == "live":
         sides = set(ecfg.get("allowed_sides", ["LONG", "SHORT"]))
         if ecfg.get("sizing") == "hedge":
@@ -76,13 +80,15 @@ def check_executor_cfg(cfg: dict) -> dict:
     return ecfg
 
 
-def make_exchange(xc: dict, state_dir: Path):
+def make_exchange(xc: dict, state_dir: Path, tag: str | None = None):
     name = xc["name"]
     env = env_of(xc)
     if env == "paper":
         from services.sigexec.exchange.paper import PaperExchange
         acc = xc.get("account", "main")
-        return PaperExchange(xc.get("symbol", "BTCUSDT"), venue=name, state_file=state_dir / f"sigexec_paperbook_{name}-{acc}-{xc.get('symbol', 'BTCUSDT')}.json")
+        # разбор ead2ca4: бумажная книга — на учёт (state_tag), иначе два Runner одного счёта затирали позиции друг друга
+        book = f"sigexec_paperbook_{tag}.json" if tag else f"sigexec_paperbook_{name}-{acc}-{xc.get('symbol', 'BTCUSDT')}.json"
+        return PaperExchange(xc.get("symbol", "BTCUSDT"), venue=name, state_file=state_dir / book)
     if name == "bybit":
         from services.sigexec.exchange.bybit import BybitExchange
         return BybitExchange.from_env(testnet=xc.get("testnet", False), hedge=xc.get("hedge", True))
@@ -124,22 +130,46 @@ class Runner:
         self.boost = float(cfg.get("strategy", {}).get("boost_432", 1.0))
         if not 1.0 <= self.boost <= 3.0:
             raise Halt(f"strategy.boost_432 {self.boost}: допустимо 1.0–3.0")
-        self.ex = exchange or make_exchange(xc, self.state_dir)
+        self.ex = exchange or make_exchange(xc, self.state_dir, self.tag)
         self.feed = feed or HourFeed(self.state_dir / f"sigexec_hours_{cfg['feed'].get('symbol', 'BTCUSDT')}.csv", BinanceSpotHours(cfg["feed"].get("symbol", "BTCUSDT")))
         self.say = notify or notifier(cfg.get("telegram", False), head_of(cfg))
+        self.conflicts = []
+        if ecfg.get("sizing") == "hedge":
+            self.conflicts = list(cfg.get("hedge", {}).get("block_if_live", []))
+            if not all(isinstance(p, str) and p for p in self.conflicts):
+                raise Halt("страховка: hedge.block_if_live — список путей конфигов сеток на той же стороне")
         if exposure is None and ecfg.get("sizing") == "hedge":
             from services.sigexec import hedge
             try:
-                exposure = hedge.make(cfg.get("hedge"))
+                exposure = hedge.make(cfg.get("hedge"), live=env_of(xc) != "paper")
             except ValueError as e:
                 raise Halt(f"страховка: {e}") from None
         self.exe = Executor(self.ex, ecfg, self.state_dir / f"sigexec_{self.tag}_state.json", self.state_dir / f"sigexec_{self.tag}_journal.jsonl", self.say,
                             exposure=exposure)
         self.ev: dict | None = None
         self.feed_err_t = 0.0
+        self.enabled_cfg = bool(self.exe.cfg["enabled"])
+        self.conflict_note_t = 0.0
+
+    def conflict(self) -> str | None:
+        """Страховка: на той же стороне живая сетка (SB: BTCUSDT SHORT) — её лоты меняют сторону постоянно, сверка общей
+        стороны их не различит (разбор ead2ca4). Конфиг живой (enabled и не dry_run) или не читается — конфликт."""
+        for p in self.conflicts:
+            try:
+                c = json.loads(Path(p).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                return f"{Path(p).name} не читается ({e!r})"
+            if c.get("enabled") is not False and c.get("dry_run") is not True:
+                return f"{Path(p).name}: сетка на той же стороне живая"
+        return None
 
     def tick(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
+        why = self.conflict() if self.conflicts else None
+        self.exe.cfg["enabled"] = self.enabled_cfg and why is None   # новых эпизодов нет, открытые сопровождаются
+        if why and now - self.conflict_note_t > 3600:
+            self.conflict_note_t = now
+            self.say(f"⏸ новых входов страховки нет: {why}")
         new = 0
         try:
             new = self.feed.update(now)

@@ -90,7 +90,7 @@ def replay(t, o, h, l, c, t_from: int, workdir: Path, base: float = 1000.0, slot
     if exposure_at is not None:
         if list(slots) != [SYSTEM]:
             raise ValueError("страховка: slots=('system',)")
-        cfg.update(sizing="hedge", hedge_k=hedge_k, use_target=False, allowed_sides=["SHORT"], cap_usd=1e7)
+        cfg.update(sizing="hedge", hedge_k=hedge_k, use_target=False, allowed_sides=["SHORT"], cap_usd=1e7, add_resting=False)
         exposure = lambda: exposure_at(clock["t"])  # noqa: E731
     workdir.mkdir(parents=True, exist_ok=True)
     for f in ("st.json", "jr.jsonl"):

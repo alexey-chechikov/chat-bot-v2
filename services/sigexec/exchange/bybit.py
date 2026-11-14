@@ -144,7 +144,7 @@ class BybitExchange(Exchange):
             raise Unknown(f"bybit create {code}: {r.get('retMsg')}")
         raise Rejected(f"bybit create {code}: {r.get('retMsg')}")
 
-    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
+    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "", placed_at: float = 0.0) -> None:
         b = {"category": "linear", "symbol": symbol, "orderLinkId": cid}
         if kind == "STOP":
             b["orderFilter"] = "StopOrder"

@@ -9,7 +9,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "/Users/alexeychechikov/code/bot7/research/grid_hedge_20261114")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 import control as ct  # noqa: E402
 
 MM = 0.005

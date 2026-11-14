@@ -84,16 +84,34 @@ class WeexExchange(Exchange):
         oid = str((r or {}).get("algoId") or (r or {}).get("orderId") or "") if isinstance(r, dict) else ""
         if not oid:
             raise Unknown(f"weex: ответ без номера ({str(r)[:120]})")   # {} / None — исход неизвестен (аудит GPT E3)
+        if r.get("success") is False:
+            # разбор ead2ca4: номер есть, но success=false — не «встала»; исход решает поиск по cid
+            raise Unknown(f"weex: success=false при номере {oid} ({str(r)[:120]})")
         return OrderInfo(cid=req.cid, status="UNTRIGGERED" if req.kind == "STOP" else "NEW", oid=oid)
 
-    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "") -> None:
+    def cancel(self, symbol: str, cid: str, kind: str, oid: str = "", placed_at: float = 0.0) -> None:
+        if kind == "STOP":
+            # разбор ead2ca4: сработавший условный ордер живёт дочерним обычным (actualOrderId) — снимать надо его, а
+            # не родителя (DELETE родителя после срабатывания ничего не снимает, выход стоял). Состояние — свежим поиском.
+            info = self.order(symbol, cid, kind, oid, placed_at)
+            if info is None or info.final:
+                return
+            child = (info.raw or {}).get("actualOrderId")
+            try:
+                if child and info.status != "UNTRIGGERED":
+                    self.c.cancel(child)
+                else:
+                    self.c.cancel_algo(info.oid or oid)
+            except (WeexError, OSError) as e:
+                raise Unknown(f"weex cancel: {e}") from None
+            return
         if not oid:
             info = self.order(symbol, cid, kind)
             if info is None or info.final:
                 return
             oid = info.oid
         try:
-            (self.c.cancel_algo if kind == "STOP" else self.c.cancel)(oid)
+            self.c.cancel(oid)
         except (WeexError, OSError) as e:
             raise Unknown(f"weex cancel: {e}") from None
 
@@ -140,19 +158,21 @@ class WeexExchange(Exchange):
         return OrderInfo(cid=x.get("clientOrderId", ""), status=status, filled=filled, avg=avg, fee=abs(fee), oid=str(x.get("orderId", "")), raw=x, fee_known=known)
 
     def _algo(self, symbol: str, cid: str, placed_at: float) -> OrderInfo | None:
-        rows = list(self.c.open_algo_orders(symbol) or [])
+        rows = self.c.open_algo_orders(symbol)
+        if not isinstance(rows, list) or not all(isinstance(x, dict) for x in rows):
+            raise Incomplete(f"weex openAlgoOrders: не список словарей ({str(rows)[:120]})")
         a = next((x for x in rows if x.get("clientAlgoId") == cid), None)
         if a is not None:
             return OrderInfo(cid=cid, status="UNTRIGGERED", oid=str(a.get("algoId", "")), raw=a)
         t = placed_at or time.time()
-        # разбор aadc2a4: client.algo_history теряет hasMore — читаем ответ сами; список неполный и cid нет → Incomplete
+        # разбор aadc2a4: client.algo_history теряет hasMore — читаем ответ сами; список неполный и cid нет → Incomplete.
+        # Разбор ead2ca4: «{}» превращался в пустую полную историю → стоп ABSENT → второй стоп на общей стороне. Ответ WEEX
+        # (чтение 14.11): {"hasMore": bool, "orders": [...]} — иначе Incomplete, отсутствие не доказано
         r = self.c.get(FUTURES, "/capi/v3/allAlgoOrders", {"symbol": symbol, "limit": 500, "startTime": int((t - 600) * 1000)})
-        if isinstance(r, dict):
-            hist, more = list(r.get("orders") or []), bool(r.get("hasMore"))
-        elif isinstance(r, list):
-            hist, more = r, len(r) >= 500
-        else:
-            raise Incomplete(f"weex allAlgoOrders: не список ({str(r)[:120]})")
+        if not (isinstance(r, dict) and isinstance(r.get("orders"), list) and isinstance(r.get("hasMore"), bool)
+                and all(isinstance(x, dict) for x in r["orders"])):
+            raise Incomplete(f"weex allAlgoOrders: ответ не {{hasMore: bool, orders: [..]}} ({str(r)[:120]})")
+        hist, more = r["orders"], r["hasMore"]
         a = next((x for x in hist if x.get("clientAlgoId") == cid), None)
         if a is None:
             if more:
